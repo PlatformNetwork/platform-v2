@@ -383,17 +383,14 @@ impl WeightSubmitter {
         // Batch reveal via mechanism weights API
         let mut last_tx = String::new();
         for (_, commit) in pending {
-            let uids_u64: Vec<u64> = commit.uids.iter().map(|u| *u as u64).collect();
-            let salt_u8: Vec<u8> = commit.salt.iter().map(|s| *s as u8).collect();
-
             let tx_hash = reveal_mechanism_weights(
                 self.client.client()?,
                 self.client.signer()?,
                 self.client.netuid(),
                 commit.mechanism_id,
-                &uids_u64,
+                &commit.uids,
                 &commit.weights,
-                &salt_u8,
+                &commit.salt,
                 commit.version_key,
                 ExtrinsicWait::Finalized,
             )
@@ -620,18 +617,14 @@ impl MechanismWeightManager {
             pending.mechanism_id, pending.hash
         );
 
-        // Convert uids to u64 for reveal_mechanism_weights API
-        let uids_u64: Vec<u64> = pending.uids.iter().map(|u| *u as u64).collect();
-
         let tx_hash = reveal_mechanism_weights(
             self.client.client()?,
             self.client.signer()?,
             self.client.netuid(),
             pending.mechanism_id,
-            &uids_u64,
+            &pending.uids,
             &pending.weights,
-            // Convert salt u16 back to u8 for reveal API (it converts internally)
-            &pending.salt.iter().map(|s| *s as u8).collect::<Vec<u8>>(),
+            &pending.salt,
             pending.version_key,
             ExtrinsicWait::Finalized,
         )
