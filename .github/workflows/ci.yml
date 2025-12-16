@@ -67,16 +67,28 @@ jobs:
             ${{ runner.os }}-cargo-test-
 
       - name: Run tests with coverage
-        run: cargo llvm-cov --workspace --json --output-path coverage.json --summary-only
+        run: cargo llvm-cov --workspace --json --output-path coverage.json
 
-      - name: Convert coverage to json-summary format
-        run: |
-          COVERAGE=$(cat coverage.json | jq '.data[0].totals.lines.percent')
-          echo "{\"total\":{\"lines\":{\"pct\":$COVERAGE}}}" > coverage-summary.json
-
-      - name: Update Coverage Badge
+      - name: Generate coverage badge
         if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        uses: we-cli/coverage-badge-action@main
+        run: |
+          COVERAGE=$(jq '.data[0].totals.lines.percent // 0' coverage.json)
+          echo "Coverage: $COVERAGE%"
+          mkdir -p badges
+          if (( $(echo "$COVERAGE >= 80" | bc -l) )); then COLOR="brightgreen"
+          elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then COLOR="green"
+          elif (( $(echo "$COVERAGE >= 40" | bc -l) )); then COLOR="yellow"
+          else COLOR="red"; fi
+          curl -s "https://img.shields.io/badge/coverage-${COVERAGE}%25-${COLOR}" > badges/coverage.svg
+
+      - name: Deploy coverage badge
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./badges
+          destination_dir: badges
+          keep_files: true
 
   clippy:
     name: Clippy
