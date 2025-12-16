@@ -2,6 +2,8 @@
 
 # ρlατfοrm
 
+**Distributed validator network for decentralized AI evaluation on Bittensor**
+
 [![CI](https://github.com/PlatformNetwork/platform/actions/workflows/ci.yml/badge.svg)](https://github.com/PlatformNetwork/platform/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/PlatformNetwork/platform)](https://github.com/PlatformNetwork/platform/blob/main/LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/PlatformNetwork/platform)](https://github.com/PlatformNetwork/platform/stargazers)
@@ -10,10 +12,6 @@
 ![Alt](https://repobeats.axiom.co/api/embed/4b44b7f7c97e0591af537309baea88689aefe810.svg "Repobeats analytics image")
 
 </div>
-
-<p align="center">
-  <b>Distributed validator network for decentralized AI evaluation on Bittensor</b>
-</p>
 
 ---
 
