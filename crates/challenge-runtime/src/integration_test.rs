@@ -9,7 +9,7 @@ mod tests {
         WeightAssignment,
     };
     use platform_core::Keypair;
-    use platform_epoch::EpochConfig;
+    use platform_epoch::{EpochConfig, EpochPhase, EpochTransition};
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -109,7 +109,35 @@ mod tests {
         for block in 1..=25 {
             runtime.on_new_block(block).await.unwrap();
 
-            // Collect any events
+            // Collect events and trigger commit/reveal on phase changes
+            while let Ok(event) = event_rx.try_recv() {
+                println!("Block {}: {:?}", block, event);
+
+                // Trigger commit/reveal based on Subtensor timing windows
+                if let RuntimeEvent::EpochTransition(ref transition) = event {
+                    match transition {
+                        EpochTransition::PhaseChange {
+                            epoch,
+                            new_phase: EpochPhase::Commit,
+                            ..
+                        } => {
+                            runtime.commit_weights(*epoch).await.unwrap();
+                        }
+                        EpochTransition::PhaseChange {
+                            epoch,
+                            new_phase: EpochPhase::Reveal,
+                            ..
+                        } => {
+                            runtime.reveal_weights(*epoch).await.unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+
+                events.push((block, event));
+            }
+
+            // Collect commit/reveal events
             while let Ok(event) = event_rx.try_recv() {
                 println!("Block {}: {:?}", block, event);
                 events.push((block, event));

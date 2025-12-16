@@ -310,11 +310,14 @@ impl ChallengeRuntime {
     }
 
     /// Handle phase change - just logs, does not trigger commit/reveal
-    /// 
+    ///
     /// Commit/reveal are triggered by Bittensor events (CommitWindowOpen, RevealWindowOpen)
     /// not by internal phase tracking. This ensures timing matches Bittensor exactly.
     async fn on_phase_change(&self, epoch: u64, phase: EpochPhase) -> Result<(), RuntimeError> {
-        info!("Epoch {} phase: {} (info only - actions triggered by Bittensor events)", epoch, phase);
+        info!(
+            "Epoch {} phase: {} (info only - actions triggered by Bittensor events)",
+            epoch, phase
+        );
         Ok(())
     }
 
@@ -386,7 +389,7 @@ impl ChallengeRuntime {
     }
 
     /// Commit weights for all mechanisms
-    /// 
+    ///
     /// Called when Bittensor CommitWindowOpen event fires.
     pub async fn commit_weights(&self, epoch: u64) -> Result<(), RuntimeError> {
         info!("Committing weights for epoch {} (per mechanism)", epoch);
@@ -437,7 +440,7 @@ impl ChallengeRuntime {
     }
 
     /// Reveal weights for all mechanisms
-    /// 
+    ///
     /// Called when Bittensor RevealWindowOpen event fires.
     pub async fn reveal_weights(&self, epoch: u64) -> Result<(), RuntimeError> {
         info!("Revealing weights for epoch {} (per mechanism)", epoch);
@@ -514,7 +517,7 @@ impl ChallengeRuntime {
 
     /// Get all mechanism weights for batch submission to Bittensor
     /// Returns Vec<(mechanism_id, uids, weights)> for use with batch_set_mechanism_weights
-    /// 
+    ///
     /// Note: This returns revealed weights from internal commit-reveal.
     /// For direct weights, use collect_and_get_weights() instead.
     pub fn get_mechanism_weights_for_submission(&self) -> Vec<(u8, Vec<u16>, Vec<u16>)> {
@@ -522,7 +525,7 @@ impl ChallengeRuntime {
     }
 
     /// Collect weights from all challenges and return them for Bittensor submission
-    /// 
+    ///
     /// This is the primary method for event-driven weight submission.
     /// Called when Bittensor CommitWindowOpen event fires.
     pub async fn collect_and_get_weights(&self) -> Vec<(u8, Vec<u16>, Vec<u16>)> {

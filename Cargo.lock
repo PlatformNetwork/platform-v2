@@ -969,7 +969,7 @@ checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 [[package]]
 name = "bittensor-rs"
 version = "0.1.0"
-source = "git+https://github.com/CortexLM/bittensor-rs?rev=c54fc3d#c54fc3d7cbeab284fd6966acf0edbd07b603fb4e"
+source = "git+https://github.com/CortexLM/bittensor-rs?rev=04e72a8#04e72a81238c481707d14be94711c9521ca345d9"
 dependencies = [
  "anyhow",
  "async-trait",

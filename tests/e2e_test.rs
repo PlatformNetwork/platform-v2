@@ -3,11 +3,9 @@
 //! These tests verify the complete system works together.
 
 use platform_challenge_runtime::{ChallengeRuntime, RuntimeConfig, RuntimeEvent};
-use platform_challenge_sdk::{
-    Challenge, EvaluationJob, SimpleTestChallenge, WeightAssignment,
-};
+use platform_challenge_sdk::{Challenge, EvaluationJob, SimpleTestChallenge, WeightAssignment};
 use platform_core::{ChainState, Keypair, NetworkConfig, Stake, ValidatorInfo};
-use platform_epoch::EpochConfig;
+use platform_epoch::{EpochConfig, EpochPhase, EpochTransition};
 use std::sync::Arc;
 use tempfile::tempdir;
 
@@ -80,17 +78,47 @@ async fn test_e2e_epoch_cycle() {
         // Small delay to allow evaluation loop to process
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        // Collect events
+        // Collect events and trigger commit/reveal on Subtensor timing windows
         while let Ok(event) = event_rx.try_recv() {
+            if let RuntimeEvent::EpochTransition(ref transition) = event {
+                match transition {
+                    EpochTransition::PhaseChange {
+                        epoch,
+                        new_phase: EpochPhase::Commit,
+                        ..
+                    } => {
+                        runtime.commit_weights(*epoch).await.unwrap();
+                    }
+                    EpochTransition::PhaseChange {
+                        epoch,
+                        new_phase: EpochPhase::Reveal,
+                        ..
+                    } => {
+                        runtime.reveal_weights(*epoch).await.unwrap();
+                    }
+                    _ => {}
+                }
+            }
+
             match &event {
                 RuntimeEvent::EvaluationCompleted { .. } => evaluations_completed += 1,
                 RuntimeEvent::MechanismWeightsCommitted { .. } => weights_committed += 1,
                 RuntimeEvent::MechanismWeightsRevealed { .. } => weights_revealed += 1,
                 RuntimeEvent::EpochTransition(t) => {
-                    if matches!(t, platform_epoch::EpochTransition::NewEpoch { .. }) {
+                    if matches!(t, EpochTransition::NewEpoch { .. }) {
                         epochs_completed += 1;
                     }
                 }
+                _ => {}
+            }
+            events.push((block, event));
+        }
+
+        // Collect commit/reveal events
+        while let Ok(event) = event_rx.try_recv() {
+            match &event {
+                RuntimeEvent::MechanismWeightsCommitted { .. } => weights_committed += 1,
+                RuntimeEvent::MechanismWeightsRevealed { .. } => weights_revealed += 1,
                 _ => {}
             }
             events.push((block, event));
@@ -156,9 +184,7 @@ async fn test_e2e_multi_validator_state() {
 /// Test weight calculation and normalization
 #[tokio::test]
 async fn test_e2e_weight_calculation() {
-    use platform_challenge_sdk::weights::{
-        normalize_weights, scores_to_weights, smooth_weights,
-    };
+    use platform_challenge_sdk::weights::{normalize_weights, scores_to_weights, smooth_weights};
 
     // Simulate evaluation scores
     let scores = vec![
@@ -199,9 +225,7 @@ async fn test_e2e_weight_calculation() {
 /// Test challenge database isolation
 #[tokio::test]
 async fn test_e2e_challenge_db_isolation() {
-    use platform_challenge_sdk::{
-        AgentInfo, ChallengeDatabase, ChallengeId, EvaluationResult,
-    };
+    use platform_challenge_sdk::{AgentInfo, ChallengeDatabase, ChallengeId, EvaluationResult};
 
     let dir = tempdir().unwrap();
 

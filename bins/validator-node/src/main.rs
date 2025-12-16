@@ -378,76 +378,74 @@ async fn main() -> Result<()> {
         let endpoints_for_handler = challenge_endpoints.clone();
 
         // Set up route handler that proxies to challenge containers
-        let handler: platform_rpc::ChallengeRouteHandler = Arc::new(
-            move |challenge_id, req| {
-                let endpoints = endpoints_for_handler.clone();
-                Box::pin(async move {
-                    use platform_challenge_sdk::RouteResponse;
+        let handler: platform_rpc::ChallengeRouteHandler = Arc::new(move |challenge_id, req| {
+            let endpoints = endpoints_for_handler.clone();
+            Box::pin(async move {
+                use platform_challenge_sdk::RouteResponse;
 
-                    // Get endpoint for this challenge
-                    let endpoint = {
-                        let eps = endpoints.read();
-                        match eps.get(&challenge_id) {
-                            Some(ep) => ep.clone(),
-                            None => {
-                                return RouteResponse::new(
-                                    404,
-                                    serde_json::json!({"error": format!("Challenge {} not configured", challenge_id)}),
-                                );
-                            }
-                        }
-                    };
-
-                    // Build URL for challenge container
-                    let url = format!("{}{}", endpoint, req.path);
-
-                    // Create HTTP client
-                    let client = reqwest::Client::new();
-
-                    // Forward request to challenge container
-                    let result = match req.method.as_str() {
-                        "GET" => client.get(&url).send().await,
-                        "POST" => client.post(&url).json(&req.body).send().await,
-                        "PUT" => client.put(&url).json(&req.body).send().await,
-                        "DELETE" => client.delete(&url).send().await,
-                        _ => return RouteResponse::bad_request("Unsupported method"),
-                    };
-
-                    match result {
-                        Ok(response) => {
-                            let status = response.status();
-                            match response.json::<serde_json::Value>().await {
-                                Ok(body) => {
-                                    if status.is_success() {
-                                        RouteResponse::json(body)
-                                    } else {
-                                        RouteResponse::new(
-                                            status.as_u16(),
-                                            serde_json::json!({"error": body.to_string()}),
-                                        )
-                                    }
-                                }
-                                Err(_) => RouteResponse::new(
-                                    status.as_u16(),
-                                    serde_json::json!({"error": "Invalid response"}),
-                                ),
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to proxy request to challenge {}: {}",
-                                challenge_id,
-                                e
+                // Get endpoint for this challenge
+                let endpoint = {
+                    let eps = endpoints.read();
+                    match eps.get(&challenge_id) {
+                        Some(ep) => ep.clone(),
+                        None => {
+                            return RouteResponse::new(
+                                404,
+                                serde_json::json!({"error": format!("Challenge {} not configured", challenge_id)}),
                             );
-                            RouteResponse::new(
-                                502,
-                                serde_json::json!({"error": format!("Challenge unavailable: {}", e)}),
-                            )
                         }
                     }
-                })
-            },
-        );
+                };
+
+                // Build URL for challenge container
+                let url = format!("{}{}", endpoint, req.path);
+
+                // Create HTTP client
+                let client = reqwest::Client::new();
+
+                // Forward request to challenge container
+                let result = match req.method.as_str() {
+                    "GET" => client.get(&url).send().await,
+                    "POST" => client.post(&url).json(&req.body).send().await,
+                    "PUT" => client.put(&url).json(&req.body).send().await,
+                    "DELETE" => client.delete(&url).send().await,
+                    _ => return RouteResponse::bad_request("Unsupported method"),
+                };
+
+                match result {
+                    Ok(response) => {
+                        let status = response.status();
+                        match response.json::<serde_json::Value>().await {
+                            Ok(body) => {
+                                if status.is_success() {
+                                    RouteResponse::json(body)
+                                } else {
+                                    RouteResponse::new(
+                                        status.as_u16(),
+                                        serde_json::json!({"error": body.to_string()}),
+                                    )
+                                }
+                            }
+                            Err(_) => RouteResponse::new(
+                                status.as_u16(),
+                                serde_json::json!({"error": "Invalid response"}),
+                            ),
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to proxy request to challenge {}: {}",
+                            challenge_id,
+                            e
+                        );
+                        RouteResponse::new(
+                            502,
+                            serde_json::json!({"error": format!("Challenge unavailable: {}", e)}),
+                        )
+                    }
+                }
+            })
+        });
         rpc_server.rpc_handler().set_route_handler(handler);
 
         info!(
@@ -832,10 +830,10 @@ async fn main() -> Result<()> {
 
                         // Collect and commit weights for all mechanisms
                         // This is the primary trigger for weight submission (event-driven from Bittensor)
-                        
+
                         // Collect weights from all challenges (async)
                         let mechanism_weights = runtime_for_blocks.collect_and_get_weights().await;
-                        
+
                         if let Some(ref submitter) = weight_submitter_clone {
                             let weights_to_submit = if mechanism_weights.is_empty() {
                                 // No challenge weights - submit burn weights to UID 0
@@ -1050,9 +1048,7 @@ async fn main() -> Result<()> {
                     RuntimeEvent::EpochTransition(transition) => {
                         info!("Epoch transition: {:?}", transition);
 
-                        // Check if we're entering the reveal phase - trigger pending reveals
-                        // This is a fallback when BlockSyncEvent::RevealWindowOpen doesn't fire
-                        // (e.g., when CommitRevealWeightsEnabled is false but we use mechanism weights)
+                        // Fallback: trigger pending reveals on internal phase detection
                         if let EpochTransition::PhaseChange { new_phase: EpochPhase::Reveal, .. } = transition {
                             if let Some(ref submitter) = weight_submitter_clone {
                                 let mut sub = submitter.lock().await;
@@ -1337,14 +1333,13 @@ async fn handle_message(
                         min_version, recommended_version, mandatory
                     );
                     // Store version requirement - validators use external tools like Watchtower
-                    chain_state.write().required_version =
-                        Some(platform_core::RequiredVersion {
-                            min_version,
-                            recommended_version,
-                            docker_image,
-                            mandatory,
-                            deadline_block,
-                        });
+                    chain_state.write().required_version = Some(platform_core::RequiredVersion {
+                        min_version,
+                        recommended_version,
+                        docker_image,
+                        mandatory,
+                        deadline_block,
+                    });
                 }
                 _ => {
                     debug!("Unhandled SudoAction: {:?}", action);
