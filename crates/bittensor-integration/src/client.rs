@@ -141,4 +141,24 @@ impl SubtensorClient {
         let epoch_info = listener.current_epoch_info(client).await?;
         Ok(epoch_info.epoch_number)
     }
+
+    /// Get current epoch info including phase from Bittensor
+    pub async fn get_current_epoch_info(&self) -> Result<bittensor_rs::blocks::EpochInfo> {
+        use bittensor_rs::blocks::{BlockListener, BlockListenerConfig};
+
+        let client = self.client()?;
+        let config = BlockListenerConfig {
+            netuid: self.config.netuid,
+            ..Default::default()
+        };
+        let listener = BlockListener::new(config);
+        listener.current_epoch_info(client).await
+    }
+
+    /// Check if currently in reveal phase
+    pub async fn is_in_reveal_phase(&self) -> Result<bool> {
+        use bittensor_rs::blocks::EpochPhase;
+        let info = self.get_current_epoch_info().await?;
+        Ok(matches!(info.phase, EpochPhase::RevealWindow))
+    }
 }

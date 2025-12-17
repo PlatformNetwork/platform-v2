@@ -8,8 +8,8 @@ use clap::Parser;
 use distributed_db::{ConsensusStatus, DBSyncEvent, DBSyncManager, DBSyncMessage, DistributedDB};
 use parking_lot::RwLock;
 use platform_bittensor::{
-    BittensorClient, BittensorConfig, BlockSync, BlockSyncConfig, BlockSyncEvent, SubtensorClient,
-    WeightSubmitter,
+    signer_from_seed, BittensorClient, BlockSync, BlockSyncConfig, BlockSyncEvent, ExtrinsicWait,
+    Subtensor,
 };
 use platform_challenge_runtime::{ChallengeRuntime, RuntimeConfig, RuntimeEvent};
 use platform_consensus::PBFTEngine;
@@ -29,7 +29,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
 #[derive(Parser, Debug)]
@@ -606,7 +605,9 @@ async fn main() -> Result<()> {
     };
 
     // Setup Bittensor connection (if enabled)
-    let weight_submitter: Option<Arc<TokioMutex<WeightSubmitter>>>;
+    // Use bittensor_rs::Subtensor directly for weight submission (handles commit-reveal automatically)
+    let subtensor: Option<Arc<Subtensor>>;
+    let subtensor_signer: Option<Arc<platform_bittensor::BittensorSigner>>;
     let mut block_sync: Option<BlockSync> = None;
     let mut block_sync_rx: Option<tokio::sync::mpsc::Receiver<BlockSyncEvent>> = None;
 
@@ -616,37 +617,25 @@ async fn main() -> Result<()> {
             args.subtensor_endpoint, args.netuid
         );
 
-        let bt_config = BittensorConfig {
-            endpoint: args.subtensor_endpoint.clone(),
-            netuid: args.netuid,
-            use_commit_reveal: args.commit_reveal,
-            version_key: 1,
-        };
+        // Create Subtensor with persistence for automatic commit-reveal handling
+        let state_path = data_dir.join("subtensor_state.json");
+        match Subtensor::with_persistence(&args.subtensor_endpoint, state_path.clone()).await {
+            Ok(st) => {
+                info!("Subtensor connected with persistence at {:?}", state_path);
 
-        let mut bt_client = SubtensorClient::new(bt_config);
-
-        match bt_client.connect().await {
-            Ok(_) => {
-                // Set signer from mnemonic/seed (passed directly to Bittensor)
-                if let Err(e) = bt_client.set_signer(&bittensor_seed) {
-                    warn!("Failed to set Bittensor signer: {}", e);
-                } else {
-                    // Log the actual Bittensor hotkey (SS58 format)
-                    if let Some(signer) = bt_client.get_signer() {
+                // Create signer from seed
+                match signer_from_seed(&bittensor_seed) {
+                    Ok(signer) => {
                         info!("Bittensor hotkey: {}", signer.account_id());
+                        subtensor_signer = Some(Arc::new(signer));
+                    }
+                    Err(e) => {
+                        warn!("Failed to create Bittensor signer: {}", e);
+                        subtensor_signer = None;
                     }
                 }
 
-                // Sync metagraph
-                match bt_client.sync_metagraph().await {
-                    Ok(mg) => info!("Synced metagraph: {} neurons", mg.n),
-                    Err(e) => warn!("Failed to sync metagraph: {}", e),
-                }
-
-                weight_submitter = Some(Arc::new(TokioMutex::new(WeightSubmitter::new(
-                    bt_client,
-                    Some(data_dir.clone()),
-                ))));
+                subtensor = Some(Arc::new(st));
 
                 // Setup block sync with a separate connection to Bittensor
                 // (BlockListener needs its own client for subscription)
@@ -695,13 +684,15 @@ async fn main() -> Result<()> {
                 }
             }
             Err(e) => {
-                warn!("Failed to connect to Bittensor: {} (continuing without)", e);
-                weight_submitter = None;
+                warn!("Failed to connect to Subtensor: {} (continuing without)", e);
+                subtensor = None;
+                subtensor_signer = None;
             }
         }
     } else {
         info!("Bittensor disabled (--no-bittensor)");
-        weight_submitter = None;
+        subtensor = None;
+        subtensor_signer = None;
     };
 
     // Create message channel for consensus
@@ -852,17 +843,18 @@ async fn main() -> Result<()> {
     let db_for_p2p = Some(distributed_db.clone());
     let _storage = Arc::new(storage); // Keep reference but don't persist state
     let runtime_for_blocks = challenge_runtime.clone();
-    let weight_submitter_clone = weight_submitter.clone();
+    let subtensor_clone = subtensor.clone();
+    let subtensor_signer_clone = subtensor_signer.clone();
     let db_for_blocks = distributed_db.clone();
     let db_sync_for_loop = db_sync_manager.clone();
     let mut block_counter = 0u64;
     let use_bittensor_blocks = block_sync_rx.is_some();
+    let netuid = args.netuid;
 
     // Fetch mechanism count from Bittensor and submit initial weights
     // This prevents vtrust penalty from not having set weights yet
-    let subnet_mechanism_count: u8 = if let Some(ref submitter) = weight_submitter {
-        let mut sub = submitter.lock().await;
-        match sub.client_mut().get_mechanism_count().await {
+    let subnet_mechanism_count: u8 = if let Some(ref st) = subtensor {
+        match st.get_mechanism_count(netuid).await {
             Ok(count) => {
                 info!(
                     "Subnet has {} mechanisms (IDs: 0 to {})",
@@ -882,11 +874,10 @@ async fn main() -> Result<()> {
 
     // Submit initial weights on startup for ALL mechanisms
     // But first check if we have pending commits from a previous session
-    if let Some(ref submitter) = weight_submitter {
-        let mut sub = submitter.lock().await;
-
-        // Get current epoch from Bittensor
-        let current_epoch = match sub.client_mut().get_current_epoch().await {
+    // Note: With Subtensor, calling set_weights() will automatically reveal pending commits first
+    if let (Some(st), Some(signer)) = (subtensor.as_ref(), subtensor_signer.as_ref()) {
+        // Get current epoch from Bittensor (for logging)
+        let _current_epoch = match st.get_current_epoch(netuid).await {
             Ok(epoch) => {
                 info!("Current Bittensor epoch: {}", epoch);
                 epoch
@@ -897,23 +888,45 @@ async fn main() -> Result<()> {
             }
         };
 
-        // Set epoch in submitter for state tracking
-        sub.set_epoch(current_epoch);
-
         // Check if we have pending commits from a previous session
-        if sub.has_pending_mechanism_commits() {
+        if st.has_pending_commits().await {
             info!(
                 "Found pending commits from previous session: {}",
-                sub.pending_commits_info()
+                st.pending_commits_info().await
             );
-            info!("Will reveal when reveal window opens - skipping initial commit");
-        } else if sub.has_committed_for_epoch(current_epoch) {
-            info!(
-                "Already committed for epoch {} in previous session - skipping initial commit",
-                current_epoch
-            );
-        } else {
-            // No pending commits - proceed with initial weight submission
+
+            // Check if we're currently in the reveal window - if so, reveal immediately!
+            match st.is_in_reveal_phase(netuid).await {
+                Ok(true) => {
+                    info!("Currently in reveal window - revealing pending commits immediately...");
+                    match st
+                        .reveal_all_pending(signer, ExtrinsicWait::Finalized)
+                        .await
+                    {
+                        Ok(results) => {
+                            for resp in &results {
+                                if resp.success {
+                                    info!(
+                                        "Pending weights revealed on startup: {:?}",
+                                        resp.tx_hash
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => error!("Failed to reveal pending commits on startup: {}", e),
+                    }
+                }
+                Ok(false) => {
+                    info!("Not in reveal window yet - next set_weights() call will reveal automatically");
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to check reveal phase: {} - next set_weights() will handle it",
+                        e
+                    );
+                }
+            }
+            // Proceed with initial weight submission
             info!(
                 "Submitting initial weights on startup for {} mechanisms...",
                 subnet_mechanism_count
@@ -924,29 +937,27 @@ async fn main() -> Result<()> {
             let registered_set: std::collections::HashSet<u8> =
                 registered_mechanisms.iter().copied().collect();
 
-            // Build weights for ALL mechanisms (0 to count-1)
-            let mut initial_weights: Vec<(u8, Vec<u16>, Vec<u16>)> = Vec::new();
-
+            // Build weights for ALL mechanisms (0 to count-1) and submit
             for mechanism_id in 0..subnet_mechanism_count {
-                if registered_set.contains(&mechanism_id) {
+                let (uids, weights) = if registered_set.contains(&mechanism_id) {
                     // This mechanism has a challenge - check for evaluation weights
                     let eval_weights = challenge_runtime.get_mechanism_weights_for_submission();
-                    if let Some((_, uids, weights)) =
+                    if let Some((_, u, w)) =
                         eval_weights.iter().find(|(m, _, _)| *m == mechanism_id)
                     {
                         info!(
                             "Mechanism {} has evaluation weights ({} entries)",
                             mechanism_id,
-                            uids.len()
+                            u.len()
                         );
-                        initial_weights.push((mechanism_id, uids.clone(), weights.clone()));
+                        (u.clone(), w.clone())
                     } else {
                         // Challenge registered but no evaluations yet - burn weights
                         info!(
                             "Mechanism {} (challenge registered) - submitting burn weights",
                             mechanism_id
                         );
-                        initial_weights.push((mechanism_id, vec![0u16], vec![65535u16]));
+                        (vec![0u16], vec![65535u16])
                     }
                 } else {
                     // No challenge for this mechanism - burn weights to UID 0
@@ -954,16 +965,37 @@ async fn main() -> Result<()> {
                         "Mechanism {} (no challenge) - submitting burn weights to UID 0",
                         mechanism_id
                     );
-                    initial_weights.push((mechanism_id, vec![0u16], vec![65535u16]));
-                }
-            }
+                    (vec![0u16], vec![65535u16])
+                };
 
-            match sub.submit_mechanism_weights_batch(&initial_weights).await {
-                Ok(tx) => info!("Initial weights submitted to Bittensor: {}", tx),
-                Err(e) => warn!(
-                    "Failed to submit initial weights (will retry at next epoch): {}",
-                    e
-                ),
+                // Submit weights using Subtensor (handles commit-reveal automatically)
+                match st
+                    .set_mechanism_weights(
+                        signer,
+                        netuid,
+                        mechanism_id,
+                        &uids,
+                        &weights,
+                        1, // version_key
+                        ExtrinsicWait::Finalized,
+                    )
+                    .await
+                {
+                    Ok(resp) => {
+                        if resp.success {
+                            info!(
+                                "Mechanism {} initial weights submitted: {:?}",
+                                mechanism_id, resp.tx_hash
+                            );
+                        } else {
+                            warn!(
+                                "Mechanism {} weight submission failed: {}",
+                                mechanism_id, resp.message
+                            );
+                        }
+                    }
+                    Err(e) => warn!("Failed to submit mechanism {} weights: {}", mechanism_id, e),
+                }
             }
         }
     }
@@ -1035,55 +1067,59 @@ async fn main() -> Result<()> {
                         info!("Commit window opened for epoch {} at block {}", epoch, block);
 
                         // Collect and commit weights for all mechanisms
-                        // This is the primary trigger for weight submission (event-driven from Bittensor)
-
-                        if let Some(ref submitter) = weight_submitter_clone {
-                            let mut sub = submitter.lock().await;
-
-                            // Update epoch in submitter for state tracking
-                            sub.set_epoch(epoch);
-
-                            // Check if we already committed for this epoch (e.g., at startup)
-                            if sub.has_committed_for_epoch(epoch) {
-                                info!(
-                                    "Already committed weights for epoch {} (pending: {}), skipping commit",
-                                    epoch, sub.pending_commits_info()
-                                );
-                                continue;
-                            }
-
-                            // Collect weights from all challenges (async)
-                            drop(sub); // Release lock before async collect
+                        // With Subtensor, set_weights() handles commit-reveal automatically
+                        if let (Some(st), Some(signer)) = (subtensor_clone.as_ref(), subtensor_signer_clone.as_ref()) {
+                            // Collect weights from all challenges
                             let mechanism_weights = runtime_for_blocks.collect_and_get_weights().await;
-                            let mut sub = submitter.lock().await;
 
                             let weights_to_submit = if mechanism_weights.is_empty() {
                                 // No challenge weights - submit burn weights to UID 0
                                 info!("No challenge weights for epoch {} - submitting burn weights", epoch);
                                 vec![(0u8, vec![0u16], vec![65535u16])]
                             } else {
-                                info!("Committing weights for {} mechanisms", mechanism_weights.len());
+                                info!("Submitting weights for {} mechanisms", mechanism_weights.len());
                                 mechanism_weights
                             };
 
-                            match sub.submit_mechanism_weights_batch(&weights_to_submit).await {
-                                Ok(tx) => info!("Mechanism weights committed to Bittensor: {}", tx),
-                                Err(e) => error!("Failed to commit mechanism weights: {}", e),
+                            // Submit each mechanism's weights (Subtensor handles commit-reveal)
+                            for (mechanism_id, uids, weights) in weights_to_submit {
+                                match st.set_mechanism_weights(
+                                    signer,
+                                    netuid,
+                                    mechanism_id,
+                                    &uids,
+                                    &weights,
+                                    1,
+                                    ExtrinsicWait::Finalized,
+                                ).await {
+                                    Ok(resp) if resp.success => {
+                                        info!("Mechanism {} weights submitted: {:?}", mechanism_id, resp.tx_hash);
+                                    }
+                                    Ok(resp) => {
+                                        warn!("Mechanism {} submission issue: {}", mechanism_id, resp.message);
+                                    }
+                                    Err(e) => error!("Failed to submit mechanism {} weights: {}", mechanism_id, e),
+                                }
                             }
                         }
                     }
                     BlockSyncEvent::RevealWindowOpen { epoch, block } => {
                         info!("Reveal window opened for epoch {} at block {}", epoch, block);
 
-                        // Reveal any pending mechanism commits
-                        if let Some(ref submitter) = weight_submitter_clone {
-                            let mut sub = submitter.lock().await;
-                            if sub.has_pending_mechanism_commits() {
-                                info!("Revealing pending mechanism commits...");
-                                match sub.reveal_pending_mechanism_commits().await {
-                                    Ok(Some(tx)) => info!("Mechanism weights revealed: {}", tx),
-                                    Ok(None) => debug!("No pending commits to reveal"),
-                                    Err(e) => error!("Failed to reveal mechanism weights: {}", e),
+                        // With Subtensor, reveals are handled automatically by set_weights()
+                        // But we can force reveal any remaining pending commits here
+                        if let (Some(st), Some(signer)) = (subtensor_clone.as_ref(), subtensor_signer_clone.as_ref()) {
+                            if st.has_pending_commits().await {
+                                info!("Revealing pending commits...");
+                                match st.reveal_all_pending(signer, ExtrinsicWait::Finalized).await {
+                                    Ok(results) => {
+                                        for resp in results {
+                                            if resp.success {
+                                                info!("Weights revealed: {:?}", resp.tx_hash);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => error!("Failed to reveal pending weights: {}", e),
                                 }
                             }
                         }
@@ -1248,30 +1284,36 @@ async fn main() -> Result<()> {
                         );
 
                         // Submit weights to Bittensor if connected
-                        if let Some(ref submitter) = weight_submitter_clone {
+                        if let (Some(st), Some(signer)) = (subtensor_clone.as_ref(), subtensor_signer_clone.as_ref()) {
                             let weights_to_submit = if is_empty {
                                 // No challenges configured - submit default weights to UID 0 (burn)
-                                // This prevents vtrust penalty from not setting weights
                                 warn!(
                                     "No challenge weights for epoch {} - submitting default burn weights to UID 0",
                                     epoch
                                 );
-                                // Default mechanism_id 0 with 100% weight to UID 0
                                 vec![(0u8, vec![0u16], vec![65535u16])]
                             } else {
                                 mechanism_weights
                             };
 
-                            let mut sub = submitter.lock().await;
-                            match sub.submit_mechanism_weights_batch(&weights_to_submit).await {
-                                Ok(tx) => {
-                                    if is_empty {
-                                        info!("Default burn weights submitted to Bittensor: {}", tx);
-                                    } else {
-                                        info!("Mechanism weights submitted to Bittensor: {}", tx);
+                            for (mechanism_id, uids, weights) in weights_to_submit {
+                                match st.set_mechanism_weights(
+                                    signer,
+                                    netuid,
+                                    mechanism_id,
+                                    &uids,
+                                    &weights,
+                                    1,
+                                    ExtrinsicWait::Finalized,
+                                ).await {
+                                    Ok(resp) if resp.success => {
+                                        info!("Mechanism {} weights submitted: {:?}", mechanism_id, resp.tx_hash);
                                     }
+                                    Ok(resp) => {
+                                        warn!("Mechanism {} submission issue: {}", mechanism_id, resp.message);
+                                    }
+                                    Err(e) => error!("Failed to submit mechanism {} weights: {}", mechanism_id, e),
                                 }
-                                Err(e) => error!("Failed to submit weights: {}", e),
                             }
                         }
                     }
@@ -1280,14 +1322,18 @@ async fn main() -> Result<()> {
 
                         // Fallback: trigger pending reveals on internal phase detection
                         if let EpochTransition::PhaseChange { new_phase: EpochPhase::Reveal, .. } = transition {
-                            if let Some(ref submitter) = weight_submitter_clone {
-                                let mut sub = submitter.lock().await;
-                                if sub.has_pending_mechanism_commits() {
-                                    info!("Reveal phase detected (internal) - revealing pending mechanism commits...");
-                                    match sub.reveal_pending_mechanism_commits().await {
-                                        Ok(Some(tx)) => info!("Mechanism weights revealed: {}", tx),
-                                        Ok(None) => debug!("No pending commits to reveal"),
-                                        Err(e) => error!("Failed to reveal mechanism weights: {}", e),
+                            if let (Some(st), Some(signer)) = (subtensor_clone.as_ref(), subtensor_signer_clone.as_ref()) {
+                                if st.has_pending_commits().await {
+                                    info!("Reveal phase detected (internal) - revealing pending commits...");
+                                    match st.reveal_all_pending(signer, ExtrinsicWait::Finalized).await {
+                                        Ok(results) => {
+                                            for resp in results {
+                                                if resp.success {
+                                                    info!("Weights revealed: {:?}", resp.tx_hash);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => error!("Failed to reveal pending weights: {}", e),
                                     }
                                 }
                             }

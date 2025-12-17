@@ -38,3 +38,6 @@ pub use bittensor_rs::{
     PendingCommit, Salt, Subtensor, SubtensorBuilder, SubtensorState, WeightResponse,
     WeightResponseData,
 };
+
+// Re-export chain types needed for weight submission
+pub use bittensor_rs::chain::{signer_from_seed, BittensorSigner, ExtrinsicWait};
