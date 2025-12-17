@@ -8,11 +8,9 @@ use clap::{Parser, Subcommand};
 use parking_lot::RwLock;
 use platform_consensus::PBFTEngine;
 use platform_core::{
-    ChainState, ChallengeContainerConfig, ChallengeId, Hotkey, Keypair, NetworkConfig,
-    SignedNetworkMessage, Stake, SudoAction, ValidatorInfo,
+    ChainState, ChallengeContainerConfig, ChallengeId, Hotkey, Keypair, MechanismWeightConfig,
+    NetworkConfig, SignedNetworkMessage, Stake, SudoAction, ValidatorInfo,
 };
-// NetworkNode no longer needed - using RPC for broadcast
-// use platform_network::{NetworkNode, NodeConfig};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::info;
@@ -54,11 +52,11 @@ enum Commands {
         #[arg(short, long)]
         name: String,
 
-        /// Docker image (e.g., "cortexlm/term-bench:v1.0.0")
+        /// Docker image (e.g., "ghcr.io/platformnetwork/term-challenge:37cd137")
         #[arg(short, long)]
         docker_image: String,
 
-        /// Mechanism ID on Bittensor (1, 2, 3... - each challenge needs unique ID)
+        /// Mechanism ID on Bittensor (1, 2, 3... - each mechanism can have multiple challenges)
         #[arg(short, long)]
         mechanism_id: u8,
 
@@ -66,7 +64,7 @@ enum Commands {
         #[arg(long, default_value = "3600")]
         timeout: u64,
 
-        /// Emission weight (0.0 - 1.0)
+        /// Emission weight (0.0 - 1.0) - portion of mechanism weights this challenge receives
         #[arg(long, default_value = "1.0")]
         emission_weight: f64,
 
@@ -101,6 +99,55 @@ enum Commands {
         id: String,
     },
 
+    /// Set challenge weight ratio on a mechanism
+    SetChallengeWeight {
+        /// Challenge ID (UUID)
+        #[arg(short, long)]
+        id: String,
+
+        /// Mechanism ID
+        #[arg(short, long)]
+        mechanism_id: u8,
+
+        /// Weight ratio (0.0 - 1.0) - if multiple challenges share a mechanism, ratios are normalized
+        #[arg(short, long)]
+        weight: f64,
+    },
+
+    /// Set mechanism burn rate (portion of weights that go to UID 0)
+    SetMechanismBurn {
+        /// Mechanism ID
+        #[arg(short, long)]
+        mechanism_id: u8,
+
+        /// Burn rate (0.0 - 1.0), e.g., 0.1 = 10% to UID 0
+        #[arg(short, long)]
+        burn_rate: f64,
+    },
+
+    /// Configure mechanism weight distribution
+    SetMechanismConfig {
+        /// Mechanism ID
+        #[arg(short, long)]
+        mechanism_id: u8,
+
+        /// Burn rate (0.0 - 1.0)
+        #[arg(long, default_value = "0.0")]
+        burn_rate: f64,
+
+        /// Max weight cap per miner (0.0 = no cap, 0.5 = max 50%)
+        #[arg(long, default_value = "0.5")]
+        max_cap: f64,
+
+        /// Minimum weight threshold (prevents dust)
+        #[arg(long, default_value = "0.0001")]
+        min_threshold: f64,
+
+        /// Equal distribution among challenges (vs per-challenge ratios)
+        #[arg(long, default_value = "false")]
+        equal_distribution: bool,
+    },
+
     /// Set required validator version
     SetVersion {
         /// Minimum required version (e.g., "0.2.0")
@@ -122,6 +169,9 @@ enum Commands {
 
     /// List challenges (query from network)
     ListChallenges,
+
+    /// List mechanism configurations
+    ListMechanisms,
 
     /// Add a validator
     AddValidator {
@@ -170,6 +220,17 @@ enum Commands {
     Status,
 }
 
+/// Derive keypair from BIP39 mnemonic using sr25519 (Substrate/Bittensor standard)
+fn derive_keypair_from_mnemonic(mnemonic_str: &str) -> Result<Keypair> {
+    let keypair = Keypair::from_mnemonic(mnemonic_str)?;
+
+    info!("Derived sr25519 keypair from mnemonic");
+    info!("Hotkey: {}", keypair.hotkey().to_hex());
+    info!("SS58 Address: {}", keypair.ss58_address());
+
+    Ok(keypair)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
@@ -179,49 +240,46 @@ async fn main() -> Result<()> {
     // Handle generate-key command separately
     if let Commands::GenerateKey = args.command {
         let keypair = Keypair::generate();
-        println!("Generated new keypair:");
-        println!("  Hotkey (public): {}", keypair.hotkey().to_hex());
-        println!("  Secret key:      {}", hex::encode(keypair.secret_bytes()));
+        println!("Generated new sr25519 keypair:");
+        println!("  Hotkey (hex):   {}", keypair.hotkey().to_hex());
+        println!("  SS58 Address:   {}", keypair.ss58_address());
+        println!("  Seed (secret):  {}", hex::encode(keypair.seed()));
+        println!();
+        println!("To use with csudo (use mnemonic or seed):");
+        println!("  export SUDO_SECRET_KEY=\"your 24-word mnemonic phrase\"");
         return Ok(());
     }
 
-    // Parse secret key (hex or mnemonic)
+    // Parse secret key (hex seed or mnemonic)
     let keypair = {
-        let secret = &args.secret_key;
+        let secret = args.secret_key.trim();
 
         // Strip 0x prefix if present
         let hex_str = secret.strip_prefix("0x").unwrap_or(secret);
 
-        // Try hex decode first
-        if let Ok(bytes) = hex::decode(hex_str) {
-            if bytes.len() != 32 {
-                anyhow::bail!("Hex secret key must be 32 bytes");
+        // Try hex decode first (64 hex chars = 32 bytes seed)
+        if hex_str.len() == 64 {
+            if let Ok(bytes) = hex::decode(hex_str) {
+                if bytes.len() == 32 {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    info!("Loaded sr25519 keypair from hex seed");
+                    Keypair::from_seed(&arr)?
+                } else {
+                    anyhow::bail!("Hex seed must be 32 bytes");
+                }
+            } else {
+                // Not valid hex, try as mnemonic
+                derive_keypair_from_mnemonic(secret)?
             }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&bytes);
-            info!("Loaded keypair from hex secret");
-            Keypair::from_bytes(&arr)?
         } else {
-            // Assume it's a mnemonic phrase - derive keypair from it
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            secret.hash(&mut hasher);
-            let hash1 = hasher.finish();
-            secret.chars().rev().collect::<String>().hash(&mut hasher);
-            let hash2 = hasher.finish();
-
-            let mut arr = [0u8; 32];
-            arr[..8].copy_from_slice(&hash1.to_le_bytes());
-            arr[8..16].copy_from_slice(&hash2.to_le_bytes());
-            arr[16..24].copy_from_slice(&hash1.to_be_bytes());
-            arr[24..32].copy_from_slice(&hash2.to_be_bytes());
-
-            info!("Derived keypair from mnemonic phrase");
-            Keypair::from_bytes(&arr)?
+            // Assume it's a mnemonic phrase
+            derive_keypair_from_mnemonic(secret)?
         }
     };
 
-    info!("Subnet owner hotkey: {}", keypair.hotkey());
+    info!("Subnet owner SS58: {}", keypair.ss58_address());
+    info!("Hotkey (hex): {}", keypair.hotkey().to_hex());
 
     // Create a temporary chain state (we'll sync from network)
     let chain_state = Arc::new(RwLock::new(ChainState::new(
@@ -262,8 +320,11 @@ async fn main() -> Result<()> {
             };
 
             info!(
-                "Adding challenge: {} (image: {}, mechanism: {})",
-                name, docker_image, mechanism_id
+                "Adding challenge: {} (image: {}, mechanism: {}, weight: {:.0}%)",
+                name,
+                docker_image,
+                mechanism_id,
+                emission_weight * 100.0
             );
             SudoAction::AddChallenge { config }
         }
@@ -272,7 +333,6 @@ async fn main() -> Result<()> {
             let challenge_id = ChallengeId(uuid::Uuid::parse_str(&id)?);
             info!("Updating challenge {} to image {}", id, docker_image);
 
-            // Create a minimal config for update
             let config = ChallengeContainerConfig {
                 challenge_id,
                 name: format!("challenge-{}", &id[..8]),
@@ -292,6 +352,68 @@ async fn main() -> Result<()> {
             let challenge_id = ChallengeId(uuid::Uuid::parse_str(&id)?);
             info!("Removing challenge: {}", id);
             SudoAction::RemoveChallenge { id: challenge_id }
+        }
+
+        Commands::SetChallengeWeight {
+            id,
+            mechanism_id,
+            weight,
+        } => {
+            let challenge_id = ChallengeId(uuid::Uuid::parse_str(&id)?);
+            info!(
+                "Setting challenge {} weight on mechanism {} to {:.2}%",
+                id,
+                mechanism_id,
+                weight * 100.0
+            );
+            SudoAction::SetChallengeWeight {
+                challenge_id,
+                mechanism_id,
+                weight_ratio: weight,
+            }
+        }
+
+        Commands::SetMechanismBurn {
+            mechanism_id,
+            burn_rate,
+        } => {
+            info!(
+                "Setting mechanism {} burn rate to {:.2}%",
+                mechanism_id,
+                burn_rate * 100.0
+            );
+            SudoAction::SetMechanismBurnRate {
+                mechanism_id,
+                burn_rate,
+            }
+        }
+
+        Commands::SetMechanismConfig {
+            mechanism_id,
+            burn_rate,
+            max_cap,
+            min_threshold,
+            equal_distribution,
+        } => {
+            let config = MechanismWeightConfig {
+                mechanism_id,
+                base_burn_rate: burn_rate,
+                equal_distribution,
+                min_weight_threshold: min_threshold,
+                max_weight_cap: max_cap,
+                active: true,
+            };
+            info!(
+                "Setting mechanism {} config: burn={:.2}%, cap={:.2}%, equal={}",
+                mechanism_id,
+                burn_rate * 100.0,
+                max_cap * 100.0,
+                equal_distribution
+            );
+            SudoAction::SetMechanismConfig {
+                mechanism_id,
+                config,
+            }
         }
 
         Commands::SetVersion {
@@ -337,29 +459,12 @@ async fn main() -> Result<()> {
             }
 
             if let Some(state) = result.get("result") {
-                println!("=== Challenges ===");
-                if let Some(challenges) = state.get("challenges") {
-                    if let Some(obj) = challenges.as_object() {
+                println!("=== Challenge Configs ===");
+                if let Some(configs) = state.get("challenge_configs") {
+                    if let Some(obj) = configs.as_object() {
                         if obj.is_empty() {
                             println!("No challenges registered.");
                         } else {
-                            for (id, challenge) in obj {
-                                println!("\nID: {}", id);
-                                if let Some(name) = challenge.get("name") {
-                                    println!("  Name: {}", name);
-                                }
-                                if let Some(desc) = challenge.get("description") {
-                                    println!("  Description: {}", desc);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if let Some(configs) = state.get("challenge_configs") {
-                    if let Some(obj) = configs.as_object() {
-                        if !obj.is_empty() {
-                            println!("\n=== Challenge Configs ===");
                             for (id, config) in obj {
                                 println!("\nID: {}", id);
                                 if let Some(name) = config.get("name") {
@@ -370,6 +475,88 @@ async fn main() -> Result<()> {
                                 }
                                 if let Some(mech) = config.get("mechanism_id") {
                                     println!("  Mechanism: {}", mech);
+                                }
+                                if let Some(weight) = config.get("emission_weight") {
+                                    println!(
+                                        "  Weight: {:.2}%",
+                                        weight.as_f64().unwrap_or(0.0) * 100.0
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
+                println!("\n=== Challenge Weights ===");
+                if let Some(weights) = state.get("challenge_weights") {
+                    if let Some(obj) = weights.as_object() {
+                        if obj.is_empty() {
+                            println!("No weight allocations set.");
+                        } else {
+                            for (id, alloc) in obj {
+                                println!("\nChallenge: {}", id);
+                                if let Some(mech) = alloc.get("mechanism_id") {
+                                    println!("  Mechanism: {}", mech);
+                                }
+                                if let Some(ratio) = alloc.get("weight_ratio") {
+                                    println!(
+                                        "  Ratio: {:.2}%",
+                                        ratio.as_f64().unwrap_or(0.0) * 100.0
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        Commands::ListMechanisms => {
+            let client = reqwest::Client::new();
+            let rpc_url = format!("{}/rpc", args.rpc.trim_end_matches('/'));
+
+            let response = client
+                .post(&rpc_url)
+                .json(&serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": "chain_getState",
+                    "params": [],
+                    "id": 1
+                }))
+                .send()
+                .await?;
+
+            let result: serde_json::Value = response.json().await?;
+
+            if let Some(error) = result.get("error") {
+                eprintln!("RPC Error: {}", error);
+                return Ok(());
+            }
+
+            if let Some(state) = result.get("result") {
+                println!("=== Mechanism Configs ===");
+                if let Some(configs) = state.get("mechanism_configs") {
+                    if let Some(obj) = configs.as_object() {
+                        if obj.is_empty() {
+                            println!("No mechanism configs set (using defaults).");
+                        } else {
+                            for (id, config) in obj {
+                                println!("\nMechanism: {}", id);
+                                if let Some(burn) = config.get("base_burn_rate") {
+                                    println!(
+                                        "  Burn Rate: {:.2}%",
+                                        burn.as_f64().unwrap_or(0.0) * 100.0
+                                    );
+                                }
+                                if let Some(cap) = config.get("max_weight_cap") {
+                                    println!(
+                                        "  Max Cap: {:.2}%",
+                                        cap.as_f64().unwrap_or(0.5) * 100.0
+                                    );
+                                }
+                                if let Some(equal) = config.get("equal_distribution") {
+                                    println!("  Equal Distribution: {}", equal);
                                 }
                             }
                         }
@@ -426,7 +613,6 @@ async fn main() -> Result<()> {
             let client = reqwest::Client::new();
             let rpc_url = format!("{}/rpc", args.rpc.trim_end_matches('/'));
 
-            // Get system health
             println!("=== Network Status ===");
             println!("RPC: {}", args.rpc);
 
@@ -452,9 +638,6 @@ async fn main() -> Result<()> {
                             if let Some(syncing) = health.get("isSyncing") {
                                 println!("  Syncing: {}", syncing);
                             }
-                            if let Some(block) = health.get("shouldHavePeers") {
-                                println!("  Should have peers: {}", block);
-                            }
                         }
                     }
                 }
@@ -464,7 +647,6 @@ async fn main() -> Result<()> {
                 }
             }
 
-            // Get chain state
             let state_response = client
                 .post(&rpc_url)
                 .json(&serde_json::json!({
@@ -491,14 +673,14 @@ async fn main() -> Result<()> {
                         println!("  Validators: {}", obj.len());
                     }
                 }
-                if let Some(challenges) = state.get("challenges") {
-                    if let Some(obj) = challenges.as_object() {
+                if let Some(configs) = state.get("challenge_configs") {
+                    if let Some(obj) = configs.as_object() {
                         println!("  Challenges: {}", obj.len());
                     }
                 }
-                if let Some(configs) = state.get("challenge_configs") {
-                    if let Some(obj) = configs.as_object() {
-                        println!("  Challenge Configs: {}", obj.len());
+                if let Some(mechs) = state.get("mechanism_configs") {
+                    if let Some(obj) = mechs.as_object() {
+                        println!("  Mechanisms Configured: {}", obj.len());
                     }
                 }
             }

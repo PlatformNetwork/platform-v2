@@ -143,44 +143,42 @@ async fn main() -> Result<()> {
     let bittensor_seed = args.secret_key.clone();
 
     // Derive keypair using proper Substrate SR25519 derivation (same as Bittensor)
-    // This ensures the hotkey matches what Bittensor expects
-    let (keypair, identity_seed) = {
-        let secret = &args.secret_key;
+    // Derive sr25519 keypair - compatible with Bittensor/Substrate
+    // Hotkey will be the sr25519 public key that can be verified on Bittensor metagraph
+    let keypair = {
+        let secret = args.secret_key.trim();
 
         // Strip 0x prefix if present
         let hex_str = secret.strip_prefix("0x").unwrap_or(secret);
 
-        // Try hex decode first (32 bytes = raw seed)
-        if let Ok(bytes) = hex::decode(hex_str) {
-            if bytes.len() != 32 {
-                anyhow::bail!("Hex secret key must be 32 bytes");
+        // Try hex decode first (64 hex chars = 32 bytes seed)
+        if hex_str.len() == 64 {
+            if let Ok(bytes) = hex::decode(hex_str) {
+                if bytes.len() != 32 {
+                    anyhow::bail!("Hex seed must be 32 bytes");
+                }
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                info!("Loading sr25519 keypair from hex seed");
+                Keypair::from_seed(&arr)?
+            } else {
+                // Not valid hex, try as mnemonic
+                info!("Loading sr25519 keypair from mnemonic");
+                Keypair::from_mnemonic(secret)?
             }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&bytes);
-            let kp = Keypair::from_bytes(&arr)?;
-            (kp, arr)
         } else {
-            // Mnemonic phrase - use proper Substrate SR25519 derivation
-            use sp_core::crypto::Pair as CryptoPair;
-            use sp_core::sr25519;
-
-            // Derive SR25519 keypair using same method as bittensor-rs
-            let sr25519_pair = sr25519::Pair::from_string(secret, None)
-                .map_err(|e| anyhow::anyhow!("Invalid mnemonic: {:?}", e))?;
-
-            // Get the public key bytes (32 bytes) - this is the hotkey
-            let pubkey_bytes: [u8; 32] = sr25519_pair.public().0;
-
-            // Use public key bytes as seed for internal Ed25519 keypair
-            // This ensures peer ID is derived from the hotkey
-            let kp = Keypair::from_bytes(&pubkey_bytes)?;
-
-            info!("Derived keypair from Substrate mnemonic (SR25519)");
-            (kp, pubkey_bytes)
+            // Assume it's a mnemonic phrase
+            info!("Loading sr25519 keypair from mnemonic");
+            Keypair::from_mnemonic(secret)?
         }
     };
 
-    info!("Internal keypair derived (P2P signing)");
+    // Log the derived hotkey for verification against Bittensor metagraph
+    info!("Validator hotkey (hex): {}", keypair.hotkey().to_hex());
+    info!("Validator SS58 address: {}", keypair.ss58_address());
+
+    // The identity seed for P2P is derived from the keypair seed
+    let identity_seed = keypair.seed();
 
     // Canonicalize data directory to ensure absolute paths for Docker
     let data_dir = if args.data_dir.exists() {

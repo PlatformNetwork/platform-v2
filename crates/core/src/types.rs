@@ -33,28 +33,20 @@ impl Hotkey {
     /// Convert to SS58 format (Substrate address format)
     /// Uses network prefix 42 (generic Substrate)
     pub fn to_ss58(&self) -> String {
-        use sha2::{Digest, Sha512};
+        use sp_core::crypto::Ss58Codec;
 
-        // SS58 prefix for generic Substrate is 42
-        const SS58_PREFIX: u8 = 42;
+        // Use sp_core's SS58 encoding (proper blake2b checksum)
+        let public = sp_core::sr25519::Public::from_raw(self.0);
+        public.to_ss58check()
+    }
 
-        // Build the payload: prefix + pubkey
-        let mut payload = Vec::with_capacity(35);
-        payload.push(SS58_PREFIX);
-        payload.extend_from_slice(&self.0);
+    /// Parse from SS58 address
+    pub fn from_ss58(address: &str) -> Option<Self> {
+        use sp_core::crypto::Ss58Codec;
 
-        // Calculate checksum using SS58 hash: SHA512("SS58PRE" + payload)
-        let mut hasher = Sha512::new();
-        hasher.update(b"SS58PRE");
-        hasher.update(&payload);
-        let hash = hasher.finalize();
-
-        // Append first 2 bytes of hash as checksum
-        payload.push(hash[0]);
-        payload.push(hash[1]);
-
-        // Base58 encode
-        bs58::encode(payload).into_string()
+        sp_core::sr25519::Public::from_ss58check(address)
+            .ok()
+            .map(|p| Hotkey(p.0))
     }
 }
 

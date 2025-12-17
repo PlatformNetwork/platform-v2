@@ -7,7 +7,6 @@ edition.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 bincode = { workspace = true }
-ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
@@ -17,3 +16,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 bs58 = "0.5"
+
+# Sr25519 crypto (Substrate standard)
+sp-core = { version = "31.0", default-features = false, features = ["std"] }
+schnorrkel = "0.11"

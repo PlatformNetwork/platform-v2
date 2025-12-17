@@ -5,6 +5,8 @@
 //! - Resource limits (CPU, memory, time)
 //! - LLM API proxy injection
 //! - Output capture
+//!
+//! SECURITY: Only whitelisted base images are allowed for agent execution.
 
 use crate::host_functions::{
     ExecuteAgentRequest, ExecuteAgentResult, LLMCallRecord, TestResult, VerifyTaskRequest,
@@ -22,10 +24,24 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+/// Allowed base images for agent execution
+/// SECURITY: Only these images are allowed to run agents
+pub const ALLOWED_BASE_IMAGES: &[&str] = &[
+    "python:3.11-slim",
+    "python:3.12-slim",
+    "python:3.11",
+    "python:3.12",
+    "node:20-slim",
+    "node:22-slim",
+    "rust:1.75-slim",
+    "rust:1.76-slim",
+    "ghcr.io/platformnetwork/agent-runner:", // Custom runner images
+];
+
 /// Docker runner configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DockerRunnerConfig {
-    /// Base image for agent execution
+    /// Base image for agent execution (must be whitelisted)
     pub base_image: String,
     /// Docker socket path
     pub docker_socket: String,
@@ -87,9 +103,37 @@ struct RunningContainer {
 }
 
 impl DockerRunner {
-    pub fn new(config: DockerRunnerConfig) -> Self {
-        Self {
+    /// Check if a base image is allowed
+    /// SECURITY: Prevents running agents with unauthorized images
+    fn is_base_image_allowed(image: &str) -> bool {
+        let image_lower = image.to_lowercase();
+        ALLOWED_BASE_IMAGES.iter().any(|allowed| {
+            let allowed_lower = allowed.to_lowercase();
+            // Exact match or prefix match (for versioned images like ghcr.io/platformnetwork/agent-runner:v1)
+            image_lower == allowed_lower || image_lower.starts_with(&allowed_lower)
+        })
+    }
+
+    pub fn new(config: DockerRunnerConfig) -> Result<Self, String> {
+        // SECURITY: Validate base image on creation
+        if !Self::is_base_image_allowed(&config.base_image) {
+            return Err(format!(
+                "Base image '{}' is not whitelisted. Allowed images: {:?}",
+                config.base_image, ALLOWED_BASE_IMAGES
+            ));
+        }
+
+        Ok(Self {
             config,
+            running_containers: Arc::new(RwLock::new(HashMap::new())),
+            llm_records: Arc::new(RwLock::new(Vec::new())),
+        })
+    }
+
+    /// Create with default config (always uses whitelisted image)
+    pub fn with_defaults() -> Self {
+        Self {
+            config: DockerRunnerConfig::default(),
             running_containers: Arc::new(RwLock::new(HashMap::new())),
             llm_records: Arc::new(RwLock::new(Vec::new())),
         }

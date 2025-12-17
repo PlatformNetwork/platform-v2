@@ -271,6 +271,31 @@ pub enum SudoAction {
     /// Remove a challenge
     RemoveChallenge { id: ChallengeId },
 
+    // === Weight Allocation ===
+    /// Set challenge weight ratio on a mechanism (0.0 - 1.0)
+    /// Remaining weight goes to UID 0 (burn) unless other challenges share the mechanism
+    SetChallengeWeight {
+        challenge_id: ChallengeId,
+        mechanism_id: u8,
+        /// Weight ratio for this challenge (0.0 - 1.0)
+        /// If multiple challenges on same mechanism, ratios are normalized
+        weight_ratio: f64,
+    },
+
+    /// Set mechanism burn rate (weight that goes to UID 0)
+    /// Applied after challenge weights are distributed
+    SetMechanismBurnRate {
+        mechanism_id: u8,
+        /// Burn rate (0.0 - 1.0), e.g., 0.1 = 10% to UID 0
+        burn_rate: f64,
+    },
+
+    /// Configure mechanism weight distribution
+    SetMechanismConfig {
+        mechanism_id: u8,
+        config: MechanismWeightConfig,
+    },
+
     // === Version Management ===
     /// Set required validator version (triggers auto-update)
     SetRequiredVersion {
@@ -300,6 +325,13 @@ pub enum SudoAction {
     ForceStateUpdate { state: ChainState },
 }
 
+/// Allowed Docker image prefixes (whitelist)
+/// Only images from these registries are allowed to prevent malicious containers
+pub const ALLOWED_DOCKER_PREFIXES: &[&str] = &[
+    "ghcr.io/platformnetwork/", // Official Platform Network images
+    "ghcr.io/PlatformNetwork/", // Case variant
+];
+
 /// Challenge container configuration (for Docker-based challenges)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChallengeContainerConfig {
@@ -307,7 +339,7 @@ pub struct ChallengeContainerConfig {
     pub challenge_id: ChallengeId,
     /// Challenge name
     pub name: String,
-    /// Docker image (e.g., "cortexlm/term-bench:v1.2.0")
+    /// Docker image (must be from ghcr.io/platformnetwork/)
     pub docker_image: String,
     /// Mechanism ID for weight submission
     pub mechanism_id: u8,
@@ -348,6 +380,143 @@ impl ChallengeContainerConfig {
     pub fn with_timeout(mut self, timeout_secs: u64) -> Self {
         self.timeout_secs = timeout_secs;
         self
+    }
+
+    /// Validate the Docker image is from an allowed registry
+    /// Returns true if the image is whitelisted, false otherwise
+    pub fn is_docker_image_allowed(&self) -> bool {
+        let image_lower = self.docker_image.to_lowercase();
+        ALLOWED_DOCKER_PREFIXES
+            .iter()
+            .any(|prefix| image_lower.starts_with(&prefix.to_lowercase()))
+    }
+
+    /// Validate the entire config
+    /// Returns Ok(()) if valid, Err with reason if invalid
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        // Check name is not empty
+        if self.name.trim().is_empty() {
+            return Err("Challenge name cannot be empty".into());
+        }
+
+        // Check Docker image is not empty
+        if self.docker_image.trim().is_empty() {
+            return Err("Docker image cannot be empty".into());
+        }
+
+        // Check Docker image is from allowed registry
+        if !self.is_docker_image_allowed() {
+            return Err(format!(
+                "Docker image '{}' is not from an allowed registry. \
+                 Only images from ghcr.io/platformnetwork/ are allowed.",
+                self.docker_image
+            ));
+        }
+
+        // Check emission weight is valid
+        if self.emission_weight < 0.0 || self.emission_weight > 1.0 {
+            return Err(format!(
+                "Emission weight must be between 0.0 and 1.0, got {}",
+                self.emission_weight
+            ));
+        }
+
+        // Check timeout is reasonable (at least 60 seconds, max 24 hours)
+        if self.timeout_secs < 60 {
+            return Err("Timeout must be at least 60 seconds".into());
+        }
+        if self.timeout_secs > 86400 {
+            return Err("Timeout cannot exceed 24 hours (86400 seconds)".into());
+        }
+
+        // Check resources are reasonable
+        if self.cpu_cores < 0.5 || self.cpu_cores > 64.0 {
+            return Err(format!(
+                "CPU cores must be between 0.5 and 64, got {}",
+                self.cpu_cores
+            ));
+        }
+        if self.memory_mb < 512 || self.memory_mb > 131072 {
+            return Err(format!(
+                "Memory must be between 512MB and 128GB, got {}MB",
+                self.memory_mb
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+/// Configuration for how weights are distributed on a mechanism
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MechanismWeightConfig {
+    /// Mechanism ID on Bittensor
+    pub mechanism_id: u8,
+    /// Base burn rate - percentage of weights that go to UID 0 (0.0 - 1.0)
+    /// Applied before challenge distribution
+    pub base_burn_rate: f64,
+    /// Whether to distribute remaining weight equally among challenges
+    /// If false, uses per-challenge weight_ratio
+    pub equal_distribution: bool,
+    /// Minimum weight per miner (prevents dust weights)
+    pub min_weight_threshold: f64,
+    /// Maximum weight cap per miner (0.0 = no cap, 0.5 = max 50%)
+    pub max_weight_cap: f64,
+    /// Whether this mechanism is active
+    pub active: bool,
+}
+
+impl MechanismWeightConfig {
+    pub fn new(mechanism_id: u8) -> Self {
+        Self {
+            mechanism_id,
+            base_burn_rate: 0.0,
+            equal_distribution: true,
+            min_weight_threshold: 0.0001,
+            max_weight_cap: 0.5,
+            active: true,
+        }
+    }
+
+    pub fn with_burn_rate(mut self, rate: f64) -> Self {
+        self.base_burn_rate = rate.clamp(0.0, 1.0);
+        self
+    }
+
+    pub fn with_max_cap(mut self, cap: f64) -> Self {
+        self.max_weight_cap = cap.clamp(0.0, 1.0);
+        self
+    }
+}
+
+impl Default for MechanismWeightConfig {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+/// Challenge weight allocation on a mechanism
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChallengeWeightAllocation {
+    /// Challenge ID
+    pub challenge_id: ChallengeId,
+    /// Mechanism ID this challenge is on
+    pub mechanism_id: u8,
+    /// Weight ratio for this challenge (0.0 - 1.0)
+    /// If sum of all challenges on mechanism > 1.0, they are normalized
+    pub weight_ratio: f64,
+    /// Whether this allocation is active
+    pub active: bool,
+}
+
+impl ChallengeWeightAllocation {
+    pub fn new(challenge_id: ChallengeId, mechanism_id: u8, weight_ratio: f64) -> Self {
+        Self {
+            challenge_id,
+            mechanism_id,
+            weight_ratio: weight_ratio.clamp(0.0, 1.0),
+            active: true,
+        }
     }
 }
 
@@ -1260,5 +1429,100 @@ mod tests {
             our_version: "0.1.0".to_string(),
             required_min_version: "0.2.0".to_string(),
         };
+    }
+
+    // =========================================================================
+    // Docker Image Whitelist Tests
+    // =========================================================================
+
+    #[test]
+    fn test_docker_image_whitelist_allowed() {
+        // Valid PlatformNetwork images
+        let config = ChallengeContainerConfig::new(
+            "test",
+            "ghcr.io/platformnetwork/term-challenge:v1.0",
+            1,
+            1.0,
+        );
+        assert!(config.is_docker_image_allowed());
+
+        // Case insensitive
+        let config2 = ChallengeContainerConfig::new(
+            "test",
+            "ghcr.io/PlatformNetwork/another-challenge:latest",
+            1,
+            1.0,
+        );
+        assert!(config2.is_docker_image_allowed());
+    }
+
+    #[test]
+    fn test_docker_image_whitelist_rejected() {
+        // Random Docker Hub image
+        let config1 = ChallengeContainerConfig::new("test", "ubuntu:latest", 1, 1.0);
+        assert!(!config1.is_docker_image_allowed());
+
+        // Other GHCR organization
+        let config2 = ChallengeContainerConfig::new(
+            "test",
+            "ghcr.io/malicious-org/evil-container:latest",
+            1,
+            1.0,
+        );
+        assert!(!config2.is_docker_image_allowed());
+
+        // Docker Hub with similar name
+        let config3 = ChallengeContainerConfig::new("test", "platformnetwork/fake:v1", 1, 1.0);
+        assert!(!config3.is_docker_image_allowed());
+
+        // Empty image
+        let config4 = ChallengeContainerConfig::new("test", "", 1, 1.0);
+        assert!(!config4.is_docker_image_allowed());
+    }
+
+    #[test]
+    fn test_challenge_config_validate_success() {
+        let config = ChallengeContainerConfig::new(
+            "Terminal Benchmark",
+            "ghcr.io/platformnetwork/term-challenge:v1.0.0",
+            1,
+            0.5,
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_challenge_config_validate_bad_image() {
+        let config =
+            ChallengeContainerConfig::new("Test", "docker.io/malicious/container:latest", 1, 1.0);
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not from an allowed registry"));
+    }
+
+    #[test]
+    fn test_challenge_config_validate_empty_name() {
+        let config =
+            ChallengeContainerConfig::new("", "ghcr.io/platformnetwork/term-challenge:v1", 1, 1.0);
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("name cannot be empty"));
+    }
+
+    #[test]
+    fn test_challenge_config_validate_bad_emission_weight() {
+        let mut config = ChallengeContainerConfig::new(
+            "Test",
+            "ghcr.io/platformnetwork/term-challenge:v1",
+            1,
+            1.5, // Invalid: > 1.0
+        );
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Emission weight"));
+
+        config.emission_weight = -0.1; // Invalid: < 0.0
+        let result2 = config.validate();
+        assert!(result2.is_err());
     }
 }

@@ -42,17 +42,18 @@ pub fn protocol_version() -> (u32, u32, u32) {
 }
 
 // ============================================================================
-// SUDO KEY
+// SUDO KEY (sr25519 - Substrate/Bittensor compatible)
 // ============================================================================
 
-/// Production Sudo Key (Coldkey: 5GziQCcRpN8NCJktX343brnfuVe3w6gUYieeStXPD1Dag2At)
+/// Production Sudo Key (sr25519 public key)
+/// SS58 Address: 5GziQCcRpN8NCJktX343brnfuVe3w6gUYieeStXPD1Dag2At
 /// All requests signed by this key are treated as root and can update the network.
 pub const SUDO_KEY_BYTES: [u8; 32] = [
     0xda, 0x22, 0x04, 0x09, 0x67, 0x8d, 0xf5, 0xf0, 0x60, 0x74, 0xa6, 0x71, 0xab, 0xdc, 0x1f, 0x19,
     0xbc, 0x2b, 0xa1, 0x51, 0x72, 0x9f, 0xdb, 0x9a, 0x8e, 0x4b, 0xe2, 0x84, 0xe6, 0x0c, 0x94, 0x01,
 ];
 
-/// Production Sudo Key as hex string
+/// Production Sudo Key as hex string (sr25519)
 pub const SUDO_KEY_HEX: &str = "da220409678df5f06074a671abdc1f19bc2ba151729fdb9a8e4be284e60c9401";
 
 /// Production Sudo Key SS58 address

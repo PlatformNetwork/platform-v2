@@ -1,4 +1,7 @@
 //! Docker client wrapper for container management
+//!
+//! SECURITY: Only images from whitelisted registries (ghcr.io/platformnetwork/)
+//! are allowed to be pulled or run. This prevents malicious container attacks.
 
 use crate::{ChallengeContainerConfig, ChallengeInstance, ContainerStatus};
 use bollard::container::{
@@ -9,8 +12,9 @@ use bollard::image::CreateImageOptions;
 use bollard::models::{DeviceRequest, HostConfig, PortBinding};
 use bollard::Docker;
 use futures::StreamExt;
+use platform_core::ALLOWED_DOCKER_PREFIXES;
 use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Docker client for managing challenge containers
 pub struct DockerClient {
@@ -71,9 +75,31 @@ impl DockerClient {
         Ok(())
     }
 
-    /// Pull a Docker image
+    /// Check if a Docker image is from an allowed registry
+    /// SECURITY: This prevents pulling/running malicious containers
+    fn is_image_allowed(image: &str) -> bool {
+        let image_lower = image.to_lowercase();
+        ALLOWED_DOCKER_PREFIXES
+            .iter()
+            .any(|prefix| image_lower.starts_with(&prefix.to_lowercase()))
+    }
+
+    /// Pull a Docker image (only from whitelisted registries)
     pub async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
-        info!(image = %image, "Pulling Docker image");
+        // SECURITY: Verify image is from allowed registry before pulling
+        if !Self::is_image_allowed(image) {
+            error!(
+                image = %image,
+                "SECURITY: Attempted to pull image from non-whitelisted registry!"
+            );
+            anyhow::bail!(
+                "Docker image '{}' is not from an allowed registry. \
+                 Only images from ghcr.io/platformnetwork/ are permitted.",
+                image
+            );
+        }
+
+        info!(image = %image, "Pulling Docker image (whitelisted)");
 
         let options = CreateImageOptions {
             from_image: image,
@@ -99,11 +125,43 @@ impl DockerClient {
         Ok(())
     }
 
-    /// Start a challenge container
+    /// Start a challenge container (only from whitelisted registries)
     pub async fn start_challenge(
         &self,
         config: &ChallengeContainerConfig,
     ) -> anyhow::Result<ChallengeInstance> {
+        // SECURITY: Verify image is from allowed registry before starting
+        if !Self::is_image_allowed(&config.docker_image) {
+            error!(
+                image = %config.docker_image,
+                challenge = %config.name,
+                "SECURITY: Attempted to start container from non-whitelisted registry!"
+            );
+            anyhow::bail!(
+                "Docker image '{}' is not from an allowed registry. \
+                 Only images from ghcr.io/platformnetwork/ are permitted. \
+                 Challenge '{}' rejected.",
+                config.docker_image,
+                config.name
+            );
+        }
+
+        // Also run full config validation
+        if let Err(reason) = config.validate() {
+            error!(
+                challenge = %config.name,
+                reason = %reason,
+                "Challenge config validation failed"
+            );
+            anyhow::bail!("Challenge config validation failed: {}", reason);
+        }
+
+        info!(
+            image = %config.docker_image,
+            challenge = %config.name,
+            "Starting challenge container (whitelisted)"
+        );
+
         // Ensure network exists
         self.ensure_network().await?;
 

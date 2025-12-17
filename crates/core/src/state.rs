@@ -1,8 +1,9 @@
 //! Chain state management
 
 use crate::{
-    hash_data, BlockHeight, Challenge, ChallengeContainerConfig, ChallengeId, Hotkey, Job,
-    NetworkConfig, Result, Stake, ValidatorInfo,
+    hash_data, BlockHeight, Challenge, ChallengeContainerConfig, ChallengeId,
+    ChallengeWeightAllocation, Hotkey, Job, MechanismWeightConfig, NetworkConfig, Result, Stake,
+    ValidatorInfo,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -41,6 +42,12 @@ pub struct ChainState {
     /// Challenge container configs (for Docker-based challenges)
     pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
 
+    /// Mechanism weight configurations (mechanism_id -> config)
+    pub mechanism_configs: HashMap<u8, MechanismWeightConfig>,
+
+    /// Challenge weight allocations (challenge_id -> allocation)
+    pub challenge_weights: HashMap<ChallengeId, ChallengeWeightAllocation>,
+
     /// Required validator version
     pub required_version: Option<RequiredVersion>,
 
@@ -65,6 +72,8 @@ impl ChainState {
             validators: HashMap::new(),
             challenges: HashMap::new(),
             challenge_configs: HashMap::new(),
+            mechanism_configs: HashMap::new(),
+            challenge_weights: HashMap::new(),
             required_version: None,
             pending_jobs: Vec::new(),
             state_hash: [0u8; 32],

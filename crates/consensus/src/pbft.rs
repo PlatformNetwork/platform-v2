@@ -301,6 +301,51 @@ impl PBFTEngine {
                 *state = new_state;
                 warn!("Force state update applied");
             }
+            SudoAction::SetChallengeWeight {
+                challenge_id,
+                mechanism_id,
+                weight_ratio,
+            } => {
+                let allocation = platform_core::ChallengeWeightAllocation::new(
+                    challenge_id,
+                    mechanism_id,
+                    weight_ratio,
+                );
+                state.challenge_weights.insert(challenge_id, allocation);
+                info!(
+                    "Challenge weight set: {:?} on mechanism {} = {:.2}%",
+                    challenge_id,
+                    mechanism_id,
+                    weight_ratio * 100.0
+                );
+            }
+            SudoAction::SetMechanismBurnRate {
+                mechanism_id,
+                burn_rate,
+            } => {
+                let config = state
+                    .mechanism_configs
+                    .entry(mechanism_id)
+                    .or_insert_with(|| platform_core::MechanismWeightConfig::new(mechanism_id));
+                config.base_burn_rate = burn_rate.clamp(0.0, 1.0);
+                info!(
+                    "Mechanism {} burn rate set to {:.2}%",
+                    mechanism_id,
+                    burn_rate * 100.0
+                );
+            }
+            SudoAction::SetMechanismConfig {
+                mechanism_id,
+                config,
+            } => {
+                state.mechanism_configs.insert(mechanism_id, config.clone());
+                info!(
+                    "Mechanism {} config updated: burn={:.2}%, cap={:.2}%",
+                    mechanism_id,
+                    config.base_burn_rate * 100.0,
+                    config.max_weight_cap * 100.0
+                );
+            }
         }
 
         state.update_hash();
@@ -334,10 +379,37 @@ impl PBFTEngine {
     fn validate_sudo_action(&self, _state: &ChainState, action: &SudoAction) -> bool {
         match action {
             SudoAction::AddChallenge { config } => {
-                // Validate docker image is specified
-                !config.docker_image.is_empty() && !config.name.is_empty()
+                // Full validation including Docker image whitelist
+                match config.validate() {
+                    Ok(()) => {
+                        info!(
+                            "Challenge config validated: {} ({})",
+                            config.name, config.docker_image
+                        );
+                        true
+                    }
+                    Err(reason) => {
+                        warn!("Challenge config rejected: {}", reason);
+                        false
+                    }
+                }
             }
-            SudoAction::UpdateChallenge { config } => !config.docker_image.is_empty(),
+            SudoAction::UpdateChallenge { config } => {
+                // Validate updated config including Docker image whitelist
+                match config.validate() {
+                    Ok(()) => {
+                        info!(
+                            "Challenge update validated: {} ({})",
+                            config.name, config.docker_image
+                        );
+                        true
+                    }
+                    Err(reason) => {
+                        warn!("Challenge update rejected: {}", reason);
+                        false
+                    }
+                }
+            }
             _ => true,
         }
     }
