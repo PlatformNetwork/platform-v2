@@ -245,10 +245,10 @@ pub fn compute_subtensor_hash(
 ) -> [u8; 32] {
     // Calculate netuid_index (NetUidStorageIndex)
     // In subtensor: netuid_index = get_mechanism_storage_index(netuid, mecid)
-    // For main mechanism (id=0): netuid_index = netuid * 256
-    // For other mechanisms: netuid_index = netuid * 256 + mecid
-    let mecid = mechanism_id.unwrap_or(0);
-    let netuid_index: u32 = (netuid as u32) * 256 + (mecid as u32);
+    // GLOBAL_MAX_SUBNET_COUNT = 4096
+    // Formula: mecid * 4096 + netuid
+    let mecid = mechanism_id.unwrap_or(0) as u32;
+    let netuid_index: u32 = mecid * 4096 + (netuid as u32);
 
     // Create SCALE-encodable tuple matching subtensor's format
     let data = (

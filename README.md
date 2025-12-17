@@ -235,7 +235,7 @@ H = Blake2b_256(SCALE(account, netuid_index, uids, weights, salt, version_key))
 
 Where:
 ```
-netuid_index = netuid × 256 + mechanism_id
+netuid_index = mechanism_id × 4096 + netuid
 ```
 
 3. Submit commit: `commit_mechanism_weights(netuid, mechanism_id, H)`

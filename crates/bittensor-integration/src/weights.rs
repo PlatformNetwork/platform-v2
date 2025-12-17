@@ -119,9 +119,35 @@ pub struct PendingMechanismCommit {
     pub hash: String,
     pub uids: Vec<u16>,
     pub weights: Vec<u16>,
-    pub salt: Vec<u16>,
+    /// Salt stored as hex string to avoid JSON serialization issues with u16
+    pub salt_hex: String,
     pub version_key: u64,
     pub epoch: u64,
+}
+
+impl PendingMechanismCommit {
+    /// Get salt as Vec<u16> from hex storage
+    pub fn get_salt(&self) -> Vec<u16> {
+        // Decode hex to bytes, then convert pairs of bytes to u16 (little-endian)
+        let bytes = hex::decode(&self.salt_hex).unwrap_or_default();
+        bytes
+            .chunks(2)
+            .map(|chunk| {
+                if chunk.len() == 2 {
+                    u16::from_le_bytes([chunk[0], chunk[1]])
+                } else {
+                    chunk[0] as u16
+                }
+            })
+            .collect()
+    }
+
+    /// Create salt_hex from Vec<u16>
+    pub fn salt_to_hex(salt: &[u16]) -> String {
+        // Convert each u16 to 2 bytes (little-endian) and hex encode
+        let bytes: Vec<u8> = salt.iter().flat_map(|s| s.to_le_bytes()).collect();
+        hex::encode(bytes)
+    }
 }
 
 /// Pending commit data using subtensor-compatible format (v2)
@@ -130,9 +156,33 @@ pub struct PendingCommitV2 {
     pub hash: String,
     pub uids: Vec<u16>,
     pub weights: Vec<u16>,
-    pub salt: Vec<u16>,
+    /// Salt stored as hex string to avoid JSON serialization issues
+    pub salt_hex: String,
     pub version_key: u64,
     pub epoch: u64,
+}
+
+impl PendingCommitV2 {
+    /// Get salt as Vec<u16> from hex storage
+    pub fn get_salt(&self) -> Vec<u16> {
+        let bytes = hex::decode(&self.salt_hex).unwrap_or_default();
+        bytes
+            .chunks(2)
+            .map(|chunk| {
+                if chunk.len() == 2 {
+                    u16::from_le_bytes([chunk[0], chunk[1]])
+                } else {
+                    chunk[0] as u16
+                }
+            })
+            .collect()
+    }
+
+    /// Create salt_hex from Vec<u16>
+    pub fn salt_to_hex(salt: &[u16]) -> String {
+        let bytes: Vec<u8> = salt.iter().flat_map(|s| s.to_le_bytes()).collect();
+        hex::encode(bytes)
+    }
 }
 
 impl WeightSubmitter {
@@ -279,12 +329,12 @@ impl WeightSubmitter {
         )
         .await?;
 
-        // Store pending commit for reveal
+        // Store pending commit for reveal (salt as hex to avoid serialization issues)
         self.state.pending_commit = Some(PendingCommitV2 {
             hash: commit_data.commit_hash,
             uids: commit_data.uids,
             weights: commit_data.weights,
-            salt: commit_data.salt,
+            salt_hex: PendingCommitV2::salt_to_hex(&commit_data.salt),
             version_key: commit_data.version_key,
             epoch: self.current_epoch,
         });
@@ -300,6 +350,16 @@ impl WeightSubmitter {
 
         // Convert uids to u64 for reveal_weights API
         let uids_u64: Vec<u64> = pending.uids.iter().map(|u| *u as u64).collect();
+        let salt = pending.get_salt();
+
+        debug!(
+            "Revealing: uids={:?}, weights={:?}, salt_hex={}, salt={:?}",
+            pending.uids, pending.weights, pending.salt_hex, salt
+        );
+
+        // Note: reveal_weights API expects &[u8] for salt, but we store as u16
+        // The salt bytes are converted back from the hex storage
+        let salt_bytes: Vec<u8> = hex::decode(&pending.salt_hex).unwrap_or_default();
 
         let tx_hash = reveal_weights(
             self.client.client()?,
@@ -307,8 +367,7 @@ impl WeightSubmitter {
             self.client.netuid(),
             &uids_u64,
             &pending.weights,
-            // Convert salt u16 back to u8 for reveal_weights API (it converts internally)
-            &pending.salt.iter().map(|s| *s as u8).collect::<Vec<u8>>(),
+            &salt_bytes,
             pending.version_key,
             ExtrinsicWait::Finalized,
         )
@@ -434,8 +493,14 @@ impl WeightSubmitter {
         let mut pending_commits = Vec::new();
 
         for (mechanism_id, uids, weights) in mechanism_weights {
-            // Generate salt (8 bytes converted to u16)
+            // Generate salt (8 u16 values)
             let salt = generate_salt(8);
+            let salt_hex = PendingMechanismCommit::salt_to_hex(&salt);
+
+            debug!(
+                "Commit mechanism {}: uids={:?}, weights={:?}, salt={:?}, salt_hex={}, version_key={}",
+                mechanism_id, uids, weights, salt, salt_hex, version_key
+            );
 
             // Generate commit hash
             let commit_hash = generate_mechanism_commit_hash(
@@ -450,9 +515,10 @@ impl WeightSubmitter {
 
             let commit_hash_hex = commit_hash_to_hex(&commit_hash);
             info!(
-                "Generated commit for mechanism {}: {}",
+                "Generated commit for mechanism {}: {} (salt_hex={})",
                 mechanism_id,
-                &commit_hash_hex[..16]
+                &commit_hash_hex[..16],
+                &salt_hex[..16]
             );
 
             // Add to batch
@@ -462,13 +528,13 @@ impl WeightSubmitter {
                 &commit_hash,
             ));
 
-            // Store pending commit for later reveal
+            // Store pending commit for later reveal (salt as hex to avoid serialization issues)
             pending_commits.push(PendingMechanismCommit {
                 mechanism_id: *mechanism_id,
                 hash: commit_hash_hex,
                 uids: uids.clone(),
                 weights: weights.clone(),
-                salt: salt.iter().map(|b| *b as u16).collect(),
+                salt_hex, // Already computed above
                 version_key,
                 epoch: self.current_epoch,
             });
@@ -525,6 +591,12 @@ impl WeightSubmitter {
         for (_, commit) in pending {
             let mechanism_id = commit.mechanism_id;
             let epoch = commit.epoch;
+            let salt = commit.get_salt();
+
+            debug!(
+                "Revealing mechanism {}: uids={:?}, weights={:?}, salt_hex={}, salt={:?}, version_key={}",
+                mechanism_id, commit.uids, commit.weights, commit.salt_hex, salt, commit.version_key
+            );
 
             let tx_hash = reveal_mechanism_weights(
                 self.client.client()?,
@@ -533,7 +605,7 @@ impl WeightSubmitter {
                 mechanism_id,
                 &commit.uids,
                 &commit.weights,
-                &commit.salt,
+                &salt,
                 commit.version_key,
                 ExtrinsicWait::Finalized,
             )
