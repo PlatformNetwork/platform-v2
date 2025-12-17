@@ -969,7 +969,7 @@ checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 [[package]]
 name = "bittensor-rs"
 version = "0.1.0"
-source = "git+https://github.com/CortexLM/bittensor-rs?rev=b5720eb#b5720eb5d00470c38ffb38817b91f2986ba201a1"
+source = "git+https://github.com/CortexLM/bittensor-rs?rev=db10a19#db10a19d84ce1ccd4c745eb08d736e829b6fd644"
 dependencies = [
  "anyhow",
  "ark-serialize 0.4.2",
@@ -2889,8 +2889,8 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
- "system-configuration 0.5.1",
+ "socket2 0.6.1",
+ "system-configuration 0.6.1",
  "tokio",
  "tower-service",
  "tracing",
@@ -5176,7 +5176,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls 0.23.35",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -5213,7 +5213,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -8141,7 +8141,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
