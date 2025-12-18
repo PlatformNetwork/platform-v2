@@ -14,8 +14,9 @@ use platform_bittensor::{
 use platform_challenge_runtime::{ChallengeRuntime, RuntimeConfig, RuntimeEvent};
 use platform_consensus::PBFTEngine;
 use platform_core::{
-    production_sudo_key, ChainState, ChallengeContainerConfig, Hotkey, Keypair, NetworkConfig,
-    NetworkMessage, SignedNetworkMessage, Stake, SudoAction, ValidatorInfo, SUDO_KEY_SS58,
+    production_sudo_key, ChainState, ChallengeContainerConfig, ChallengeMessageType,
+    ChallengeNetworkMessage, Hotkey, Keypair, NetworkConfig, NetworkMessage, SignedNetworkMessage,
+    Stake, SudoAction, ValidatorInfo, SUDO_KEY_SS58,
 };
 use platform_epoch::{EpochConfig, EpochPhase, EpochTransition};
 use platform_network::{
@@ -1098,6 +1099,97 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Spawn P2P outbox polling task for challenge containers
+    // This polls each container's /p2p/outbox endpoint and broadcasts messages to the network
+    if let Some(ref _orch) = challenge_orchestrator {
+        let state_for_outbox = chain_state.clone();
+        let net_cmd_tx_for_outbox = net_cmd_tx.clone();
+        let keypair_for_outbox = keypair.clone();
+
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            let poll_interval = std::time::Duration::from_secs(5);
+
+            loop {
+                tokio::time::sleep(poll_interval).await;
+
+                // Get all challenge containers
+                let configs: Vec<ChallengeContainerConfig> = {
+                    let state = state_for_outbox.read();
+                    state.challenge_configs.values().cloned().collect()
+                };
+
+                for config in configs {
+                    let container_name = config.name.to_lowercase().replace([' ', '_'], "-");
+                    let outbox_url = format!("http://challenge-{}:8080/p2p/outbox", container_name);
+
+                    match client.get(&outbox_url).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            if let Ok(outbox) = resp.json::<serde_json::Value>().await {
+                                if let Some(messages) =
+                                    outbox.get("messages").and_then(|m| m.as_array())
+                                {
+                                    for msg_value in messages {
+                                        // Parse the outbox message
+                                        if let (Some(message), target) = (
+                                            msg_value.get("message"),
+                                            msg_value.get("target").and_then(|t| t.as_str()),
+                                        ) {
+                                            // Create ChallengeNetworkMessage to broadcast
+                                            let challenge_msg = ChallengeNetworkMessage {
+                                                challenge_id: config.name.clone(),
+                                                message_type: ChallengeMessageType::Custom(
+                                                    "p2p_bridge".to_string(),
+                                                ),
+                                                payload: serde_json::to_vec(message)
+                                                    .unwrap_or_default(),
+                                            };
+
+                                            let network_msg =
+                                                NetworkMessage::ChallengeMessage(challenge_msg);
+                                            if let Ok(signed) = SignedNetworkMessage::new(
+                                                network_msg,
+                                                &keypair_for_outbox,
+                                            ) {
+                                                if target.is_some() {
+                                                    // TODO: Implement targeted send to specific validator
+                                                    debug!("Targeted P2P send not yet implemented");
+                                                } else {
+                                                    // Broadcast to all
+                                                    if let Err(e) = net_cmd_tx_for_outbox
+                                                        .send(NetworkCommand::Broadcast(signed))
+                                                        .await
+                                                    {
+                                                        debug!("Failed to broadcast outbox message: {}", e);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    let count = messages.len();
+                                    if count > 0 {
+                                        debug!(
+                                            "Broadcast {} P2P messages from container '{}'",
+                                            count, config.name
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            // Container might not be ready yet, silently ignore
+                        }
+                        Err(_) => {
+                            // Container might not be running, silently ignore
+                        }
+                    }
+                }
+            }
+        });
+        info!("P2P outbox polling task started (interval: 5s)");
+    }
+
     // Main event loop
     info!("Validator node running. Press Ctrl+C to stop.");
 
@@ -1979,9 +2071,77 @@ async fn handle_message(
                 "Challenge message from {:?}: challenge={}, type={:?}",
                 signer, challenge_msg.challenge_id, challenge_msg.message_type
             );
-            // Challenge messages are handled by the challenge runtime/containers
-            // The validator just routes them. For now, log and ignore.
-            // In production, this would be forwarded to the challenge container via HTTP
+
+            // Forward challenge message to the appropriate container via HTTP
+            let challenge_id = challenge_msg.challenge_id.clone();
+            let container_name = challenge_id.to_lowercase().replace([' ', '_'], "-");
+            let from_hotkey = signer.to_hex();
+            let msg_payload = challenge_msg.payload.clone();
+
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let p2p_endpoint = format!("http://challenge-{}:8080/p2p/message", container_name);
+
+                // Convert ChallengeMessageType to ChallengeP2PMessage for the container
+                let p2p_message = match challenge_msg.message_type {
+                    platform_core::ChallengeMessageType::EvaluationResult => {
+                        // Parse payload as evaluation result
+                        if let Ok(eval) = serde_json::from_slice::<
+                            platform_challenge_sdk::EvaluationResultMessage,
+                        >(&msg_payload)
+                        {
+                            Some(
+                                platform_challenge_sdk::ChallengeP2PMessage::EvaluationResult(eval),
+                            )
+                        } else {
+                            warn!("Failed to parse EvaluationResult payload");
+                            None
+                        }
+                    }
+                    platform_core::ChallengeMessageType::WeightResult => {
+                        if let Ok(weights) = serde_json::from_slice::<
+                            platform_challenge_sdk::WeightResultMessage,
+                        >(&msg_payload)
+                        {
+                            Some(platform_challenge_sdk::ChallengeP2PMessage::WeightResult(
+                                weights,
+                            ))
+                        } else {
+                            warn!("Failed to parse WeightResult payload");
+                            None
+                        }
+                    }
+                    _ => {
+                        debug!(
+                            "Unhandled challenge message type: {:?}",
+                            challenge_msg.message_type
+                        );
+                        None
+                    }
+                };
+
+                if let Some(message) = p2p_message {
+                    let req_body = serde_json::json!({
+                        "from_hotkey": from_hotkey,
+                        "message": message
+                    });
+
+                    match client.post(&p2p_endpoint).json(&req_body).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            debug!(
+                                "Forwarded challenge message to container {}",
+                                container_name
+                            );
+                        }
+                        Ok(resp) => {
+                            debug!("Container {} returned {}", container_name, resp.status());
+                        }
+                        Err(e) => {
+                            debug!("Failed to forward to container {}: {}", container_name, e);
+                        }
+                    }
+                }
+            });
         }
         NetworkMessage::AgentSubmission(submission) => {
             info!(
@@ -2019,13 +2179,15 @@ async fn handle_message(
             };
 
             if let Some(config) = challenge_config {
-                let container_name = config.name.to_lowercase().replace(' ', "-");
+                let container_name = config.name.to_lowercase().replace([' ', '_'], "-");
                 let agent_hash = submission.agent_hash.clone();
                 let agent_hash_for_log = agent_hash.clone();
                 let challenge_name = submission.challenge_id.clone();
                 let miner = submission.miner_hotkey.clone();
+                let miner_for_log = miner.clone();
+                let source_code = submission.source_code.clone();
+                let miner_signature = submission.miner_signature.clone();
                 let obfuscated_hash = submission.obfuscated_hash.clone().unwrap_or_else(|| {
-                    // Generate obfuscated hash from agent hash if not provided
                     use sha2::{Digest, Sha256};
                     let mut hasher = Sha256::new();
                     hasher.update(agent_hash.as_bytes());
@@ -2034,13 +2196,60 @@ async fn handle_message(
                 });
                 let validator_hotkey = signer.to_hex();
 
-                // Sign consensus for this agent (allows evaluation to proceed)
+                // Forward agent submission to container and sign consensus
                 tokio::spawn(async move {
                     let client = reqwest::Client::new();
+
+                    // Step 1: If we have source code, submit the agent to our local container
+                    // This ensures the container has the agent registered for evaluation
+                    if let Some(ref code) = source_code {
+                        let submit_endpoint =
+                            format!("http://challenge-{}:8080/submit", container_name);
+
+                        let submit_payload = serde_json::json!({
+                            "source_code": code,
+                            "miner_hotkey": miner,
+                            "signature": hex::encode(&miner_signature),
+                            "stake": 1000000000000u64,
+                            "from_p2p": true,
+                        });
+
+                        match client
+                            .post(&submit_endpoint)
+                            .json(&submit_payload)
+                            .send()
+                            .await
+                        {
+                            Ok(resp) if resp.status().is_success() => {
+                                info!(
+                                    "Agent {} registered in local container via P2P",
+                                    &agent_hash[..16.min(agent_hash.len())]
+                                );
+                            }
+                            Ok(resp) => {
+                                // 409 Conflict means agent already exists, which is fine
+                                if resp.status().as_u16() != 409 {
+                                    debug!(
+                                        "Submit to container returned {}: agent {}",
+                                        resp.status(),
+                                        &agent_hash[..16.min(agent_hash.len())]
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to submit agent {} to local container: {}",
+                                    &agent_hash[..16.min(agent_hash.len())],
+                                    e
+                                );
+                            }
+                        }
+                    }
+
+                    // Step 2: Sign consensus for this agent (allows evaluation to proceed)
                     let consensus_endpoint =
                         format!("http://challenge-{}:8080/consensus/sign", container_name);
 
-                    // Sign the consensus
                     let sign_payload = serde_json::json!({
                         "agent_hash": agent_hash,
                         "validator_hotkey": validator_hotkey,
@@ -2089,7 +2298,7 @@ async fn handle_message(
                     "Agent {} received via P2P (challenge: {}, miner: {})",
                     &agent_hash_for_log[..16.min(agent_hash_for_log.len())],
                     challenge_name,
-                    miner
+                    miner_for_log
                 );
             } else {
                 warn!(
