@@ -177,8 +177,9 @@ async fn main() -> Result<()> {
     info!("Validator hotkey (hex): {}", keypair.hotkey().to_hex());
     info!("Validator SS58 address: {}", keypair.ss58_address());
 
-    // The identity seed for P2P is derived from the keypair seed
-    let identity_seed = keypair.seed();
+    // The identity seed for P2P is derived from the hotkey (public key)
+    // This ensures the peer ID corresponds to the SS58 address
+    let identity_seed = keypair.hotkey().0;
 
     // Canonicalize data directory to ensure absolute paths for Docker
     let data_dir = if args.data_dir.exists() {
