@@ -2,17 +2,48 @@
 
 This guide explains how to run a Platform validator node on the Bittensor network.
 
+## Key Features
+
+- **No GPU required** - Validators run on standard CPU servers
+- **No third-party APIs** - No OpenAI, Anthropic, or other API keys needed
+- **One command setup** - Just run `docker compose up -d`
+- **Auto-updates** - Watchtower keeps your validator in sync automatically
+- **Minimal maintenance** - Set it and forget it
+
+---
+
+## Quick start for validators
+
+That's all you need to do:
+
+```bash
+git clone https://github.com/PlatformNetwork/platform.git
+cd platform
+cp .env.example .env
+# Edit .env: add your VALIDATOR_SECRET_KEY (BIP39 mnemonic)
+docker compose up -d
+```
+
+The validator will auto-connect to the network and sync. No GPUs, no third-party API keys, nothing else required.
+
+---
+
 ## Requirements
 
 ### Hardware
 
-| Component | Minimum |
-|-----------|---------|
-| CPU | 16 vCPU |
-| RAM | 64 GB |
-| Storage | 500 GB SSD/NVMe |
-| Network | 100 Mbps |
-| **Port** | **9000/TCP open** |
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| **CPU** | 4 vCPU | 8 vCPU |
+| **RAM** | 16 GB | 32 GB |
+| **Storage** | 250 GB SSD | 500 GB NVMe |
+| **Network** | 100 Mbps | 100 Mbps |
+
+> **Note**: Hardware requirements may increase over time as more challenges are added.
+
+### Network
+
+**Port 9000/tcp must be open** for P2P communication.
 
 ### Software
 
@@ -23,61 +54,8 @@ This guide explains how to run a Platform validator node on the Bittensor networ
 ### Bittensor
 
 - **Minimum stake**: 1000 TAO
-- Registered hotkey on subnet (netuid specified in config)
+- Registered hotkey on subnet
 - BIP39 mnemonic or hex private key
-
----
-
-## Quick Start
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/PlatformNetwork/platform.git
-cd platform
-```
-
-### 2. Configure environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your validator configuration:
-
-```bash
-# Required: Your validator's secret key (BIP39 mnemonic or hex)
-VALIDATOR_SECRET_KEY="your twelve word mnemonic phrase goes here"
-
-# Bittensor configuration
-SUBTENSOR_ENDPOINT=wss://entrypoint-finney.opentensor.ai:443
-NETUID=100
-
-# Logging
-RUST_LOG=info
-```
-
-### 3. Open required ports
-
-```bash
-# Using ufw
-sudo ufw allow 9000/tcp
-
-# Or using iptables
-sudo iptables -A INPUT -p tcp --dport 9000 -j ACCEPT
-```
-
-### 4. Start the validator
-
-```bash
-docker compose up -d
-```
-
-### 5. Check logs
-
-```bash
-docker compose logs -f validator
-```
 
 ---
 
