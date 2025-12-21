@@ -14,6 +14,7 @@ members = [
     "crates/challenge-orchestrator",
     "crates/auto-updater",
     "crates/distributed-db",
+    "crates/secure-container-runtime",
     "bins/validator-node",
     "bins/csudo",
     "bins/utils",
