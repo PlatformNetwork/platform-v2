@@ -48,22 +48,22 @@ The coordination between validators ensures that only verified, consensus-valida
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              SUDO OWNER                                      │
-│                    (Creates, Updates, Removes Challenges)                    │
+│                              SUDO OWNER                                     │
+│                    (Creates, Updates, Removes Challenges)                   │
 └─────────────────────────────────┬───────────────────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         SHARED BLOCKCHAIN STATE                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │ Challenge A │  │ Challenge B │  │ Challenge C │  │     ...     │        │
-│  │ (Docker)    │  │ (Docker)    │  │ (Docker)    │  │             │        │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
-│                                                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│                         SHARED BLOCKCHAIN STATE                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │ Challenge A │  │ Challenge B │  │ Challenge C │  │     ...     │         │
+│  │ (Docker)    │  │ (Docker)    │  │ (Docker)    │  │             │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘         │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                     Distributed Database (Merkle Trie)                │  │
 │  │              Evaluation Results • Scores • Agent Data                 │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────┬───────────────────────────────────────────┘
                                   │
             ┌─────────────────────┼─────────────────────┐
@@ -99,15 +99,18 @@ The coordination between validators ensures that only verified, consensus-valida
 ### Operations
 
 1. **Development**:
+
    - Miners develop solutions that solve challenge-specific tasks
    - Solutions are packaged as code submissions with metadata
 
 2. **Submission**:
+
    - Submit to any validator via HTTP API
    - Submission is stored in distributed database and synced across all validators
    - Submission includes: source code, miner hotkey, metadata
 
 3. **Evaluation**:
+
    - All validators independently evaluate the submission
    - Evaluation runs in isolated Docker containers (challenge-specific logic)
    - Results are stored in Merkle-verified distributed database
@@ -129,26 +132,31 @@ The coordination between validators ensures that only verified, consensus-valida
 ### Operations
 
 1. **Challenge Synchronization**:
+
    - Pull challenge Docker images configured by Sudo owner
    - All validators run identical challenge containers
    - Health monitoring ensures container availability
 
 2. **Submission Evaluation**:
+
    - Receive submissions via P2P gossipsub
    - Execute evaluation in sandboxed Docker environment
    - Compute score $s \in [0, 1]$ based on challenge criteria
 
 3. **Result Sharing**:
+
    - Broadcast `EvaluationResult` to all peers via P2P
    - Store results in distributed Merkle-verified database
    - Verify state root matches across validators
 
 4. **Score Aggregation**:
+
    - Collect evaluations from all validators for each submission
-   - Compute stake-weighted median to resist manipulation
-   - Detect and exclude outlier validators
+   - Compute stake-weighted average to aggregate scores
+   - Detect and exclude outlier validators (2σ threshold)
 
 5. **Weight Calculation**:
+
    - Convert aggregated scores to normalized weights
    - Apply softmax or linear normalization
 
@@ -157,10 +165,12 @@ The coordination between validators ensures that only verified, consensus-valida
 
 ### Formal Definitions
 
-- **Evaluation**: $E_i^v = (h_i, s_i^v, t, \sigma_v)$ where $\sigma_v$ is validator signature
-- **Aggregated Score** (stake-weighted median):
+- **Evaluation**: $E_i^v = (h_i, s_i^v, t, sig_v)$ where $sig_v$ is validator signature
+- **Aggregated Score** (stake-weighted mean, after outlier removal):
 
-$$\bar{s}_i = \text{median}(\{s_i^v : v \in \mathcal{V}\}) \text{ weighted by stake}$$
+$$\bar{s}_i = \frac{\sum_{v \in \mathcal{V}'} S_v \cdot s_i^v}{\sum_{v \in \mathcal{V}'} S_v}$$
+
+Where $\mathcal{V}'$ is the set of validators after outlier removal and $S_v$ is the stake of validator $v$
 
 - **Confidence Score**:
 
@@ -183,6 +193,7 @@ Converts scores to probability distribution using temperature-scaled softmax:
 $$w_i = \frac{\exp(s_i / T)}{\sum_{j \in \mathcal{M}} \exp(s_j / T)}$$
 
 Where:
+
 - $w_i$ - normalized weight for submission $i$
 - $s_i$ - aggregated score for submission $i$
 - $T$ - temperature parameter (higher = more distributed)
@@ -196,7 +207,7 @@ $$w_i = \frac{s_i}{\sum_{j \in \mathcal{M}} s_j}$$
 
 ### Final Weight Conversion
 
-Weights are converted to Bittensor u16 format:
+Weights are converted to Bittensor `u16` format:
 
 $$W_i = \lfloor w_i' \times 65535 \rfloor$$
 
@@ -283,12 +294,12 @@ Low confidence (high variance) may exclude submission from weights.
 
 ### Network Protection
 
-| Protection | Configuration |
-|------------|---------------|
-| Rate Limiting | 100 msg/sec per peer |
-| Connection Limiting | 5 connections per IP |
-| Blacklist Duration | 1 hour for violations |
-| Failed Attempt Limit | 10 before blacklist |
+| Protection           | Configuration         |
+| -------------------- | --------------------- |
+| Rate Limiting        | 100 msg/sec per peer  |
+| Connection Limiting  | 5 connections per IP  |
+| Blacklist Duration   | 1 hour for violations |
+| Failed Attempt Limit | 10 before blacklist   |
 
 ### Evaluation Isolation
 
@@ -313,6 +324,7 @@ Miners maximize reward by submitting high-performing solutions:
 $$\max_{S_i} \quad w_i = \frac{\exp(\bar{s}_i / T)}{\sum_j \exp(\bar{s}_j / T)}$$
 
 Subject to:
+
 - Submission must pass validation
 - Score determined by challenge criteria
 
@@ -320,7 +332,8 @@ Subject to:
 
 1. **Byzantine Tolerance**: System remains correct with up to $f = \lfloor(n-1)/3\rfloor$ faulty validators
 
-2. **Evaluation Fairness**: 
+2. **Evaluation Fairness**:
+
    - Deterministic Docker execution
    - Outlier detection excludes manipulators
    - Stake weighting resists Sybil attacks
@@ -336,6 +349,7 @@ Each Bittensor epoch (~360 blocks, ~72 minutes):
 ### Continuous Evaluation
 
 **Evaluation runs continuously** throughout the entire epoch. Validators constantly:
+
 - Receive and process submissions from challenges
 - Execute evaluations in Docker containers
 - Sync results via P2P to distributed database
@@ -361,12 +375,12 @@ The validator will auto-connect to `bootnode.platform.network` and sync.
 
 ## Hardware Requirements
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| **CPU** | 4 vCPU | 8 vCPU |
-| **RAM** | 16 GB | 32 GB |
+| Resource    | Minimum    | Recommended |
+| ----------- | ---------- | ----------- |
+| **CPU**     | 4 vCPU     | 8 vCPU      |
+| **RAM**     | 16 GB      | 32 GB       |
 | **Storage** | 250 GB SSD | 500 GB NVMe |
-| **Network** | 100 Mbps | 100 Mbps |
+| **Network** | 100 Mbps   | 100 Mbps    |
 
 > **Note**: Hardware requirements may increase over time as more challenges are added to the network. Each challenge runs in its own Docker container and may have specific resource needs. Monitor your validator's resource usage and scale accordingly.
 
@@ -374,19 +388,19 @@ The validator will auto-connect to `bootnode.platform.network` and sync.
 
 **Port 9000/tcp must be open** for P2P communication.
 
-| Port | Protocol | Usage |
-|------|----------|-------|
+| Port     | Protocol     | Usage                              |
+| -------- | ------------ | ---------------------------------- |
 | 9000/tcp | P2P (libp2p) | Validator communication (required) |
-| 8545/tcp | HTTP | JSON-RPC API (optional) |
+| 8545/tcp | HTTP         | JSON-RPC API (optional)            |
 
 ## Configuration
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic or hex key | Required |
-| `SUBTENSOR_ENDPOINT` | Bittensor RPC endpoint | `wss://entrypoint-finney.opentensor.ai:443` |
-| `NETUID` | Subnet UID | `100` |
-| `RUST_LOG` | Log level | `info` |
+| Variable               | Description               | Default                                     |
+| ---------------------- | ------------------------- | ------------------------------------------- |
+| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic or hex key | Required                                    |
+| `SUBTENSOR_ENDPOINT`   | Bittensor RPC endpoint    | `wss://entrypoint-finney.opentensor.ai:443` |
+| `NETUID`               | Subnet UID                | `100`                                       |
+| `RUST_LOG`             | Log level                 | `info`                                      |
 
 ---
 
@@ -395,6 +409,7 @@ The validator will auto-connect to `bootnode.platform.network` and sync.
 **All validators MUST use auto-update.** Watchtower checks for new images at synchronized times (`:00`, `:05`, `:10`, `:15`...) so all validators update together.
 
 If validators run different versions:
+
 - Consensus fails (state hash mismatch)
 - Weight submissions rejected
 - Network forks
