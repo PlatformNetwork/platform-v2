@@ -31,8 +31,8 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 # Bittensor (with CRv4 timelock encryption support and new Subtensor API)
-# Updated to 3fc7ab5: fix metagraph sync to handle missing storage gracefully
-bittensor-rs = { git = "https://github.com/CortexLM/bittensor-rs", rev = "3fc7ab5" }
+# Updated to a1a4558: fix metagraph sync + re-export sync_metagraph at top level
+bittensor-rs = { git = "https://github.com/CortexLM/bittensor-rs", rev = "a1a4558" }
 
 # Async runtime
 tokio = { version = "1.40", features = ["full", "sync", "macros", "rt-multi-thread"] }

@@ -306,14 +306,13 @@ impl SecureContainerClient {
         let mut stopped = 0;
 
         for container in containers {
-            if container.state == ContainerState::Running {
-                if self
+            if container.state == ContainerState::Running
+                && self
                     .stop_container(&container.id, timeout_secs)
                     .await
                     .is_ok()
-                {
-                    stopped += 1;
-                }
+            {
+                stopped += 1;
             }
         }
 

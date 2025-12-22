@@ -31,10 +31,7 @@ pub use validator_sync::*;
 pub use weights::*;
 
 // Re-export bittensor-rs types for convenience
-pub use bittensor_rs::BittensorClient;
-
-// Re-export metagraph sync function for validator discovery
-pub use bittensor_rs::metagraph::sync_metagraph;
+pub use bittensor_rs::{sync_metagraph, BittensorClient};
 
 // Re-export high-level Subtensor API (use this directly instead of custom wrappers)
 pub use bittensor_rs::{
@@ -44,6 +41,3 @@ pub use bittensor_rs::{
 
 // Re-export chain types needed for weight submission
 pub use bittensor_rs::chain::{signer_from_seed, BittensorSigner, ExtrinsicWait};
-
-// Re-export metagraph sync for validator discovery
-pub use bittensor_rs::metagraph::sync_metagraph;
