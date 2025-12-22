@@ -209,8 +209,9 @@ async fn main() -> Result<()> {
     };
 
     // Log the derived hotkey for verification against Bittensor metagraph
-    info!("Validator hotkey (hex): {}", keypair.hotkey().to_hex());
-    info!("Validator SS58 address: {}", keypair.ss58_address());
+    // SS58 is the standard format used on Bittensor blockchain
+    info!("Validator hotkey: {}", keypair.ss58_address());
+    debug!("Validator hotkey (hex): {}", keypair.hotkey().to_hex());
 
     // The identity seed for P2P is derived from the hotkey (public key)
     // This ensures the peer ID corresponds to the SS58 address
@@ -730,37 +731,43 @@ async fn main() -> Result<()> {
 
                 // Initial metagraph sync to populate validators from Bittensor
                 // IMPORTANT: Must complete before accepting peer connections to validate their stake
-                info!("Waiting for metagraph sync to load validators (netuid={})...", args.netuid);
-                
+                info!(
+                    "Waiting for metagraph sync to load validators (netuid={})...",
+                    args.netuid
+                );
+
                 let max_retries = 3;
                 let mut sync_success = false;
-                
+
                 for attempt in 1..=max_retries {
                     info!("Metagraph sync attempt {}/{}...", attempt, max_retries);
-                    
+
                     match BittensorClient::new(&args.subtensor_endpoint).await {
                         Ok(metagraph_client) => {
                             match sync_metagraph(&metagraph_client, args.netuid).await {
                                 Ok(metagraph) => {
                                     let mut added = 0;
                                     let mut state = chain_state.write();
-                                    
+
                                     for neuron in metagraph.neurons.values() {
                                         // Convert AccountId32 hotkey to our Hotkey type
                                         let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
                                         let hotkey = Hotkey(*hotkey_bytes);
-                                        
+
                                         // Get stake (convert from u128 to u64, saturating)
                                         let stake_rao = neuron.stake.min(u64::MAX as u128) as u64;
-                                        
+
                                         // Skip if below minimum stake
                                         if stake_rao < MIN_STAKE_RAO {
                                             continue;
                                         }
-                                        
+
                                         // Add validator if not already present
                                         if state.get_validator(&hotkey).is_none() {
-                                            let info = ValidatorInfo::new(hotkey.clone(), Stake::new(stake_rao));
+                                            let info = ValidatorInfo::new(
+                                                hotkey.clone(),
+                                                Stake::new(stake_rao),
+                                            );
                                             if state.add_validator(info).is_ok() {
                                                 added += 1;
                                             }
@@ -768,11 +775,11 @@ async fn main() -> Result<()> {
                                             // Update stake for existing validator
                                             v.stake = Stake::new(stake_rao);
                                         }
-                                        
+
                                         // Cache stake in protection for quick validation
                                         protection.validate_stake(&hotkey.to_hex(), stake_rao);
                                     }
-                                    
+
                                     info!("Metagraph sync complete: {} neurons, {} validators with sufficient stake (min {} TAO)", 
                                         metagraph.n, added, MIN_STAKE_TAO);
                                     info!("Validator identity verification ready - will accept messages from {} known validators", 
@@ -786,18 +793,24 @@ async fn main() -> Result<()> {
                             }
                         }
                         Err(e) => {
-                            warn!("Failed to connect for metagraph sync (attempt {}): {}", attempt, e);
+                            warn!(
+                                "Failed to connect for metagraph sync (attempt {}): {}",
+                                attempt, e
+                            );
                         }
                     }
-                    
+
                     if attempt < max_retries {
                         info!("Retrying metagraph sync in 5 seconds...");
                         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     }
                 }
-                
+
                 if !sync_success {
-                    warn!("CRITICAL: Metagraph sync failed after {} attempts!", max_retries);
+                    warn!(
+                        "CRITICAL: Metagraph sync failed after {} attempts!",
+                        max_retries
+                    );
                     warn!("Validator will only recognize itself and sudo. Other validators may be rejected.");
                     warn!("Periodic sync will retry every 10 minutes.");
                 }
@@ -1248,7 +1261,7 @@ async fn main() -> Result<()> {
                                             msg_value.get("target").and_then(|t| t.as_str()),
                                         ) {
                                             // Check if this is a DecryptApiKeyRequest - handle locally
-                                            if let Ok(platform_challenge_sdk::ChallengeP2PMessage::DecryptApiKeyRequest(req)) = 
+                                            if let Ok(platform_challenge_sdk::ChallengeP2PMessage::DecryptApiKeyRequest(req)) =
                                                 serde_json::from_value::<platform_challenge_sdk::ChallengeP2PMessage>(message.clone()) {
                                                     // Decrypt the API key locally and send response back to container
                                                     let response = match platform_challenge_sdk::decrypt_api_key(
@@ -1291,7 +1304,6 @@ async fn main() -> Result<()> {
                                                         debug!("Failed to send decrypt response to container: {}", e);
                                                     }
                                                     continue; // Don't broadcast this message
-                                                }
                                             }
 
                                             // Create ChallengeNetworkMessage to broadcast
@@ -1909,7 +1921,7 @@ async fn main() -> Result<()> {
                         let endpoint = subtensor_endpoint.clone();
                         let chain_state_for_sync = chain_state.clone();
                         let protection_for_sync = protection.clone();
-                        
+
                         tokio::spawn(async move {
                             match BittensorClient::new(&endpoint).await {
                                 Ok(client) => {
@@ -1918,16 +1930,16 @@ async fn main() -> Result<()> {
                                             let mut added = 0;
                                             let mut updated = 0;
                                             let mut state = chain_state_for_sync.write();
-                                            
+
                                             for neuron in metagraph.neurons.values() {
                                                 let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
                                                 let hotkey = Hotkey(*hotkey_bytes);
                                                 let stake_rao = neuron.stake.min(u64::MAX as u128) as u64;
-                                                
+
                                                 if stake_rao < MIN_STAKE_RAO {
                                                     continue;
                                                 }
-                                                
+
                                                 if state.get_validator(&hotkey).is_none() {
                                                     let info = ValidatorInfo::new(hotkey.clone(), Stake::new(stake_rao));
                                                     if state.add_validator(info).is_ok() {
@@ -1939,13 +1951,13 @@ async fn main() -> Result<()> {
                                                         updated += 1;
                                                     }
                                                 }
-                                                
+
                                                 // Update stake cache
                                                 protection_for_sync.validate_stake(&hotkey.to_hex(), stake_rao);
                                             }
-                                            
+
                                             if added > 0 || updated > 0 {
-                                                info!("Metagraph periodic sync: {} added, {} updated (total: {} validators)", 
+                                                info!("Metagraph periodic sync: {} added, {} updated (total: {} validators)",
                                                     added, updated, state.validators.len());
                                             }
                                         }
@@ -2261,7 +2273,10 @@ async fn handle_message(
 
                 // Start container via orchestrator (same as SudoAction handler)
                 if let Some(orchestrator) = challenge_orchestrator {
-                    info!("Starting challenge container '{}' from P2P Proposal", config.name);
+                    info!(
+                        "Starting challenge container '{}' from P2P Proposal",
+                        config.name
+                    );
                     if let Err(e) = orchestrator.add_challenge(config.clone()).await {
                         error!("Failed to start challenge container from P2P: {}", e);
                     } else {
