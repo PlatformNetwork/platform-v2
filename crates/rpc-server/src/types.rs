@@ -63,6 +63,10 @@ pub struct ValidatorResponse {
     pub is_active: bool,
     pub last_seen: DateTime<Utc>,
     pub peer_id: Option<String>,
+    /// X25519 public key for API key encryption (hex, 32 bytes)
+    /// Derived from validator's sr25519 seed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x25519_pubkey: Option<String>,
 }
 
 /// Challenge info for RPC

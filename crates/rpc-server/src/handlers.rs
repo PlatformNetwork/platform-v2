@@ -97,6 +97,7 @@ pub async fn validators_handler(
             is_active: v.is_active,
             last_seen: v.last_seen,
             peer_id: v.peer_id.clone(),
+            x25519_pubkey: v.x25519_pubkey.clone(),
         })
         .collect();
 
@@ -389,6 +390,7 @@ pub async fn sync_handler(State(state): State<Arc<RpcState>>) -> Json<RpcRespons
             is_active: v.is_active,
             last_seen: v.last_seen,
             peer_id: v.peer_id.clone(),
+            x25519_pubkey: v.x25519_pubkey.clone(),
         })
         .collect();
 
