@@ -209,13 +209,18 @@ impl Score {
 }
 
 /// Job status
+///
+/// IMPORTANT: Never reorder or remove variants! Add new ones at the end only.
+/// Use explicit discriminants to ensure stable serialization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum JobStatus {
-    Pending,
-    Running,
-    Completed,
-    Failed,
-    Timeout,
+    Pending = 0,
+    Running = 1,
+    Completed = 2,
+    Failed = 3,
+    Timeout = 4,
+    // Add new variants here with next number
 }
 
 /// Evaluation job

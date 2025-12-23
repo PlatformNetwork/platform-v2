@@ -140,10 +140,10 @@ impl Storage {
         &self.state_tree
     }
 
-    /// Save chain state
+    /// Save chain state with version header for backward compatibility
     pub fn save_state(&self, state: &ChainState) -> Result<()> {
-        let data =
-            bincode::serialize(state).map_err(|e| MiniChainError::Serialization(e.to_string()))?;
+        // Use versioned serialization for future-proof storage
+        let data = platform_core::serialize_state_versioned(state)?;
 
         self.state_tree
             .insert("current", data)
@@ -153,11 +153,14 @@ impl Storage {
             .flush()
             .map_err(|e| MiniChainError::Storage(format!("Failed to flush: {}", e)))?;
 
-        debug!("State saved at block {}", state.block_height);
+        debug!("State saved at block {} (version {})", 
+            state.block_height, 
+            platform_core::CURRENT_STATE_VERSION
+        );
         Ok(())
     }
 
-    /// Load chain state
+    /// Load chain state with automatic version migration
     pub fn load_state(&self) -> Result<Option<ChainState>> {
         let data = self
             .state_tree
@@ -166,8 +169,8 @@ impl Storage {
 
         match data {
             Some(bytes) => {
-                let state: ChainState = bincode::deserialize(&bytes)
-                    .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
+                // Use smart deserialization that handles version migration
+                let state = platform_core::deserialize_state_smart(&bytes)?;
                 Ok(Some(state))
             }
             None => Ok(None),

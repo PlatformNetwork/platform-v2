@@ -9,6 +9,7 @@ pub mod crypto;
 pub mod error;
 pub mod message;
 pub mod state;
+pub mod state_versioning;
 pub mod types;
 
 pub use challenge::*;
@@ -17,4 +18,5 @@ pub use crypto::*;
 pub use error::*;
 pub use message::*;
 pub use state::*;
+pub use state_versioning::*;
 pub use types::*;

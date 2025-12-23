@@ -19,7 +19,12 @@ pub struct RequiredVersion {
 }
 
 /// The complete chain state
+///
+/// IMPORTANT: When adding new fields, ALWAYS add `#[serde(default)]` to ensure
+/// backward compatibility with older serialized states. See state_versioning.rs
+/// for migration logic.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ChainState {
     /// Current block height
     pub block_height: BlockHeight,
@@ -34,36 +39,71 @@ pub struct ChainState {
     pub sudo_key: Hotkey,
 
     /// Active validators
+    #[serde(default)]
     pub validators: HashMap<Hotkey, ValidatorInfo>,
 
     /// Active challenges (legacy, for SDK-based challenges)
+    #[serde(default)]
     pub challenges: HashMap<ChallengeId, Challenge>,
 
     /// Challenge container configs (for Docker-based challenges)
+    #[serde(default)]
     pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
 
     /// Mechanism weight configurations (mechanism_id -> config)
+    #[serde(default)]
     pub mechanism_configs: HashMap<u8, MechanismWeightConfig>,
 
     /// Challenge weight allocations (challenge_id -> allocation)
+    #[serde(default)]
     pub challenge_weights: HashMap<ChallengeId, ChallengeWeightAllocation>,
 
     /// Required validator version
+    #[serde(default)]
     pub required_version: Option<RequiredVersion>,
 
     /// Pending jobs
+    #[serde(default)]
     pub pending_jobs: Vec<Job>,
 
     /// State hash (for verification)
+    #[serde(default)]
     pub state_hash: [u8; 32],
 
     /// Last update timestamp
+    #[serde(default = "default_timestamp")]
     pub last_updated: chrono::DateTime<chrono::Utc>,
 
     /// All registered hotkeys from metagraph (miners + validators)
     /// Updated during metagraph sync, used for submission verification
+    /// Added in V2
     #[serde(default)]
     pub registered_hotkeys: std::collections::HashSet<Hotkey>,
+}
+
+fn default_timestamp() -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now()
+}
+
+impl Default for ChainState {
+    fn default() -> Self {
+        Self {
+            block_height: 0,
+            epoch: 0,
+            config: NetworkConfig::default(),
+            sudo_key: Hotkey([0u8; 32]),
+            validators: HashMap::new(),
+            challenges: HashMap::new(),
+            challenge_configs: HashMap::new(),
+            mechanism_configs: HashMap::new(),
+            challenge_weights: HashMap::new(),
+            required_version: None,
+            pending_jobs: Vec::new(),
+            state_hash: [0u8; 32],
+            last_updated: chrono::Utc::now(),
+            registered_hotkeys: std::collections::HashSet::new(),
+        }
+    }
 }
 
 impl ChainState {
