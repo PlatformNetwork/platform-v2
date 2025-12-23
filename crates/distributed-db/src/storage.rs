@@ -1,17 +1,20 @@
 //! RocksDB storage backend
+//! RocksDB storage backend
 //!
 //! Provides persistent key-value storage with:
 //! - Column families for data separation
 //! - Atomic batch writes
 //! - Efficient iteration
+//! - Anti-corruption protections (WAL, sync, atomic flush)
 
 use rocksdb::{
     BoundColumnFamily, ColumnFamilyDescriptor, DBWithThreadMode, IteratorMode, MultiThreaded,
-    Options, WriteBatch,
+    Options, WriteBatch, WriteOptions,
 };
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Column families for different data types
 pub const CF_CHALLENGES: &str = "challenges";
@@ -37,9 +40,14 @@ const ALL_CFS: &[&str] = &[
 /// State root key in metadata
 const STATE_ROOT_KEY: &[u8] = b"state_root";
 
-/// RocksDB storage wrapper
+/// Minimum free disk space (1GB)
+const MIN_DISK_SPACE_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// RocksDB storage wrapper with anti-corruption protections
 pub struct RocksStorage {
     db: DBWithThreadMode<MultiThreaded>,
+    /// Flag to prevent writes during shutdown
+    shutdown: AtomicBool,
 }
 
 impl RocksStorage {
@@ -48,12 +56,15 @@ impl RocksStorage {
         let path = path.as_ref();
         info!("Opening RocksDB at {:?}", path);
 
+        // Check disk space before opening
+        Self::check_disk_space(path)?;
+
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
         opts.set_max_open_files(256);
         opts.set_keep_log_file_num(3);
-        opts.set_max_total_wal_size(64 * 1024 * 1024); // 64MB
+        opts.set_max_total_wal_size(64 * 1024 * 1024); // 64MB WAL
         opts.set_write_buffer_size(32 * 1024 * 1024); // 32MB
         opts.set_max_write_buffer_number(3);
         opts.set_target_file_size_base(64 * 1024 * 1024); // 64MB
@@ -61,6 +72,10 @@ impl RocksStorage {
         opts.set_level_zero_slowdown_writes_trigger(20);
         opts.set_level_zero_stop_writes_trigger(30);
         opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+
+        // Anti-corruption settings
+        opts.set_wal_recovery_mode(rocksdb::DBRecoveryMode::AbsoluteConsistency);
+        opts.set_atomic_flush(true); // Atomic flush across column families
 
         // Column family options
         let cf_opts = Options::default();
@@ -76,7 +91,70 @@ impl RocksStorage {
             ALL_CFS.len()
         );
 
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            shutdown: AtomicBool::new(false),
+        })
+    }
+
+    /// Check disk space before operations
+    fn check_disk_space(path: &Path) -> anyhow::Result<()> {
+        // Get the directory to check (create if needed for new DBs)
+        let check_path = if path.exists() {
+            path.to_path_buf()
+        } else if let Some(parent) = path.parent() {
+            parent.to_path_buf()
+        } else {
+            return Ok(());
+        };
+
+        #[cfg(unix)]
+        {
+            if check_path.exists() {
+                // Use statvfs for disk space on Unix
+                let output = std::process::Command::new("df")
+                    .arg("-B1")
+                    .arg(&check_path)
+                    .output();
+
+                if let Ok(output) = output {
+                    if let Ok(stdout) = String::from_utf8(output.stdout) {
+                        // Parse df output (second line, 4th column is available)
+                        if let Some(line) = stdout.lines().nth(1) {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 4 {
+                                if let Ok(avail) = parts[3].parse::<u64>() {
+                                    if avail < MIN_DISK_SPACE_BYTES {
+                                        return Err(anyhow::anyhow!(
+                                            "Insufficient disk space: {} bytes available, {} required",
+                                            avail,
+                                            MIN_DISK_SPACE_BYTES
+                                        ));
+                                    }
+                                    debug!("Disk space check passed: {} bytes available", avail);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Mark shutdown to prevent new writes
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        info!("RocksStorage marked for shutdown");
+        // Flush WAL before shutdown
+        if let Err(e) = self.db.flush_wal(true) {
+            warn!("Failed to flush WAL on shutdown: {}", e);
+        }
+    }
+
+    /// Check if shutdown is in progress
+    fn is_shutdown(&self) -> bool {
+        self.shutdown.load(Ordering::SeqCst)
     }
 
     /// Get column family handle
@@ -92,12 +170,33 @@ impl RocksStorage {
         Ok(self.db.get_cf(&cf, key)?)
     }
 
-    /// Put value
+    /// Put value (async - buffered by WAL)
     pub fn put(&self, collection: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+        if self.is_shutdown() {
+            return Err(anyhow::anyhow!("Storage is shutting down"));
+        }
         let cf = self.cf(collection)?;
         self.db.put_cf(&cf, key, value)?;
         debug!(
             "Put {}:{} ({} bytes)",
+            collection,
+            hex::encode(&key[..key.len().min(8)]),
+            value.len()
+        );
+        Ok(())
+    }
+
+    /// Put value with sync (for critical data - waits for disk write)
+    pub fn put_sync(&self, collection: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+        if self.is_shutdown() {
+            return Err(anyhow::anyhow!("Storage is shutting down"));
+        }
+        let cf = self.cf(collection)?;
+        let mut opts = WriteOptions::default();
+        opts.set_sync(true); // Force sync to disk
+        self.db.put_cf_opt(&cf, key, value, &opts)?;
+        debug!(
+            "Put (sync) {}:{} ({} bytes)",
             collection,
             hex::encode(&key[..key.len().min(8)]),
             value.len()
