@@ -348,13 +348,26 @@ async fn main() -> Result<()> {
         Ok(s) => s,
         Err(e) if is_corruption_error(&e) => {
             warn!("Storage corruption detected: {}. Attempting recovery...", e);
-            // Delete corrupted state file
-            let state_path = data_dir.join("state");
-            if state_path.exists() {
-                warn!("Removing corrupted state directory: {:?}", state_path);
-                std::fs::remove_dir_all(&state_path)?;
+            // Delete corrupted sled database files (stored directly in data_dir)
+            // Sled files: db, conf, snap.*, blobs/
+            warn!("Removing corrupted sled database in: {:?}", data_dir);
+            for entry in std::fs::read_dir(&data_dir).into_iter().flatten() {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    // Remove sled files but preserve distributed-db (handled separately)
+                    if name_str == "db" || name_str == "conf" || name_str.starts_with("snap.") || name_str == "blobs" {
+                        warn!("Removing sled file: {:?}", path);
+                        if path.is_dir() {
+                            let _ = std::fs::remove_dir_all(&path);
+                        } else {
+                            let _ = std::fs::remove_file(&path);
+                        }
+                    }
+                }
             }
-            // Retry opening
+            // Retry opening (will create fresh database)
             Storage::open(&data_dir)?
         }
         Err(e) => return Err(e.into()),
@@ -441,12 +454,9 @@ async fn main() -> Result<()> {
         }
         Err(e) if is_corruption_error(&e) => {
             warn!("Chain state corruption detected: {}. Creating fresh state...", e);
-            // Delete corrupted state
-            let state_path = data_dir.join("state");
-            if state_path.exists() {
-                warn!("Removing corrupted state: {:?}", state_path);
-                std::fs::remove_dir_all(&state_path)?;
-            }
+            // Note: Storage is already open, corrupted data will be overwritten on save
+            // The state is stored in sled's "state" tree, which will be updated
+            // when save_state() is called with the fresh state
 
             // Create fresh state
             let sudo_key = if let Some(sudo_hex) = &args.sudo_key {
