@@ -1084,6 +1084,7 @@ async fn main() -> Result<()> {
     // Also handles dynamic route discovery via /.well-known/routes
     if let (Some(mut rx), Some(orch)) = (orchestrator_cmd_rx, challenge_orchestrator.clone()) {
         let routes_map = rpc_handler.as_ref().map(|h| h.challenge_routes.clone());
+        let endpoints_for_orch = challenge_endpoints.clone();
         tokio::spawn(async move {
             info!("Orchestrator command handler started (with route discovery)");
             while let Some(cmd) = rx.recv().await {
@@ -1095,13 +1096,26 @@ async fn main() -> Result<()> {
                         } else {
                             info!("Challenge container '{}' started successfully", config.name);
 
+                            // Get actual endpoint from orchestrator and update the endpoints map
+                            let endpoint = if let Some(instance) = orch.get_challenge(&config.challenge_id) {
+                                instance.endpoint.clone()
+                            } else {
+                                // Fallback to constructed URL if instance not found
+                                let container_name = config.name.to_lowercase().replace(' ', "-");
+                                format!("http://challenge-{}:8080", container_name)
+                            };
+                            
+                            // Update endpoints map for HTTP proxying (store by both UUID and name)
+                            {
+                                let mut eps = endpoints_for_orch.write();
+                                eps.insert(config.challenge_id.to_string(), endpoint.clone());
+                                eps.insert(config.name.clone(), endpoint.clone());
+                            }
+                            info!("Updated endpoint for challenge '{}' ({}): {}", config.name, config.challenge_id, endpoint);
+
                             // Discover routes from the container via /.well-known/routes
                             if let Some(ref routes) = routes_map {
-                                let container_name = config.name.to_lowercase().replace(' ', "-");
-                                let routes_url = format!(
-                                    "http://challenge-{}:8080/.well-known/routes",
-                                    container_name
-                                );
+                                let routes_url = format!("{}/.well-known/routes", endpoint);
 
                                 // Wait a bit for container to be ready
                                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -1233,9 +1247,10 @@ async fn main() -> Result<()> {
 
     // Spawn startup route discovery task for pre-existing challenges
     // This runs after RPC is ready and discovers routes from containers started at sync
-    if let (Some(ref handler), Some(ref _orch)) = (&rpc_handler, &challenge_orchestrator) {
+    if let (Some(ref handler), Some(ref orch)) = (&rpc_handler, &challenge_orchestrator) {
         let routes_map = handler.challenge_routes.clone();
         let state_for_discovery = chain_state.clone();
+        let orch_for_discovery = orch.clone();
         tokio::spawn(async move {
             // Wait for containers to be fully started
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -1246,11 +1261,14 @@ async fn main() -> Result<()> {
             };
 
             for config in configs {
-                let container_name = config.name.to_lowercase().replace(' ', "-");
-                let routes_url = format!(
-                    "http://challenge-{}:8080/.well-known/routes",
-                    container_name
-                );
+                // Get actual endpoint from orchestrator (includes validator suffix in dev mode)
+                let routes_url = if let Some(instance) = orch_for_discovery.get_challenge(&config.challenge_id) {
+                    format!("{}/.well-known/routes", instance.endpoint)
+                } else {
+                    // Fallback to constructed URL if instance not found
+                    let container_name = config.name.to_lowercase().replace(' ', "-");
+                    format!("http://challenge-{}:8080/.well-known/routes", container_name)
+                };
 
                 info!(
                     "Discovering routes for startup challenge '{}'...",
@@ -1471,6 +1489,8 @@ async fn main() -> Result<()> {
     let auth_sessions_for_p2p = Some(container_auth_sessions.clone());
     // Get challenge_routes Arc for auto-registration when receiving via P2P
     let challenge_routes_for_p2p = rpc_handler.as_ref().map(|h| h.challenge_routes.clone());
+    // Get challenge_endpoints Arc for endpoint updates when starting containers from P2P
+    let endpoints_for_p2p = Some(challenge_endpoints.clone());
     // Get distributed_db for P2P message handling
     let db_for_p2p = Some(distributed_db.clone());
     let storage = Arc::new(storage); // Keep reference for state persistence
@@ -1913,7 +1933,7 @@ async fn main() -> Result<()> {
 
                                 if has_sufficient_stake {
                                     // Forward all messages to consensus handler
-                                    handle_message(&consensus, signed, &chain_state_clone, challenge_orchestrator.as_ref(), challenge_routes_for_p2p.as_ref(), db_for_p2p.as_ref(), keypair_for_p2p.as_ref(), auth_sessions_for_p2p.as_ref()).await;
+                                    handle_message(&consensus, signed, &chain_state_clone, challenge_orchestrator.as_ref(), challenge_routes_for_p2p.as_ref(), endpoints_for_p2p.as_ref(), db_for_p2p.as_ref(), keypair_for_p2p.as_ref(), auth_sessions_for_p2p.as_ref()).await;
                                 } else {
                                     // Allow Sudo to bypass stake check for bootstrapping and upgrades
                                     let is_sudo = {
@@ -1923,7 +1943,7 @@ async fn main() -> Result<()> {
 
                                     if is_sudo {
                                         info!("Bypassing stake check for Sudo message from {}", &signer_hex[..16]);
-                                        handle_message(&consensus, signed, &chain_state_clone, challenge_orchestrator.as_ref(), challenge_routes_for_p2p.as_ref(), db_for_p2p.as_ref(), keypair_for_p2p.as_ref(), auth_sessions_for_p2p.as_ref()).await;
+                                        handle_message(&consensus, signed, &chain_state_clone, challenge_orchestrator.as_ref(), challenge_routes_for_p2p.as_ref(), endpoints_for_p2p.as_ref(), db_for_p2p.as_ref(), keypair_for_p2p.as_ref(), auth_sessions_for_p2p.as_ref()).await;
                                     } else {
                                         warn!(
                                             "Rejected message from {} - insufficient stake (min {} TAO required)",
@@ -2292,6 +2312,7 @@ async fn handle_message(
     challenge_routes: Option<
         &Arc<RwLock<HashMap<String, Vec<platform_challenge_sdk::ChallengeRoute>>>>,
     >,
+    challenge_endpoints: Option<&Arc<RwLock<std::collections::HashMap<String, String>>>>,
     distributed_db: Option<&Arc<distributed_db::DistributedDB>>,
     keypair: Option<&Keypair>,
     container_auth_sessions: Option<&Arc<RwLock<HashMap<String, ContainerAuthSession>>>>,
@@ -2336,6 +2357,16 @@ async fn handle_message(
                             error!("Failed to start challenge container: {}", e);
                         } else {
                             info!("Challenge container started: {}", config.name);
+                            
+                            // Update endpoints map with actual container endpoint
+                            if let Some(endpoints) = challenge_endpoints {
+                                if let Some(instance) = orchestrator.get_challenge(&config.challenge_id) {
+                                    let mut eps = endpoints.write();
+                                    eps.insert(config.challenge_id.to_string(), instance.endpoint.clone());
+                                    eps.insert(config.name.clone(), instance.endpoint.clone());
+                                    info!("Updated endpoint for challenge '{}': {}", config.name, instance.endpoint);
+                                }
+                            }
                         }
                     }
 
@@ -2454,6 +2485,16 @@ async fn handle_message(
                         error!("Failed to start challenge container from P2P: {}", e);
                     } else {
                         info!("Challenge container '{}' started from P2P", config.name);
+                        
+                        // Update endpoints map with actual container endpoint
+                        if let Some(endpoints) = challenge_endpoints {
+                            if let Some(instance) = orchestrator.get_challenge(&config.challenge_id) {
+                                let mut eps = endpoints.write();
+                                eps.insert(config.challenge_id.to_string(), instance.endpoint.clone());
+                                eps.insert(config.name.clone(), instance.endpoint.clone());
+                                info!("Updated endpoint for challenge '{}' (P2P): {}", config.name, instance.endpoint);
+                            }
+                        }
                     }
                 }
             }
