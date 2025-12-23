@@ -67,6 +67,7 @@ pub mod database;
 pub mod distributed_storage;
 pub mod error;
 pub mod p2p;
+pub mod p2p_chain_storage;
 pub mod routes;
 pub mod storage_client;
 pub mod storage_schema;
@@ -83,6 +84,7 @@ pub use database::*;
 pub use distributed_storage::*;
 pub use error::*;
 pub use p2p::*;
+pub use p2p_chain_storage::*;
 pub use routes::*;
 // Note: storage_client and storage_schema have conflicting types with distributed_storage
 // Use explicit imports: platform_challenge_sdk::storage_schema::*
