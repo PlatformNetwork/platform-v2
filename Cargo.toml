@@ -31,8 +31,8 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 # Bittensor (with CRv4 timelock encryption support and new Subtensor API)
-# Updated to b442c1d: add stake_weight field (includes parent inheritance + TAO weight)
-bittensor-rs = { git = "https://github.com/CortexLM/bittensor-rs", rev = "b442c1d" }
+# Updated to f33fec8: fetch correct alpha_stake via runtime API (includes parent inheritance)
+bittensor-rs = { git = "https://github.com/CortexLM/bittensor-rs", rev = "f33fec8" }
 
 # Async runtime
 tokio = { version = "1.40", features = ["full", "sync", "macros", "rt-multi-thread"] }

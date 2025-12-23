@@ -858,31 +858,10 @@ async fn main() -> Result<()> {
                                         let hotkey = Hotkey(*hotkey_bytes);
                                         let hotkey_hex = hotkey.to_hex();
 
-                                        // Use stake_weight from metagraph - this is the ACTUAL weight used in consensus
-                                        // It includes: alpha stake + parent inheritance + (root stake * tao_weight)
-                                        // stake_weight is a normalized u16 (0-65535) representing consensus weight
-                                        let stake_weight = neuron.stake_weight;
-                                        
-                                        // For backwards compatibility and debugging, also get raw stakes
-                                        let alpha_stake = neuron.stake;
-                                        let root_stake = neuron.root_stake;
-                                        
-                                        // Convert normalized stake_weight to approximate RAO for comparison
-                                        // If stake_weight > 0, validator has stake in the metagraph
-                                        // We use stake_weight as the primary indicator, falling back to raw if 0
-                                        let stake_rao = if stake_weight > 0 {
-                                            // Scale: if stake_weight is max (65535), assume ~total_network_stake TAO
-                                            // For simplicity, use stake_weight directly as a proxy (non-zero = valid)
-                                            // The actual TAO amount is (stake_weight / 65535) * total_stake
-                                            // For minimum stake check: 1000 TAO / 1B total ≈ 0.001% ≈ 65 in u16 scale
-                                            // Any stake_weight > 0 means they passed on-chain validation
-                                            let approx_tao = (stake_weight as f64 / 65535.0) * 100_000_000.0; // assume 100M TAO total
-                                            (approx_tao * 1e9) as u64 // Convert to RAO
-                                        } else {
-                                            // Fallback to raw stakes (old method) if stake_weight not available
-                                            let effective_stake = alpha_stake.saturating_add(root_stake);
-                                            effective_stake.min(u64::MAX as u128) as u64
-                                        };
+                                        // Use total_stake from metagraph - this is the ACTUAL stake used in consensus
+                                        // It includes: alpha stake + (tao stake * tao_weight)
+                                        // The runtime API calculates this including parent inheritance
+                                        let stake_rao = neuron.total_stake.min(u64::MAX as u128) as u64;
 
                                         // ALWAYS cache stake in protection for debugging
                                         // This allows us to show actual stake when rejecting low-stake validators
@@ -2224,19 +2203,8 @@ async fn main() -> Result<()> {
                                                 let hotkey = Hotkey(*hotkey_bytes);
                                                 let hotkey_hex = hotkey.to_hex();
                                                 
-                                                // Use stake_weight from metagraph (includes parent inheritance + TAO weight)
-                                                let stake_weight = neuron.stake_weight;
-                                                let alpha_stake = neuron.stake;
-                                                let root_stake = neuron.root_stake;
-                                                
-                                                // Convert stake_weight to approximate RAO
-                                                let stake_rao = if stake_weight > 0 {
-                                                    let approx_tao = (stake_weight as f64 / 65535.0) * 100_000_000.0;
-                                                    (approx_tao * 1e9) as u64
-                                                } else {
-                                                    let effective_stake = alpha_stake.saturating_add(root_stake);
-                                                    effective_stake.min(u64::MAX as u128) as u64
-                                                };
+                                                // Use total_stake from metagraph (includes parent inheritance + TAO weight)
+                                                let stake_rao = neuron.total_stake.min(u64::MAX as u128) as u64;
 
                                                 // ALWAYS update stake cache for debugging (even low-stake validators)
                                                 protection_for_sync.validate_stake(&hotkey_hex, stake_rao);

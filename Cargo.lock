@@ -1007,7 +1007,7 @@ checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 [[package]]
 name = "bittensor-rs"
 version = "0.1.0"
-source = "git+https://github.com/CortexLM/bittensor-rs?rev=b442c1d#b442c1df010865d44bace1067a1898f17a5e2cda"
+source = "git+https://github.com/CortexLM/bittensor-rs?rev=f33fec8#f33fec836ab7a6d8fae90d031fd6bf0878867531"
 dependencies = [
  "anyhow",
  "ark-serialize 0.4.2",
