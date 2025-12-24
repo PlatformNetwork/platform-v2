@@ -275,6 +275,48 @@ impl NetworkNode {
         }
     }
 
+    /// Repair the gossipsub mesh if it's empty but we have connected peers
+    /// This handles the case where SUBSCRIBE messages weren't exchanged properly
+    pub fn repair_mesh_if_needed(&mut self) {
+        let connected_peers = self.peers.read().len();
+        let mesh_peers = self.swarm.behaviour().mesh_peer_count();
+        let topic_peers = self.swarm.behaviour().topic_peer_count();
+
+        // Log mesh status for debugging
+        if connected_peers > 0 {
+            debug!(
+                "Mesh status: {} connected, {} in topic, {} in mesh",
+                connected_peers, topic_peers, mesh_peers
+            );
+        }
+
+        // If we have connected peers but none in the topic, force re-subscribe
+        // This sends our SUBSCRIBE to all connected gossipsub peers
+        if connected_peers > 0 && topic_peers == 0 {
+            info!(
+                "Mesh repair: {} peers connected but none subscribed to topic, refreshing subscription",
+                connected_peers
+            );
+            if let Err(e) = self.swarm.behaviour_mut().refresh_subscription() {
+                warn!("Failed to refresh subscription: {}", e);
+            }
+        }
+
+        // If we have peers in topic but mesh is still empty, add them explicitly
+        // This happens when GRAFT messages fail to form the mesh
+        if topic_peers > 0 && mesh_peers == 0 {
+            info!(
+                "Mesh repair: {} peers in topic but mesh empty, adding peers explicitly",
+                topic_peers
+            );
+            // Get list of connected peers and add them
+            let peers_to_add: Vec<PeerId> = self.peers.read().iter().cloned().collect();
+            for peer_id in peers_to_add {
+                self.swarm.behaviour_mut().add_peer_to_mesh(&peer_id);
+            }
+        }
+    }
+
     /// Broadcast a message via gossip
     pub fn broadcast(&mut self, message: &SignedNetworkMessage) -> anyhow::Result<()> {
         let data = bincode::serialize(message)?;
@@ -314,9 +356,13 @@ impl NetworkNode {
 
     /// Run the event loop (should be spawned as a task)
     /// Includes automatic retry of bootstrap peers every 30 seconds if not connected
+    /// and mesh repair every 10 seconds
     pub async fn run(&mut self) {
         let mut bootstrap_retry_interval = tokio::time::interval(Duration::from_secs(30));
         bootstrap_retry_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        let mut mesh_repair_interval = tokio::time::interval(Duration::from_secs(10));
+        mesh_repair_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             tokio::select! {
@@ -325,6 +371,9 @@ impl NetworkNode {
                 }
                 _ = bootstrap_retry_interval.tick() => {
                     self.retry_bootstrap_if_needed();
+                }
+                _ = mesh_repair_interval.tick() => {
+                    self.repair_mesh_if_needed();
                 }
             }
         }
@@ -483,6 +532,7 @@ impl NetworkNode {
                 // Extract hotkey from agent_version if present
                 // Format: "platform-validator/1.0.0/HOTKEY_HEX"
                 let hotkey = info.agent_version.split('/').nth(2).map(String::from);
+                let is_platform_validator = info.agent_version.starts_with("platform-validator/");
 
                 info!(
                     "Identify received from {}: agent={}, hotkey={:?}",
@@ -501,12 +551,25 @@ impl NetworkNode {
                     })
                     .await;
 
-                // NOTE: Do NOT call add_explicit_peer here!
-                // Explicit peers become "direct peers" that bypass the gossipsub mesh.
-                // The mesh should form automatically via the gossipsub protocol:
-                // 1. Connection established -> gossipsub protocol negotiated
-                // 2. SUBSCRIBE messages exchanged -> peers know each other's topics
-                // 3. GRAFT/PRUNE in heartbeats -> mesh forms naturally
+                // If this is a platform validator, check mesh status and trigger refresh if needed
+                // This ensures that new validators joining the network get properly added to the mesh
+                if is_platform_validator {
+                    let mesh_peers = self.swarm.behaviour().mesh_peer_count();
+                    let topic_peers = self.swarm.behaviour().topic_peer_count();
+                    
+                    debug!(
+                        "New platform validator {}: mesh has {} peers, topic has {} peers",
+                        peer_id, mesh_peers, topic_peers
+                    );
+
+                    // If mesh is empty but we have this peer, refresh to exchange SUBSCRIBEs
+                    if mesh_peers == 0 {
+                        info!("Mesh empty after new validator joined, refreshing subscription");
+                        if let Err(e) = self.swarm.behaviour_mut().refresh_subscription() {
+                            warn!("Failed to refresh subscription: {}", e);
+                        }
+                    }
+                }
 
                 // Also connect to other peers they know about through their observed addr
                 // This helps with peer discovery in small networks

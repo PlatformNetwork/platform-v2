@@ -123,6 +123,46 @@ impl MiniChainBehaviour {
             .map_err(|e| anyhow::anyhow!("Publish error: {:?}", e))?;
         Ok(())
     }
+
+    /// Get the number of peers in the mesh for our topic
+    pub fn mesh_peer_count(&self) -> usize {
+        let topic = gossipsub::IdentTopic::new(GOSSIP_TOPIC);
+        self.gossipsub.mesh_peers(&topic.hash()).count()
+    }
+
+    /// Get all peers subscribed to our topic (including those not in mesh)
+    pub fn topic_peer_count(&self) -> usize {
+        let topic_hash = gossipsub::IdentTopic::new(GOSSIP_TOPIC).hash();
+        self.gossipsub
+            .all_peers()
+            .filter(|(_, topics)| topics.iter().any(|t| **t == topic_hash))
+            .count()
+    }
+
+    /// Force re-subscribe to refresh SUBSCRIBE messages to all peers
+    /// This is useful when new peers join and don't receive our subscription
+    pub fn refresh_subscription(&mut self) -> anyhow::Result<()> {
+        let topic = IdentTopic::new(GOSSIP_TOPIC);
+        // Unsubscribe and re-subscribe to force sending SUBSCRIBE to all peers
+        let _ = self.gossipsub.unsubscribe(&topic);
+        self.gossipsub
+            .subscribe(&topic)
+            .map_err(|e| anyhow::anyhow!("Re-subscribe error: {:?}", e))?;
+        Ok(())
+    }
+
+    /// Add a peer to the mesh by sending GRAFT
+    /// Note: This only works if the peer is already subscribed to the topic
+    pub fn add_peer_to_mesh(&mut self, peer_id: &libp2p::PeerId) {
+        // Add as explicit peer temporarily to force mesh inclusion
+        // Then remove to allow normal mesh behavior
+        self.gossipsub.add_explicit_peer(peer_id);
+    }
+
+    /// Remove explicit peer status (allows normal mesh behavior)
+    pub fn remove_explicit_peer(&mut self, peer_id: &libp2p::PeerId) {
+        self.gossipsub.remove_explicit_peer(peer_id);
+    }
 }
 
 /// Sync request message
