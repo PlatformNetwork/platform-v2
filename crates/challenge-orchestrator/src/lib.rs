@@ -60,8 +60,19 @@ impl ChallengeOrchestrator {
         docker.ensure_network().await?;
 
         // Try to connect the current container to the network (if running in Docker)
-        if let Err(e) = docker.connect_self_to_network().await {
-            tracing::debug!("Could not connect to network (may not be in Docker): {}", e);
+        // This is CRITICAL for communication with challenge containers
+        match docker.connect_self_to_network().await {
+            Ok(_) => {
+                tracing::info!("Validator container connected to {} network", PLATFORM_NETWORK);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Could not connect validator to {} network: {}. \
+                    Challenge containers may not be reachable. \
+                    Ensure validator is started with --network {} or add network in docker-compose.",
+                    PLATFORM_NETWORK, e, PLATFORM_NETWORK
+                );
+            }
         }
 
         let challenges = Arc::new(RwLock::new(HashMap::new()));
