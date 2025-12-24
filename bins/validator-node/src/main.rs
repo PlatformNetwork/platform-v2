@@ -3142,8 +3142,8 @@ async fn handle_message(
             );
         }
         NetworkMessage::ChallengeMessage(challenge_msg) => {
-            debug!(
-                "Challenge message from {:?}: challenge={}, type={:?}",
+            info!(
+                "Received ChallengeMessage via P2P from {:?}: challenge={}, type={:?}",
                 signer, challenge_msg.challenge_id, challenge_msg.message_type
             );
 
@@ -3236,9 +3236,10 @@ async fn handle_message(
                             platform_challenge_sdk::ChallengeP2PMessage,
                         >(&msg_payload)
                         {
-                            debug!(
-                                "Forwarding Custom({}) message to challenge container",
-                                custom_type
+                            info!(
+                                "Forwarding Custom({}) P2P message to challenge container: {:?}",
+                                custom_type,
+                                std::mem::discriminant(&p2p_msg)
                             );
                             Some(p2p_msg)
                         } else {
@@ -3269,8 +3270,8 @@ async fn handle_message(
                         .await
                     {
                         Ok(resp) if resp.status().is_success() => {
-                            debug!(
-                                "Forwarded challenge message to {} (authenticated)",
+                            info!(
+                                "Successfully forwarded P2P message to challenge container '{}'",
                                 challenge_id
                             );
                         }
