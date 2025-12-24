@@ -48,6 +48,10 @@ pub enum ChallengeP2PMessage {
 
     /// Response with progress from a validator
     ProgressResponse(ProgressResponseMessage),
+
+    /// Custom challenge message - challenge defines its own message types
+    /// Payload is serialized challenge-specific data
+    Custom(CustomChallengeMessage),
 }
 
 /// Evaluation result message
@@ -208,6 +212,52 @@ pub struct ProgressResponseMessage {
     pub progress: Option<EvaluationProgressMessage>,
     /// Final result (if completed)
     pub final_result: Option<ValidatorEvaluation>,
+}
+
+/// Custom challenge message - allows challenges to define their own P2P message types
+/// The challenge is responsible for serializing/deserializing the payload
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CustomChallengeMessage {
+    /// Challenge ID
+    pub challenge_id: String,
+    /// Message type identifier (challenge-defined, e.g., "agent_proposal", "vote", "llm_review")
+    pub message_type: String,
+    /// Serialized payload (challenge deserializes based on message_type)
+    pub payload: Vec<u8>,
+    /// Sender hotkey
+    pub sender: Hotkey,
+    /// Sender stake
+    pub sender_stake: u64,
+    /// Timestamp (unix seconds)
+    pub timestamp: u64,
+}
+
+impl CustomChallengeMessage {
+    /// Create a new custom message with JSON payload
+    pub fn new<T: Serialize>(
+        challenge_id: String,
+        message_type: &str,
+        payload: &T,
+        sender: Hotkey,
+        sender_stake: u64,
+    ) -> Result<Self, serde_json::Error> {
+        Ok(Self {
+            challenge_id,
+            message_type: message_type.to_string(),
+            payload: serde_json::to_vec(payload)?,
+            sender,
+            sender_stake,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        })
+    }
+
+    /// Deserialize payload to a specific type
+    pub fn parse_payload<T: for<'de> Deserialize<'de>>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_slice(&self.payload)
+    }
 }
 
 /// Handler for P2P messages in a challenge
