@@ -70,6 +70,13 @@ CREATE TABLE IF NOT EXISTS submissions (
     version VARCHAR(32) DEFAULT '1.0.0',
     epoch BIGINT NOT NULL,
     status VARCHAR(32) DEFAULT 'pending',
+    -- Miner's API key for LLM inferences (centralized cost tracking)
+    api_key TEXT,
+    -- API provider: openrouter, chutes, openai, anthropic, grok
+    api_provider VARCHAR(32) DEFAULT 'openrouter',
+    -- Total cost accumulated for this submission in USD
+    total_cost_usd DOUBLE PRECISION DEFAULT 0.0,
+    -- Deprecated: encrypted API keys (old system)
     api_keys_encrypted TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

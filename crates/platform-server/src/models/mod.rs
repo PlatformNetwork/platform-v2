@@ -38,6 +38,13 @@ pub struct Submission {
     pub version: String,
     pub epoch: u64,
     pub status: SubmissionStatus,
+    /// API key for LLM inferences (stored securely)
+    pub api_key: Option<String>,
+    /// API provider (openrouter, chutes, openai, anthropic, grok)
+    pub api_provider: Option<String>,
+    /// Total cost accumulated for this submission (USD)
+    pub total_cost_usd: Option<f64>,
+    /// Deprecated: use api_key instead
     pub api_keys_encrypted: Option<String>,
     pub created_at: i64,
 }
@@ -83,6 +90,11 @@ pub struct SubmitAgentRequest {
     pub miner_hotkey: String,
     pub signature: String,
     pub name: Option<String>,
+    /// API key for LLM inferences (plaintext - server handles securely)
+    pub api_key: Option<String>,
+    /// API provider: openrouter, chutes, openai, anthropic, grok
+    pub api_provider: Option<String>,
+    /// Deprecated: use api_key instead
     pub api_keys_encrypted: Option<String>,
 }
 

@@ -65,11 +65,14 @@ pub async fn submit_agent(
 ) -> Result<Json<SubmitAgentResponse>, (StatusCode, Json<SubmitAgentResponse>)> {
     let epoch = queries::get_current_epoch(&state.db).await.unwrap_or(0);
 
+    // Create submission with API key for centralized LLM inference
     let submission = queries::create_submission(
         &state.db,
         &req.miner_hotkey,
         &req.source_code,
         req.name.as_deref(),
+        req.api_key.as_deref(),
+        req.api_provider.as_deref(),
         req.api_keys_encrypted.as_deref(),
         epoch,
     )
@@ -85,6 +88,14 @@ pub async fn submit_agent(
             }),
         )
     })?;
+
+    tracing::info!(
+        "Agent submitted: {} (hash: {}) from {} with provider: {:?}",
+        submission.name.as_deref().unwrap_or("unnamed"),
+        &submission.agent_hash[..16],
+        &req.miner_hotkey,
+        req.api_provider
+    );
 
     state
         .broadcast_event(WsEvent::SubmissionReceived(SubmissionEvent {

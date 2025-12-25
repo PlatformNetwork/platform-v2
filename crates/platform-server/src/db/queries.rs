@@ -105,18 +105,21 @@ pub async fn create_submission(
     miner_hotkey: &str,
     source_code: &str,
     name: Option<&str>,
+    api_key: Option<&str>,
+    api_provider: Option<&str>,
     api_keys_encrypted: Option<&str>,
     epoch: u64,
 ) -> Result<Submission> {
     let client = pool.get().await?;
     let agent_hash = compute_agent_hash(miner_hotkey, source_code);
     let source_hash = hex::encode(Sha256::digest(source_code.as_bytes()));
+    let provider = api_provider.unwrap_or("openrouter");
 
     let row = client.query_one(
-        "INSERT INTO submissions (agent_hash, miner_hotkey, source_code, source_hash, name, epoch, status, api_keys_encrypted)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
+        "INSERT INTO submissions (agent_hash, miner_hotkey, source_code, source_hash, name, epoch, status, api_key, api_provider, api_keys_encrypted)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9)
          RETURNING id, created_at",
-        &[&agent_hash, &miner_hotkey, &source_code, &source_hash, &name, &(epoch as i64), &api_keys_encrypted],
+        &[&agent_hash, &miner_hotkey, &source_code, &source_hash, &name, &(epoch as i64), &api_key, &provider, &api_keys_encrypted],
     ).await?;
 
     let id: Uuid = row.get(0);
@@ -132,6 +135,9 @@ pub async fn create_submission(
         version: "1.0.0".to_string(),
         epoch,
         status: SubmissionStatus::Pending,
+        api_key: api_key.map(|s| s.to_string()),
+        api_provider: Some(provider.to_string()),
+        total_cost_usd: Some(0.0),
         api_keys_encrypted: api_keys_encrypted.map(|s| s.to_string()),
         created_at: created_at.timestamp(),
     })
@@ -145,7 +151,7 @@ pub async fn get_submission(pool: &Pool, id: &str) -> Result<Option<Submission>>
     };
 
     let row = client.query_opt(
-        "SELECT id, agent_hash, miner_hotkey, source_code, source_hash, name, version, epoch, status, api_keys_encrypted, created_at
+        "SELECT id, agent_hash, miner_hotkey, source_code, source_hash, name, version, epoch, status, api_key, api_provider, total_cost_usd, api_keys_encrypted, created_at
          FROM submissions WHERE id = $1",
         &[&uuid]
     ).await?;
@@ -162,15 +168,18 @@ pub async fn get_submission(pool: &Pool, id: &str) -> Result<Option<Submission>>
             .unwrap_or_else(|| "1.0.0".to_string()),
         epoch: row.get::<_, i64>(7) as u64,
         status: SubmissionStatus::from(row.get::<_, String>(8).as_str()),
-        api_keys_encrypted: row.get(9),
-        created_at: row.get::<_, chrono::DateTime<chrono::Utc>>(10).timestamp(),
+        api_key: row.get(9),
+        api_provider: row.get(10),
+        total_cost_usd: row.get(11),
+        api_keys_encrypted: row.get(12),
+        created_at: row.get::<_, chrono::DateTime<chrono::Utc>>(13).timestamp(),
     }))
 }
 
 pub async fn get_submission_by_hash(pool: &Pool, agent_hash: &str) -> Result<Option<Submission>> {
     let client = pool.get().await?;
     let row = client.query_opt(
-        "SELECT id, agent_hash, miner_hotkey, source_code, source_hash, name, version, epoch, status, api_keys_encrypted, created_at
+        "SELECT id, agent_hash, miner_hotkey, source_code, source_hash, name, version, epoch, status, api_key, api_provider, total_cost_usd, api_keys_encrypted, created_at
          FROM submissions WHERE agent_hash = $1",
         &[&agent_hash]
     ).await?;
@@ -187,15 +196,18 @@ pub async fn get_submission_by_hash(pool: &Pool, agent_hash: &str) -> Result<Opt
             .unwrap_or_else(|| "1.0.0".to_string()),
         epoch: row.get::<_, i64>(7) as u64,
         status: SubmissionStatus::from(row.get::<_, String>(8).as_str()),
-        api_keys_encrypted: row.get(9),
-        created_at: row.get::<_, chrono::DateTime<chrono::Utc>>(10).timestamp(),
+        api_key: row.get(9),
+        api_provider: row.get(10),
+        total_cost_usd: row.get(11),
+        api_keys_encrypted: row.get(12),
+        created_at: row.get::<_, chrono::DateTime<chrono::Utc>>(13).timestamp(),
     }))
 }
 
 pub async fn get_pending_submissions(pool: &Pool) -> Result<Vec<Submission>> {
     let client = pool.get().await?;
     let rows = client.query(
-        "SELECT id, agent_hash, miner_hotkey, source_code, source_hash, name, version, epoch, status, api_keys_encrypted, created_at
+        "SELECT id, agent_hash, miner_hotkey, source_code, source_hash, name, version, epoch, status, api_key, api_provider, total_cost_usd, api_keys_encrypted, created_at
          FROM submissions WHERE status = 'pending' ORDER BY created_at ASC",
         &[]
     ).await?;
@@ -214,10 +226,26 @@ pub async fn get_pending_submissions(pool: &Pool) -> Result<Vec<Submission>> {
                 .unwrap_or_else(|| "1.0.0".to_string()),
             epoch: row.get::<_, i64>(7) as u64,
             status: SubmissionStatus::from(row.get::<_, String>(8).as_str()),
-            api_keys_encrypted: row.get(9),
-            created_at: row.get::<_, chrono::DateTime<chrono::Utc>>(10).timestamp(),
+            api_key: row.get(9),
+            api_provider: row.get(10),
+            total_cost_usd: row.get(11),
+            api_keys_encrypted: row.get(12),
+            created_at: row.get::<_, chrono::DateTime<chrono::Utc>>(13).timestamp(),
         })
         .collect())
+}
+
+/// Update submission cost after evaluation
+pub async fn update_submission_cost(pool: &Pool, id: &str, cost_usd: f64) -> Result<()> {
+    let client = pool.get().await?;
+    let uuid = Uuid::parse_str(id)?;
+    client
+        .execute(
+            "UPDATE submissions SET total_cost_usd = COALESCE(total_cost_usd, 0) + $1 WHERE id = $2",
+            &[&cost_usd, &uuid],
+        )
+        .await?;
+    Ok(())
 }
 
 pub async fn update_submission_status(
