@@ -1,5 +1,5 @@
 # Multi-stage build for Mini-Chain validator (with bittensor-rs)
-FROM rust:1.75-bookworm as builder
+FROM rust:1.92-bookworm as builder
 
 WORKDIR /app
 

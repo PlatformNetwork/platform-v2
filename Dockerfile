@@ -7,7 +7,7 @@
 # =============================================================================
 
 # Build stage
-FROM rust:1.82-bookworm AS builder
+FROM rust:1.92-bookworm AS builder
 
 # Install dependencies
 RUN apt-get update && apt-get install -y \
@@ -27,7 +27,7 @@ COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Cache dependencies
-FROM rust:1.82-bookworm AS cacher
+FROM rust:1.92-bookworm AS cacher
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
@@ -40,7 +40,7 @@ COPY --from=builder /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 # Build stage
-FROM rust:1.82-bookworm AS final-builder
+FROM rust:1.92-bookworm AS final-builder
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \

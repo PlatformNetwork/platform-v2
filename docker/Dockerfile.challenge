@@ -8,7 +8,7 @@
 #     -t cortexlm/challenge-term-bench:v1.0.0 .
 
 # ===== Build Stage =====
-FROM rust:1.82-bookworm as builder
+FROM rust:1.92-bookworm as builder
 
 ARG CHALLENGE_NAME=term-challenge
 ARG CHALLENGE_DIR=challenges/term-challenge
