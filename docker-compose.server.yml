@@ -28,6 +28,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - RUST_LOG=info,platform_server=debug
+      - VALIDATOR_NAME=server
     dns:
       - 8.8.8.8
       - 1.1.1.1
