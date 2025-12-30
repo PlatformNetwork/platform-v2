@@ -437,16 +437,10 @@ impl DockerClient {
             "Generated challenge container name"
         );
 
-        // Remove existing container if any (same name)
+        // Remove existing container if any (same name only)
+        // NOTE: We do NOT clean up containers with different suffixes because
+        // server and validator may run on the same host and need separate containers
         let _ = self.remove_container(&container_name).await;
-
-        // Clean up old challenge containers with different suffixes (from previous server restarts)
-        let challenge_prefix = format!(
-            "challenge-{}-",
-            config.name.to_lowercase().replace(' ', "-")
-        );
-        self.cleanup_old_challenge_containers(&challenge_prefix, &container_name)
-            .await;
 
         // Build port bindings - expose on a dynamic port
         let mut port_bindings = HashMap::new();
@@ -779,44 +773,6 @@ impl DockerClient {
             .join("");
 
         Ok(output)
-    }
-
-    /// Clean up old challenge containers with different suffixes
-    /// This handles the case where the server restarts with a new container ID
-    async fn cleanup_old_challenge_containers(&self, prefix: &str, exclude_name: &str) {
-        let options = ListContainersOptions::<String> {
-            all: true,
-            ..Default::default()
-        };
-
-        let containers = match self.docker.list_containers(Some(options)).await {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(error = %e, "Failed to list containers for cleanup");
-                return;
-            }
-        };
-
-        for container in containers {
-            let names = container.names.unwrap_or_default();
-            let container_id = match container.id.as_ref() {
-                Some(id) => id.clone(),
-                None => continue,
-            };
-
-            // Check if container name matches prefix but is not the current container
-            let should_remove = names.iter().any(|name| {
-                let clean_name = name.trim_start_matches('/');
-                clean_name.starts_with(prefix) && clean_name != exclude_name
-            });
-
-            if should_remove {
-                info!(container = ?names, "Removing old challenge container from previous server instance");
-                if let Err(e) = self.remove_container(&container_id).await {
-                    warn!(container = ?names, error = %e, "Failed to remove old container");
-                }
-            }
-        }
     }
 
     /// Clean up stale task containers created by challenge evaluations
