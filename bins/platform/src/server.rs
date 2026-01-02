@@ -330,6 +330,15 @@ async fn stop_challenge(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    info!("Challenge {} stopped", id);
+
+    // Broadcast to all validators so they stop their local containers
+    state
+        .broadcast_event(models::WsEvent::ChallengeStopped(
+            models::ChallengeStoppedEvent { id: id.clone() },
+        ))
+        .await;
+
     Ok(Json(serde_json::json!({
         "success": true
     })))
