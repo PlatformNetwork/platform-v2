@@ -50,6 +50,3 @@ uuid = { version = "1.0", features = ["v5"] }
 tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
 futures-util = "0.3"
 url = "2.5"
-
-# Binary evaluation
-tempfile = "3.10"

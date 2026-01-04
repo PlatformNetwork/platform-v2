@@ -9509,7 +9509,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core 38.1.0",
- "tempfile",
  "tokio",
  "tokio-tungstenite 0.21.0",
  "tracing",
