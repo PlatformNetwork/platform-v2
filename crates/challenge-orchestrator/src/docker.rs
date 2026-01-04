@@ -586,9 +586,9 @@ impl DockerClient {
             });
 
         // Pass Platform URL for metagraph verification and API calls
-        // Priority: PLATFORM_PUBLIC_URL (for validators to reach owner's server) > local
+        // Default to public platform-server URL so validators don't need extra config
         let platform_url = std::env::var("PLATFORM_PUBLIC_URL")
-            .unwrap_or_else(|_| format!("http://{}:8080", platform_host));
+            .unwrap_or_else(|_| "https://chain.platform.network".to_string());
         env.push(format!("PLATFORM_URL={}", platform_url));
 
         // Pass Container Broker WebSocket URL for secure container spawning
