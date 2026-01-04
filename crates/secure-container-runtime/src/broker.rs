@@ -234,6 +234,23 @@ impl ContainerBroker {
             return Response::error(request_id, e);
         }
 
+        // Auto-pull image if it doesn't exist locally
+        if let Err(e) = self.ensure_image(&config.image).await {
+            self.audit(
+                AuditAction::ImagePull,
+                &config.challenge_id,
+                &config.owner_id,
+                None,
+                false,
+                Some(e.to_string()),
+            )
+            .await;
+            return Response::error(
+                request_id.clone(),
+                ContainerError::DockerError(e.to_string()),
+            );
+        }
+
         // Check container limits
         {
             let by_challenge = self.containers_by_challenge.read().await;
@@ -809,6 +826,50 @@ impl ContainerBroker {
             image: image.to_string(),
             request_id,
         }
+    }
+
+    /// Ensure an image exists locally, pulling it if necessary
+    async fn ensure_image(&self, image: &str) -> anyhow::Result<()> {
+        // Check if image exists locally
+        match self.docker.inspect_image(image).await {
+            Ok(_) => {
+                debug!(image = %image, "Image already exists locally");
+                return Ok(());
+            }
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => {
+                // Image not found, need to pull
+                info!(image = %image, "Image not found locally, pulling...");
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to inspect image: {}", e));
+            }
+        }
+
+        // Pull the image
+        let options = CreateImageOptions {
+            from_image: image,
+            ..Default::default()
+        };
+
+        let mut stream = self.docker.create_image(Some(options), None, None);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(info) => {
+                    if let Some(status) = info.status {
+                        debug!(image = %image, status = %status, "Pull progress");
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to pull image: {}", e));
+                }
+            }
+        }
+
+        info!(image = %image, "Image pulled successfully");
+        Ok(())
     }
 
     /// Ensure the challenge network exists
