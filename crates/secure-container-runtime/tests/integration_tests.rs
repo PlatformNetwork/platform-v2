@@ -42,10 +42,11 @@ fn test_default_policy_blocks_docker_socket() {
 }
 
 #[test]
-fn test_default_policy_blocks_malicious_images() {
-    let policy = SecurityPolicy::default();
+fn test_strict_policy_blocks_non_whitelisted_images() {
+    // Use strict() which has whitelist enabled
+    let policy = SecurityPolicy::strict();
 
-    // Blocked images
+    // Blocked images (not in whitelist)
     let blocked = vec![
         "alpine:latest",
         "ubuntu:22.04",
@@ -59,7 +60,7 @@ fn test_default_policy_blocks_malicious_images() {
         assert!(result.is_err(), "Image should be blocked: {}", image);
     }
 
-    // Allowed images
+    // Allowed images (in whitelist)
     let allowed = vec![
         "ghcr.io/platformnetwork/term-challenge:latest",
         "ghcr.io/platformnetwork/validator:v1.0.0",
@@ -67,6 +68,24 @@ fn test_default_policy_blocks_malicious_images() {
     ];
 
     for image in allowed {
+        let result = policy.validate_image(image);
+        assert!(result.is_ok(), "Image should be allowed: {}", image);
+    }
+}
+
+#[test]
+fn test_default_policy_allows_all_images() {
+    // Default policy has empty whitelist = allow all
+    let policy = SecurityPolicy::default();
+
+    let images = vec![
+        "alpine:latest",
+        "ubuntu:22.04",
+        "alexgshaw/code-from-image:20251031",
+        "ghcr.io/platformnetwork/term-challenge:latest",
+    ];
+
+    for image in images {
         let result = policy.validate_image(image);
         assert!(result.is_ok(), "Image should be allowed: {}", image);
     }
@@ -157,7 +176,7 @@ fn test_policy_container_limits() {
 fn test_full_config_validation() {
     let policy = SecurityPolicy::default();
 
-    // Valid config
+    // Valid config (default allows all images)
     let valid = ContainerConfig {
         image: TEST_IMAGE.to_string(),
         challenge_id: "test-challenge".to_string(),
@@ -183,8 +202,13 @@ fn test_full_config_validation() {
         ..Default::default()
     };
     assert!(policy.validate(&missing_owner).is_err());
+}
 
-    // Malicious image
+#[test]
+fn test_strict_policy_blocks_malicious_image() {
+    // Use strict() policy to test image whitelist
+    let policy = SecurityPolicy::strict();
+
     let malicious = ContainerConfig {
         image: MALICIOUS_IMAGE.to_string(),
         challenge_id: "test-challenge".to_string(),

@@ -929,8 +929,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_policy_enforcement() {
-        // Test that policy validation works without Docker
-        let policy = SecurityPolicy::default();
+        // Test that strict policy blocks non-whitelisted images
+        let policy = SecurityPolicy::strict();
 
         let config = ContainerConfig {
             image: "malicious/image:latest".to_string(),
@@ -940,5 +940,20 @@ mod tests {
         };
 
         assert!(policy.validate(&config).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_default_policy_allows_images() {
+        // Default policy allows all images
+        let policy = SecurityPolicy::default();
+
+        let config = ContainerConfig {
+            image: "any/image:latest".to_string(),
+            challenge_id: "test".to_string(),
+            owner_id: "test".to_string(),
+            ..Default::default()
+        };
+
+        assert!(policy.validate(&config).is_ok());
     }
 }

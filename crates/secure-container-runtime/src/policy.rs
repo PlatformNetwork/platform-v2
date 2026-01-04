@@ -76,10 +76,11 @@ impl Default for SecurityPolicy {
 impl SecurityPolicy {
     /// Create a strict policy for production with image whitelist
     pub fn strict() -> Self {
-        let mut policy = Self::default();
-        // Only allow platform images in strict mode
-        policy.allowed_image_prefixes = vec!["ghcr.io/platformnetwork/".to_string()];
-        policy
+        Self {
+            // Only allow platform images in strict mode
+            allowed_image_prefixes: vec!["ghcr.io/platformnetwork/".to_string()],
+            ..Default::default()
+        }
     }
 
     /// Create a more permissive policy for development
@@ -301,11 +302,23 @@ mod tests {
 
     #[test]
     fn test_validate_image_blocked() {
-        let policy = SecurityPolicy::default();
+        // Use strict() policy which has whitelist enabled
+        let policy = SecurityPolicy::strict();
         assert!(policy
             .validate_image("docker.io/malicious/image:latest")
             .is_err());
         assert!(policy.validate_image("alpine:latest").is_err());
+    }
+
+    #[test]
+    fn test_default_allows_all_images() {
+        // Default policy has no whitelist, allows all images
+        let policy = SecurityPolicy::default();
+        assert!(policy.validate_image("docker.io/any/image:latest").is_ok());
+        assert!(policy.validate_image("alpine:latest").is_ok());
+        assert!(policy
+            .validate_image("alexgshaw/code-from-image:20251031")
+            .is_ok());
     }
 
     #[test]
