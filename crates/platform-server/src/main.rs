@@ -223,10 +223,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/validators",
             post(api::validators::register_validator),
         )
-        .route(
-            "/api/v1/validators/:hotkey",
-            get(api::validators::get_validator),
-        )
+        // Static routes MUST come before parameterized routes in Axum
         .route(
             "/api/v1/validators/heartbeat",
             post(api::validators::heartbeat),
@@ -242,6 +239,11 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/validators/stats",
             get(api::validators::get_validators_stats),
+        )
+        // Parameterized route MUST be last to avoid capturing static paths like "stats"
+        .route(
+            "/api/v1/validators/:hotkey",
+            get(api::validators::get_validator),
         )
         .route(
             "/api/v1/network/state",
