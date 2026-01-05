@@ -106,6 +106,40 @@ pub async fn get_whitelisted_validators(pool: &Pool, min_stake: i64) -> Result<V
     Ok(rows.iter().map(|row| row.get(0)).collect())
 }
 
+/// Validator row with NaiveDateTime for last_seen (for stats endpoint)
+pub struct ValidatorDbRow {
+    pub hotkey: String,
+    pub stake: i64,
+    pub last_seen: Option<chrono::NaiveDateTime>,
+    pub is_active: bool,
+}
+
+/// List all validators with NaiveDateTime for last_seen
+pub async fn list_validators(pool: &Pool) -> Result<Vec<ValidatorDbRow>> {
+    let client = pool.get().await?;
+    let rows = client
+        .query(
+            "SELECT hotkey, stake, last_seen, is_active
+             FROM validators WHERE is_active = TRUE ORDER BY stake DESC",
+            &[],
+        )
+        .await?;
+
+    let validators = rows
+        .iter()
+        .map(|row| ValidatorDbRow {
+            hotkey: row.get(0),
+            stake: row.get(1),
+            last_seen: row
+                .get::<_, Option<chrono::DateTime<chrono::Utc>>>(2)
+                .map(|dt| dt.naive_utc()),
+            is_active: row.get(3),
+        })
+        .collect();
+
+    Ok(validators)
+}
+
 // ============================================================================
 // SUBMISSIONS
 // ============================================================================

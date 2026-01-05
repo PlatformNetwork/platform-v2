@@ -44,6 +44,7 @@ anyhow = { workspace = true }
 hex = { workspace = true }
 parking_lot = { workspace = true }
 sp-core = { workspace = true }
+sysinfo = "0.31"
 uuid = { version = "1.0", features = ["v5"] }
 
 # WebSocket for platform-server events

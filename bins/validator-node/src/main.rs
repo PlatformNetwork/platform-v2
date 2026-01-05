@@ -22,6 +22,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use sysinfo::System;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 
@@ -238,6 +239,66 @@ fn default_cpu() -> f64 {
 }
 fn default_memory() -> u64 {
     4096
+}
+
+/// Collect current system metrics (CPU and memory)
+fn collect_system_metrics() -> (f32, u64, u64) {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let cpu_percent = sys.global_cpu_usage();
+    let memory_used_mb = sys.used_memory() / 1024 / 1024;
+    let memory_total_mb = sys.total_memory() / 1024 / 1024;
+
+    (cpu_percent, memory_used_mb, memory_total_mb)
+}
+
+/// Report metrics to platform server
+async fn report_metrics_to_platform(
+    client: &reqwest::Client,
+    platform_url: &str,
+    keypair: &Keypair,
+    hotkey: &str,
+) -> anyhow::Result<()> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let (cpu_percent, memory_used_mb, memory_total_mb) = collect_system_metrics();
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let message = format!("metrics:{}:{}", hotkey, timestamp);
+    let signature = keypair.sign_bytes(message.as_bytes()).unwrap_or_default();
+    let signature_hex = format!("0x{}", hex::encode(signature));
+
+    let payload = serde_json::json!({
+        "hotkey": hotkey,
+        "signature": signature_hex,
+        "timestamp": timestamp,
+        "cpu_percent": cpu_percent,
+        "memory_used_mb": memory_used_mb,
+        "memory_total_mb": memory_total_mb,
+    });
+
+    let url = format!("{}/api/v1/validators/metrics", platform_url);
+
+    client
+        .post(&url)
+        .json(&payload)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await?;
+
+    debug!(
+        cpu = %cpu_percent,
+        mem_used = %memory_used_mb,
+        mem_total = %memory_total_mb,
+        "Reported metrics to platform"
+    );
+
+    Ok(())
 }
 
 /// Custom event from a challenge
@@ -576,6 +637,15 @@ async fn main() -> Result<()> {
     let netuid = args.netuid;
     let version_key = args.version_key;
     let mut interval = tokio::time::interval(Duration::from_secs(60));
+    let mut metrics_interval = tokio::time::interval(Duration::from_secs(5));
+
+    // Create HTTP client and extract values for metrics reporting
+    let metrics_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("HTTP client for metrics");
+    let platform_url = args.platform_server.clone();
+    let hotkey = keypair.ss58_address();
 
     loop {
         tokio::select! {
@@ -597,6 +667,17 @@ async fn main() -> Result<()> {
 
             _ = interval.tick() => {
                 debug!("Heartbeat");
+            }
+
+            _ = metrics_interval.tick() => {
+                if let Err(e) = report_metrics_to_platform(
+                    &metrics_client,
+                    &platform_url,
+                    &keypair,
+                    &hotkey,
+                ).await {
+                    debug!("Failed to report metrics: {}", e);
+                }
             }
 
             _ = tokio::signal::ctrl_c() => {

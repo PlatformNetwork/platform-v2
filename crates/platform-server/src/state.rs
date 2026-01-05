@@ -8,8 +8,69 @@ use crate::websocket::events::EventBroadcaster;
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use platform_bittensor::Metagraph;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Instant;
+
+/// System metrics from a validator
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ValidatorMetrics {
+    pub cpu_percent: f32,
+    pub memory_used_mb: u64,
+    pub memory_total_mb: u64,
+    pub timestamp: i64,
+}
+
+/// In-memory cache for validator metrics (5 minute TTL)
+pub struct MetricsCache {
+    /// hotkey -> (metrics, last_update_instant)
+    metrics: RwLock<HashMap<String, (ValidatorMetrics, Instant)>>,
+}
+
+impl MetricsCache {
+    pub fn new() -> Self {
+        Self {
+            metrics: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Update metrics for a validator
+    pub fn update(&self, hotkey: &str, metrics: ValidatorMetrics) {
+        let mut cache = self.metrics.write();
+        cache.insert(hotkey.to_string(), (metrics, Instant::now()));
+        // Cleanup entries older than 5 minutes
+        cache.retain(|_, (_, instant)| instant.elapsed().as_secs() < 300);
+    }
+
+    /// Get metrics for a specific validator (if within 5 min TTL)
+    pub fn get(&self, hotkey: &str) -> Option<ValidatorMetrics> {
+        let cache = self.metrics.read();
+        cache.get(hotkey).and_then(|(m, instant)| {
+            if instant.elapsed().as_secs() < 300 {
+                Some(m.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get all valid metrics (within 5 min TTL)
+    pub fn get_all(&self) -> Vec<(String, ValidatorMetrics)> {
+        let cache = self.metrics.read();
+        cache
+            .iter()
+            .filter(|(_, (_, instant))| instant.elapsed().as_secs() < 300)
+            .map(|(k, (m, _))| (k.clone(), m.clone()))
+            .collect()
+    }
+}
+
+impl Default for MetricsCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 pub struct AppState {
     pub db: DbPool,
@@ -26,6 +87,8 @@ pub struct AppState {
     pub metagraph: RwLock<Option<Metagraph>>,
     /// Static validator whitelist (for testing without metagraph)
     pub validator_whitelist: RwLock<HashSet<String>>,
+    /// In-memory cache for validator metrics
+    pub metrics_cache: MetricsCache,
 }
 
 impl AppState {
@@ -47,6 +110,7 @@ impl AppState {
             task_leases: DashMap::new(),
             metagraph: RwLock::new(None),
             validator_whitelist: RwLock::new(HashSet::new()),
+            metrics_cache: MetricsCache::new(),
         }
     }
 
@@ -68,6 +132,7 @@ impl AppState {
             task_leases: DashMap::new(),
             metagraph: RwLock::new(metagraph),
             validator_whitelist: RwLock::new(HashSet::new()),
+            metrics_cache: MetricsCache::new(),
         }
     }
 
@@ -90,6 +155,7 @@ impl AppState {
             task_leases: DashMap::new(),
             metagraph: RwLock::new(metagraph),
             validator_whitelist: RwLock::new(validator_whitelist.into_iter().collect()),
+            metrics_cache: MetricsCache::new(),
         }
     }
 

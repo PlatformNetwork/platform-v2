@@ -236,6 +236,14 @@ async fn main() -> anyhow::Result<()> {
             get(api::validators::get_whitelisted_validators),
         )
         .route(
+            "/api/v1/validators/metrics",
+            post(api::validators::report_metrics),
+        )
+        .route(
+            "/api/v1/validators/stats",
+            get(api::validators::get_validators_stats),
+        )
+        .route(
             "/api/v1/network/state",
             get(api::challenges::get_network_state),
         )
@@ -313,8 +321,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/jobs/:job_id/complete",
             post(api::jobs::complete_job),
         )
-        // === CENTRALIZED LLM PROXY ===
-        .route("/api/v1/llm/chat", post(api::llm::chat))
+        // LLM proxy moved to term-challenge-server (via bridge)
+        // .route("/api/v1/llm/chat", post(api::llm::chat))
         // === CHALLENGE EVENTS (broadcast to validators) ===
         .route(
             "/api/v1/events/broadcast",
