@@ -108,18 +108,19 @@ async fn handle_ws_connection(
 
     info!(addr = %addr, "New WebSocket connection");
 
-    // Authentication phase
+    // Authentication phase - always expect an auth message first
     let mut conn_state = WsConnection {
         challenge_id: String::new(),
         owner_id: String::new(),
-        authenticated: config.jwt_secret.is_none(), // No auth required if no secret
+        authenticated: false,
     };
 
-    if !conn_state.authenticated {
-        // Wait for auth message
-        let auth_timeout = tokio::time::Duration::from_secs(10);
-        match tokio::time::timeout(auth_timeout, read.next()).await {
-            Ok(Some(Ok(Message::Text(text)))) => {
+    // Always wait for auth message (even if we don't validate JWT)
+    let auth_timeout = tokio::time::Duration::from_secs(10);
+    match tokio::time::timeout(auth_timeout, read.next()).await {
+        Ok(Some(Ok(Message::Text(text)))) => {
+            if config.jwt_secret.is_some() {
+                // JWT validation required
                 match authenticate(&text, &config) {
                     Ok(claims) => {
                         conn_state.challenge_id = claims.challenge_id;
@@ -169,11 +170,35 @@ async fn handle_ws_connection(
                         return Ok(());
                     }
                 }
+            } else {
+                // No JWT validation - try to parse auth message to get challenge_id
+                // but don't fail if it's invalid
+                if let Ok(auth_msg) = serde_json::from_str::<AuthMessage>(&text) {
+                    // Try to decode JWT without validation to get challenge_id
+                    if let Ok(claims) = decode_jwt_unverified(&auth_msg.token) {
+                        conn_state.challenge_id = claims.challenge_id;
+                        conn_state.owner_id = claims.owner_id;
+                    }
+                }
+                conn_state.authenticated = true;
+
+                info!(
+                    addr = %addr,
+                    challenge_id = %conn_state.challenge_id,
+                    "WebSocket connected (no auth required)"
+                );
+
+                // Send success response
+                let success = Response::Pong {
+                    version: "authenticated".to_string(),
+                    request_id: "auth".to_string(),
+                };
+                write.send(Message::Text(encode_response(&success))).await?;
             }
-            _ => {
-                warn!(addr = %addr, "WebSocket auth timeout or invalid message");
-                return Ok(());
-            }
+        }
+        _ => {
+            warn!(addr = %addr, "WebSocket auth timeout or invalid message");
+            return Ok(());
         }
     }
 
@@ -235,6 +260,19 @@ fn authenticate(text: &str, config: &WsConfig) -> anyhow::Result<WsClaims> {
         anyhow::bail!("Challenge not allowed: {}", token_data.claims.challenge_id);
     }
 
+    Ok(token_data.claims)
+}
+
+/// Decode JWT without signature validation (for extracting claims when auth is disabled)
+fn decode_jwt_unverified(token: &str) -> anyhow::Result<WsClaims> {
+    // Use dangerous_insecure_decode to skip signature validation
+    let key = jsonwebtoken::DecodingKey::from_secret(&[]);
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.insecure_disable_signature_validation();
+    validation.validate_exp = false;
+    validation.validate_aud = false;
+
+    let token_data = jsonwebtoken::decode::<WsClaims>(token, &key, &validation)?;
     Ok(token_data.claims)
 }
 
