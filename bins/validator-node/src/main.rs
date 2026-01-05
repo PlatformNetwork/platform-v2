@@ -383,7 +383,15 @@ async fn main() -> Result<()> {
 
     // Keypair
     let keypair = load_keypair(&args)?;
-    info!("Validator: {}", keypair.ss58_address());
+    let validator_hotkey = keypair.ss58_address();
+    info!("Validator: {}", validator_hotkey);
+
+    // Export hotkey and secret key as env vars for challenge-orchestrator
+    // These are passed to challenge containers for signing LLM proxy requests
+    std::env::set_var("VALIDATOR_HOTKEY", &validator_hotkey);
+    if let Some(ref secret) = args.secret_key {
+        std::env::set_var("VALIDATOR_SECRET_KEY", secret);
+    }
 
     // Data dir
     std::fs::create_dir_all(&args.data_dir)?;
