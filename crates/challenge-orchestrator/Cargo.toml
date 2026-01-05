@@ -36,6 +36,7 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 uuid = { workspace = true }
+hostname = "0.4"
 
 [dev-dependencies]
 tempfile = { workspace = true }

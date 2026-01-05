@@ -579,12 +579,18 @@ impl DockerClient {
                 env.push(format!("DATABASE_URL={}/{}", db_url, challenge_db_name));
             }
         }
-        // Local hostname for broker (always local)
+        // Local hostname for broker (always local to validator container)
+        // Priority: VALIDATOR_NAME -> VALIDATOR_CONTAINER_NAME -> system hostname
         let platform_host = std::env::var("VALIDATOR_NAME")
             .map(|name| format!("platform-{}", name))
             .unwrap_or_else(|_| {
-                std::env::var("VALIDATOR_CONTAINER_NAME")
-                    .unwrap_or_else(|_| "platform-server".to_string())
+                std::env::var("VALIDATOR_CONTAINER_NAME").unwrap_or_else(|_| {
+                    // Fallback to actual hostname of current container
+                    hostname::get()
+                        .ok()
+                        .and_then(|h| h.into_string().ok())
+                        .unwrap_or_else(|| "localhost".to_string())
+                })
             });
 
         // Pass Platform URL for metagraph verification and API calls
