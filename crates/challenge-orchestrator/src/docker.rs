@@ -4,6 +4,7 @@
 //! are allowed to be pulled or run. This prevents malicious container attacks.
 
 use crate::{ChallengeContainerConfig, ChallengeInstance, ContainerStatus};
+use async_trait::async_trait;
 use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions,
     StartContainerOptions, StopContainerOptions,
@@ -20,6 +21,55 @@ use tracing::{debug, error, info, warn};
 pub struct DockerClient {
     docker: Docker,
     network_name: String,
+}
+
+#[async_trait]
+pub trait ChallengeDocker: Send + Sync {
+    async fn pull_image(&self, image: &str) -> anyhow::Result<()>;
+    async fn start_challenge(
+        &self,
+        config: &ChallengeContainerConfig,
+    ) -> anyhow::Result<ChallengeInstance>;
+    async fn stop_container(&self, container_id: &str) -> anyhow::Result<()>;
+    async fn remove_container(&self, container_id: &str) -> anyhow::Result<()>;
+    async fn cleanup_stale_containers(
+        &self,
+        prefix: &str,
+        max_age_minutes: u64,
+        exclude_patterns: &[&str],
+    ) -> anyhow::Result<CleanupResult>;
+}
+
+#[async_trait]
+impl ChallengeDocker for DockerClient {
+    async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
+        DockerClient::pull_image(self, image).await
+    }
+
+    async fn start_challenge(
+        &self,
+        config: &ChallengeContainerConfig,
+    ) -> anyhow::Result<ChallengeInstance> {
+        DockerClient::start_challenge(self, config).await
+    }
+
+    async fn stop_container(&self, container_id: &str) -> anyhow::Result<()> {
+        DockerClient::stop_container(self, container_id).await
+    }
+
+    async fn remove_container(&self, container_id: &str) -> anyhow::Result<()> {
+        DockerClient::remove_container(self, container_id).await
+    }
+
+    async fn cleanup_stale_containers(
+        &self,
+        prefix: &str,
+        max_age_minutes: u64,
+        exclude_patterns: &[&str],
+    ) -> anyhow::Result<CleanupResult> {
+        DockerClient::cleanup_stale_containers(self, prefix, max_age_minutes, exclude_patterns)
+            .await
+    }
 }
 
 impl DockerClient {
@@ -1017,7 +1067,7 @@ mod tests {
 }
 
 /// Result of container cleanup operation
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CleanupResult {
     pub total_found: usize,
     pub removed: usize,

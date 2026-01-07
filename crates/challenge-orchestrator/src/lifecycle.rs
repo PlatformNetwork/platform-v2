@@ -1,45 +1,13 @@
 //! Container lifecycle management
 
-use crate::{ChallengeContainerConfig, ChallengeInstance, ContainerStatus, DockerClient};
-use async_trait::async_trait;
+#[cfg(test)]
+use crate::CleanupResult;
+use crate::{ChallengeContainerConfig, ChallengeDocker, ChallengeInstance, ContainerStatus};
 use parking_lot::RwLock;
 use platform_core::ChallengeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info};
-
-#[async_trait]
-pub trait ChallengeDocker: Send + Sync {
-    async fn pull_image(&self, image: &str) -> anyhow::Result<()>;
-    async fn start_challenge(
-        &self,
-        config: &ChallengeContainerConfig,
-    ) -> anyhow::Result<ChallengeInstance>;
-    async fn stop_container(&self, container_id: &str) -> anyhow::Result<()>;
-    async fn remove_container(&self, container_id: &str) -> anyhow::Result<()>;
-}
-
-#[async_trait]
-impl ChallengeDocker for DockerClient {
-    async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
-        DockerClient::pull_image(self, image).await
-    }
-
-    async fn start_challenge(
-        &self,
-        config: &ChallengeContainerConfig,
-    ) -> anyhow::Result<ChallengeInstance> {
-        DockerClient::start_challenge(self, config).await
-    }
-
-    async fn stop_container(&self, container_id: &str) -> anyhow::Result<()> {
-        DockerClient::stop_container(self, container_id).await
-    }
-
-    async fn remove_container(&self, container_id: &str) -> anyhow::Result<()> {
-        DockerClient::remove_container(self, container_id).await
-    }
-}
 
 /// Manages the lifecycle of challenge containers
 pub struct LifecycleManager {
@@ -469,6 +437,16 @@ mod tests {
         async fn remove_container(&self, container_id: &str) -> anyhow::Result<()> {
             self.record(format!("remove:{container_id}"));
             Ok(())
+        }
+
+        async fn cleanup_stale_containers(
+            &self,
+            prefix: &str,
+            _max_age_minutes: u64,
+            _exclude_patterns: &[&str],
+        ) -> anyhow::Result<CleanupResult> {
+            self.record(format!("cleanup:{prefix}"));
+            Ok(CleanupResult::default())
         }
     }
 

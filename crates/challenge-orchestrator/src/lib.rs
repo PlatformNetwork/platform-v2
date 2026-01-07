@@ -30,11 +30,10 @@ pub use backend::{
     SecureBackend, DEFAULT_BROKER_SOCKET,
 };
 pub use config::*;
-pub use docker::{CleanupResult, DockerClient};
+pub use docker::{ChallengeDocker, CleanupResult, DockerClient};
 pub use evaluator::*;
 pub use health::*;
 pub use lifecycle::*;
-
 use parking_lot::RwLock;
 use platform_core::ChallengeId;
 use std::collections::HashMap;
@@ -43,7 +42,7 @@ use std::sync::Arc;
 /// Main orchestrator managing all challenge containers
 #[allow(dead_code)]
 pub struct ChallengeOrchestrator {
-    docker: DockerClient,
+    docker: Arc<dyn ChallengeDocker>,
     challenges: Arc<RwLock<HashMap<ChallengeId, ChallengeInstance>>>,
     health_monitor: HealthMonitor,
     config: OrchestratorConfig,
@@ -67,6 +66,15 @@ impl ChallengeOrchestrator {
             tracing::warn!("Could not connect validator to platform network: {}", e);
         }
 
+        Self::with_docker(docker, config).await
+    }
+
+    /// Build an orchestrator with a custom Docker implementation
+    pub async fn with_docker(
+        docker: impl ChallengeDocker + 'static,
+        config: OrchestratorConfig,
+    ) -> anyhow::Result<Self> {
+        let docker = Arc::new(docker);
         let challenges = Arc::new(RwLock::new(HashMap::new()));
         let health_monitor = HealthMonitor::new(challenges.clone(), config.health_check_interval);
 
@@ -276,8 +284,8 @@ impl ChallengeOrchestrator {
     }
 
     /// Get the Docker client for direct operations
-    pub fn docker(&self) -> &DockerClient {
-        &self.docker
+    pub fn docker(&self) -> &dyn ChallengeDocker {
+        self.docker.as_ref()
     }
 }
 
@@ -298,4 +306,331 @@ pub enum ContainerStatus {
     Running,
     Unhealthy,
     Stopped,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use chrono::Utc;
+    use platform_core::ChallengeId;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct TestDocker {
+        inner: Arc<TestDockerInner>,
+    }
+
+    struct TestDockerInner {
+        operations: Mutex<Vec<String>>,
+        cleanup_result: Mutex<CleanupResult>,
+        cleanup_calls: Mutex<Vec<(String, u64, Vec<String>)>>,
+        next_container_id: AtomicUsize,
+    }
+
+    impl Default for TestDockerInner {
+        fn default() -> Self {
+            Self {
+                operations: Mutex::new(Vec::new()),
+                cleanup_result: Mutex::new(CleanupResult::default()),
+                cleanup_calls: Mutex::new(Vec::new()),
+                next_container_id: AtomicUsize::new(1),
+            }
+        }
+    }
+
+    impl TestDocker {
+        fn record(&self, entry: impl Into<String>) {
+            self.inner.operations.lock().unwrap().push(entry.into());
+        }
+
+        fn operations(&self) -> Vec<String> {
+            self.inner.operations.lock().unwrap().clone()
+        }
+
+        fn set_cleanup_result(&self, result: CleanupResult) {
+            *self.inner.cleanup_result.lock().unwrap() = result;
+        }
+
+        fn cleanup_calls(&self) -> Vec<(String, u64, Vec<String>)> {
+            self.inner.cleanup_calls.lock().unwrap().clone()
+        }
+
+        fn next_instance(&self, config: &ChallengeContainerConfig) -> ChallengeInstance {
+            let idx = self.inner.next_container_id.fetch_add(1, Ordering::SeqCst);
+            let id_str = config.challenge_id.to_string();
+            ChallengeInstance {
+                challenge_id: config.challenge_id,
+                container_id: format!("container-{id_str}-{idx}"),
+                image: config.docker_image.clone(),
+                endpoint: format!("http://{id_str}:{idx}"),
+                started_at: Utc::now(),
+                status: ContainerStatus::Running,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ChallengeDocker for TestDocker {
+        async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
+            self.record(format!("pull:{image}"));
+            Ok(())
+        }
+
+        async fn start_challenge(
+            &self,
+            config: &ChallengeContainerConfig,
+        ) -> anyhow::Result<ChallengeInstance> {
+            self.record(format!("start:{}", config.challenge_id));
+            Ok(self.next_instance(config))
+        }
+
+        async fn stop_container(&self, container_id: &str) -> anyhow::Result<()> {
+            self.record(format!("stop:{container_id}"));
+            Ok(())
+        }
+
+        async fn remove_container(&self, container_id: &str) -> anyhow::Result<()> {
+            self.record(format!("remove:{container_id}"));
+            Ok(())
+        }
+
+        async fn cleanup_stale_containers(
+            &self,
+            prefix: &str,
+            max_age_minutes: u64,
+            exclude_patterns: &[&str],
+        ) -> anyhow::Result<CleanupResult> {
+            self.record(format!("cleanup:{prefix}:{max_age_minutes}"));
+            self.inner.cleanup_calls.lock().unwrap().push((
+                prefix.to_string(),
+                max_age_minutes,
+                exclude_patterns.iter().map(|s| s.to_string()).collect(),
+            ));
+            Ok(self.inner.cleanup_result.lock().unwrap().clone())
+        }
+    }
+
+    fn sample_config_with_id(challenge_id: ChallengeId, image: &str) -> ChallengeContainerConfig {
+        let id_str = challenge_id.to_string();
+        ChallengeContainerConfig {
+            challenge_id,
+            name: format!("challenge-{id_str}"),
+            docker_image: image.to_string(),
+            mechanism_id: 0,
+            emission_weight: 1.0,
+            timeout_secs: 300,
+            cpu_cores: 1.0,
+            memory_mb: 512,
+            gpu_required: false,
+        }
+    }
+
+    fn sample_config(image: &str) -> ChallengeContainerConfig {
+        sample_config_with_id(ChallengeId::new(), image)
+    }
+
+    async fn orchestrator_with_mock(docker: TestDocker) -> ChallengeOrchestrator {
+        ChallengeOrchestrator::with_docker(docker, OrchestratorConfig::default())
+            .await
+            .expect("build orchestrator")
+    }
+
+    #[tokio::test]
+    async fn test_add_challenge_registers_instance() {
+        let docker = TestDocker::default();
+        let orchestrator = orchestrator_with_mock(docker.clone()).await;
+        let config = sample_config("ghcr.io/platformnetwork/challenge:v1");
+        let challenge_id = config.challenge_id;
+
+        orchestrator
+            .add_challenge(config.clone())
+            .await
+            .expect("add challenge");
+
+        let stored = orchestrator
+            .get_challenge(&challenge_id)
+            .expect("challenge stored");
+        assert_eq!(stored.image, config.docker_image);
+        assert_eq!(orchestrator.list_challenges(), vec![challenge_id]);
+
+        let ops = docker.operations();
+        assert!(ops.contains(&format!("pull:{}", config.docker_image)));
+        assert!(ops.contains(&format!("start:{}", challenge_id)));
+    }
+
+    #[tokio::test]
+    async fn test_update_challenge_restarts_with_new_image() {
+        let docker = TestDocker::default();
+        let orchestrator = orchestrator_with_mock(docker.clone()).await;
+        let mut config = sample_config("ghcr.io/platformnetwork/challenge:v1");
+        let challenge_id = config.challenge_id;
+
+        orchestrator
+            .add_challenge(config.clone())
+            .await
+            .expect("initial add");
+        let initial_instance = orchestrator
+            .get_challenge(&challenge_id)
+            .expect("initial instance");
+
+        config.docker_image = "ghcr.io/platformnetwork/challenge:v2".into();
+        orchestrator
+            .update_challenge(config.clone())
+            .await
+            .expect("update succeeds");
+
+        let updated = orchestrator
+            .get_challenge(&challenge_id)
+            .expect("updated instance");
+        assert_eq!(updated.image, config.docker_image);
+        assert_ne!(updated.container_id, initial_instance.container_id);
+
+        let ops = docker.operations();
+        assert!(ops
+            .iter()
+            .any(|op| op == &format!("stop:{}", initial_instance.container_id)));
+        assert!(ops
+            .iter()
+            .any(|op| op == &format!("pull:{}", config.docker_image)));
+    }
+
+    #[tokio::test]
+    async fn test_remove_challenge_stops_and_removes_container() {
+        let docker = TestDocker::default();
+        let orchestrator = orchestrator_with_mock(docker.clone()).await;
+        let config = sample_config("ghcr.io/platformnetwork/challenge:remove");
+        let challenge_id = config.challenge_id;
+
+        orchestrator
+            .add_challenge(config)
+            .await
+            .expect("added challenge");
+        let container_id = orchestrator
+            .get_challenge(&challenge_id)
+            .unwrap()
+            .container_id;
+
+        orchestrator
+            .remove_challenge(challenge_id)
+            .await
+            .expect("removed challenge");
+        assert!(orchestrator.get_challenge(&challenge_id).is_none());
+
+        let ops = docker.operations();
+        assert!(ops.contains(&format!("stop:{container_id}")));
+        assert!(ops.contains(&format!("remove:{container_id}")));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_challenge_repulls_image() {
+        let docker = TestDocker::default();
+        let orchestrator = orchestrator_with_mock(docker.clone()).await;
+        let config = sample_config("ghcr.io/platformnetwork/challenge:refresh");
+        let challenge_id = config.challenge_id;
+
+        orchestrator
+            .add_challenge(config.clone())
+            .await
+            .expect("added challenge");
+        let initial = orchestrator
+            .get_challenge(&challenge_id)
+            .expect("initial instance");
+
+        orchestrator
+            .refresh_challenge(challenge_id)
+            .await
+            .expect("refresh succeeds");
+        let refreshed = orchestrator
+            .get_challenge(&challenge_id)
+            .expect("refreshed instance");
+
+        assert_eq!(refreshed.image, initial.image);
+        assert_ne!(refreshed.container_id, initial.container_id);
+
+        let ops = docker.operations();
+        let pull_count = ops
+            .iter()
+            .filter(|op| *op == &format!("pull:{}", initial.image))
+            .count();
+        assert_eq!(pull_count, 2, "pull once for add, once for refresh");
+    }
+
+    #[tokio::test]
+    async fn test_sync_challenges_handles_all_paths() {
+        let docker = TestDocker::default();
+        let orchestrator = orchestrator_with_mock(docker.clone()).await;
+        let update_config = sample_config("ghcr.io/platformnetwork/challenge:update-v1");
+        let remove_config = sample_config("ghcr.io/platformnetwork/challenge:remove-v1");
+        let update_id = update_config.challenge_id;
+        let remove_id = remove_config.challenge_id;
+
+        orchestrator
+            .add_challenge(update_config.clone())
+            .await
+            .expect("added update target");
+        orchestrator
+            .add_challenge(remove_config.clone())
+            .await
+            .expect("added removal target");
+
+        let remove_container_id = orchestrator.get_challenge(&remove_id).unwrap().container_id;
+
+        let new_id = ChallengeId::new();
+        let desired = vec![
+            sample_config_with_id(update_id, "ghcr.io/platformnetwork/challenge:update-v2"),
+            sample_config_with_id(new_id, "ghcr.io/platformnetwork/challenge:new"),
+        ];
+
+        orchestrator
+            .sync_challenges(&desired)
+            .await
+            .expect("sync succeeds");
+
+        let ids = orchestrator.list_challenges();
+        assert!(ids.contains(&update_id));
+        assert!(ids.contains(&new_id));
+        assert!(!ids.contains(&remove_id));
+
+        let ops = docker.operations();
+        assert!(ops.contains(&format!("stop:{remove_container_id}")));
+        assert!(ops.contains(&format!("remove:{remove_container_id}")));
+        assert!(ops
+            .iter()
+            .any(|op| op == &"pull:ghcr.io/platformnetwork/challenge:update-v2".to_string()));
+        assert!(ops
+            .iter()
+            .any(|op| op == &"pull:ghcr.io/platformnetwork/challenge:new".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_stale_task_containers_propagates_result() {
+        let docker = TestDocker::default();
+        docker.set_cleanup_result(CleanupResult {
+            total_found: 3,
+            removed: 2,
+            errors: vec!["dang".into()],
+        });
+        let orchestrator = orchestrator_with_mock(docker.clone()).await;
+
+        let result = orchestrator
+            .cleanup_stale_task_containers()
+            .await
+            .expect("cleanup ok");
+        assert_eq!(result.total_found, 3);
+        assert_eq!(result.removed, 2);
+        assert_eq!(result.errors, vec!["dang".to_string()]);
+
+        let calls = docker.cleanup_calls();
+        assert_eq!(calls.len(), 1);
+        let (prefix, max_age, excludes) = &calls[0];
+        assert_eq!(prefix, "term-challenge-");
+        assert_eq!(*max_age, 120);
+        let expected: Vec<String> = vec![
+            "challenge-term-challenge".to_string(),
+            "platform-".to_string(),
+        ];
+        assert_eq!(excludes, &expected);
+    }
 }
