@@ -10,7 +10,7 @@ use clap::Args;
 use platform_server::orchestration::ChallengeManager;
 use platform_server::state::AppState;
 use platform_server::websocket::handler::ws_handler;
-use platform_server::{api, challenge_proxy::ChallengeProxy, data_api, db, models, observability};
+use platform_server::{api, data_api, db, models};
 use secure_container_runtime::{ContainerBroker, SecurityPolicy, WsConfig};
 use std::sync::Arc;
 use tracing::{error, info, warn};

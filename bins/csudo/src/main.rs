@@ -161,17 +161,7 @@ struct RegisterChallengeRequest {
 struct Challenge {
     id: String,
     name: String,
-    docker_image: String,
     mechanism_id: i32,
-    emission_weight: f64,
-    #[serde(default)]
-    timeout_secs: u64,
-    #[serde(default)]
-    cpu_cores: f64,
-    #[serde(default)]
-    memory_mb: u64,
-    #[serde(default)]
-    gpu_required: bool,
     #[serde(default)]
     status: String,
     #[serde(default)]
@@ -184,8 +174,6 @@ struct ApiResponse {
     success: bool,
     #[serde(default)]
     error: Option<String>,
-    #[serde(default)]
-    challenge_id: Option<String>,
     #[serde(default)]
     endpoint: Option<String>,
 }

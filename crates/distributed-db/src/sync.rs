@@ -1,21 +1,16 @@
-//! DHT-based state synchronization
+//! State synchronization
 //!
 //! Synchronizes state between validators using:
 //! - State root comparison
 //! - Merkle proof exchange
-//! - Missing data retrieval via DHT
+//! - Missing data retrieval
 
 use crate::{MerkleProof, MerkleTrie, RocksStorage, SyncData, SyncState};
-use libp2p::request_response::{self, Behaviour as RequestResponse, Codec, ProtocolSupport};
-use libp2p::{PeerId, StreamProtocol};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-/// Sync protocol name
-const SYNC_PROTOCOL: &str = "/distributed-db/sync/1.0.0";
 
 /// Sync request message
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +43,9 @@ pub enum SyncResponse {
     /// Error
     Error(String),
 }
+
+/// Peer identifier (simplified without libp2p)
+pub type PeerId = String;
 
 /// State synchronizer
 pub struct StateSynchronizer {
@@ -110,12 +108,11 @@ impl StateSynchronizer {
                 let root = self.merkle.read().root_hash();
                 SyncResponse::State(SyncState {
                     state_root: root,
-                    block_number: 0, // Block number from state manager
+                    block_number: 0,
                     pending_count: 0,
                 })
             }
             SyncRequest::GetEntries { state_root } => {
-                // Only return entries if state root differs
                 let our_root = self.merkle.read().root_hash();
                 if our_root == state_root {
                     return SyncResponse::Entries(SyncData {
@@ -124,7 +121,6 @@ impl StateSynchronizer {
                     });
                 }
 
-                // Collect all entries
                 let mut entries = Vec::new();
                 if let Ok(collections) = self.storage.list_collections() {
                     for collection in collections {
@@ -150,7 +146,6 @@ impl StateSynchronizer {
                 SyncResponse::Proof(proof)
             }
             SyncRequest::GetMissingKeys { our_keys } => {
-                // Find keys we have that weren't in peer's list
                 let mut missing = Vec::new();
                 if let Ok(collections) = self.storage.list_collections() {
                     for collection in collections {
@@ -174,19 +169,19 @@ impl StateSynchronizer {
     pub fn update_peer_state(&self, peer: PeerId, state: SyncState) {
         let our_root = self.merkle.read().root_hash();
 
-        // Check for divergence
         if state.state_root != our_root {
             let _ = self.event_tx.send(SyncEvent::StateDivergence {
-                peer,
+                peer: peer.clone(),
                 our_root,
                 their_root: state.state_root,
             });
 
-            // Queue for sync
-            self.pending_syncs.write().insert(peer, state.clone());
+            self.pending_syncs
+                .write()
+                .insert(peer.clone(), state.clone());
         }
 
-        self.peer_states.write().insert(peer, state.clone());
+        self.peer_states.write().insert(peer.clone(), state.clone());
         let _ = self
             .event_tx
             .send(SyncEvent::PeerStateUpdated { peer, state });
@@ -194,23 +189,20 @@ impl StateSynchronizer {
 
     /// Apply sync data from peer
     pub fn apply_sync_data(&self, peer: PeerId, data: SyncData) -> anyhow::Result<()> {
-        // State root verification via merkle proofs
         let entries_count = data.entries.len();
 
         for (collection, key, value) in data.entries {
             self.storage.put(&collection, &key, &value)?;
 
-            // Update merkle trie
             let full_key = format!("{}:{}", collection, hex::encode(&key));
             self.merkle.write().insert(full_key.as_bytes(), &value);
         }
 
         let _ = self.event_tx.send(SyncEvent::SyncCompleted {
-            peer,
+            peer: peer.clone(),
             entries_received: entries_count,
         });
 
-        // Remove from pending
         self.pending_syncs.write().remove(&peer);
 
         Ok(())
@@ -221,7 +213,7 @@ impl StateSynchronizer {
         self.pending_syncs
             .read()
             .iter()
-            .map(|(p, s)| (*p, s.clone()))
+            .map(|(p, s)| (p.clone(), s.clone()))
             .collect()
     }
 
@@ -242,138 +234,6 @@ impl StateSynchronizer {
         let matching = states.values().filter(|s| s.state_root == our_root).count();
         matching > states.len() / 2
     }
-}
-
-/// Sync protocol codec for libp2p
-#[derive(Debug, Clone, Default)]
-pub struct SyncCodec;
-
-impl Codec for SyncCodec {
-    type Protocol = StreamProtocol;
-    type Request = SyncRequest;
-    type Response = SyncResponse;
-
-    fn read_request<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _protocol: &'life1 Self::Protocol,
-        io: &'life2 mut T,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = std::io::Result<Self::Request>> + Send + 'async_trait>,
-    >
-    where
-        T: futures::AsyncRead + Unpin + Send + 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            use futures::AsyncReadExt;
-            let mut len_bytes = [0u8; 4];
-            io.read_exact(&mut len_bytes).await?;
-            let len = u32::from_le_bytes(len_bytes) as usize;
-
-            let mut buf = vec![0u8; len];
-            io.read_exact(&mut buf).await?;
-
-            bincode::deserialize(&buf)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-        })
-    }
-
-    fn read_response<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _protocol: &'life1 Self::Protocol,
-        io: &'life2 mut T,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = std::io::Result<Self::Response>> + Send + 'async_trait,
-        >,
-    >
-    where
-        T: futures::AsyncRead + Unpin + Send + 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            use futures::AsyncReadExt;
-            let mut len_bytes = [0u8; 4];
-            io.read_exact(&mut len_bytes).await?;
-            let len = u32::from_le_bytes(len_bytes) as usize;
-
-            let mut buf = vec![0u8; len];
-            io.read_exact(&mut buf).await?;
-
-            bincode::deserialize(&buf)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-        })
-    }
-
-    fn write_request<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _protocol: &'life1 Self::Protocol,
-        io: &'life2 mut T,
-        req: Self::Request,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = std::io::Result<()>> + Send + 'async_trait>,
-    >
-    where
-        T: futures::AsyncWrite + Unpin + Send + 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            use futures::AsyncWriteExt;
-            let buf = bincode::serialize(&req)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-            let len = (buf.len() as u32).to_le_bytes();
-            io.write_all(&len).await?;
-            io.write_all(&buf).await?;
-            io.flush().await?;
-
-            Ok(())
-        })
-    }
-
-    fn write_response<'life0, 'life1, 'life2, 'async_trait, T>(
-        &'life0 mut self,
-        _protocol: &'life1 Self::Protocol,
-        io: &'life2 mut T,
-        res: Self::Response,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = std::io::Result<()>> + Send + 'async_trait>,
-    >
-    where
-        T: futures::AsyncWrite + Unpin + Send + 'async_trait,
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async move {
-            use futures::AsyncWriteExt;
-            let buf = bincode::serialize(&res)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
-            let len = (buf.len() as u32).to_le_bytes();
-            io.write_all(&len).await?;
-            io.write_all(&buf).await?;
-            io.flush().await?;
-
-            Ok(())
-        })
-    }
-}
-
-/// Create sync behaviour for libp2p
-pub fn create_sync_behaviour(local_peer_id: PeerId) -> RequestResponse<SyncCodec> {
-    let protocols = vec![(StreamProtocol::new(SYNC_PROTOCOL), ProtocolSupport::Full)];
-    RequestResponse::new(protocols, request_response::Config::default())
 }
 
 #[cfg(test)]

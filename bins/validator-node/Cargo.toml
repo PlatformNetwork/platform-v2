@@ -3,10 +3,6 @@ name = "validator-node"
 version.workspace = true
 edition.workspace = true
 
-[lib]
-name = "validator_node"
-path = "src/lib.rs"
-
 [[bin]]
 name = "validator-node"
 path = "src/main.rs"

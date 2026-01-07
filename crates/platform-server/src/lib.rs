@@ -15,17 +15,14 @@
 //! - Weights are computed from DB snapshots (deterministic)
 
 pub mod api;
-pub mod challenge_proxy;
 pub mod data_api;
 pub mod db;
 pub mod models;
 pub mod observability;
 pub mod orchestration;
-pub mod rule_engine;
 pub mod state;
 pub mod websocket;
 
 pub use db::DbPool;
-pub use observability::{init_sentry, AuditEventType, AuditLogger};
-pub use rule_engine::RuleEngine;
+pub use observability::init_sentry;
 pub use state::AppState;

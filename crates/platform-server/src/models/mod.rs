@@ -143,16 +143,6 @@ pub struct SubmitEvaluationRequest {
     pub execution_log: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskResult {
-    pub task_id: String,
-    pub passed: bool,
-    pub score: f64,
-    pub execution_time_ms: i64,
-    pub cost_usd: f64,
-    pub error: Option<String>,
-}
-
 // ============================================================================
 // LEADERBOARD
 // ============================================================================
@@ -173,9 +163,10 @@ pub struct LeaderboardEntry {
 }
 
 // ============================================================================
-// CHALLENGE CONFIG
+// CHALLENGE CONFIG (kept for API compatibility)
 // ============================================================================
 
+#[allow(dead_code)] // API model, constructed via serde
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChallengeConfig {
     pub id: String,
@@ -200,6 +191,7 @@ pub struct ChallengeConfig {
     pub updated_by: Option<String>,
 }
 
+#[allow(dead_code)] // Used via serde
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChallengeStatus {
@@ -208,12 +200,14 @@ pub enum ChallengeStatus {
     Deprecated,
 }
 
+#[allow(dead_code)] // Nested in ChallengeConfig
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PricingConfig {
     pub max_cost_per_task: f64,
     pub max_total_cost: f64,
 }
 
+#[allow(dead_code)] // Nested in ChallengeConfig
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluationConfig {
     pub max_tasks: u32,
@@ -221,6 +215,7 @@ pub struct EvaluationConfig {
     pub max_steps_per_task: u32,
 }
 
+#[allow(dead_code)] // API model, constructed via serde
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateConfigRequest {
     pub owner_hotkey: String,
@@ -327,10 +322,11 @@ pub enum WsEvent {
 }
 
 // ============================================================================
-// EVALUATION JOB QUEUE
+// EVALUATION JOB QUEUE (used via serde in WsEvent)
 // ============================================================================
 
 /// Evaluation job to be assigned to validators
+#[allow(dead_code)] // Constructed via serde deserialization
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluationJob {
     pub id: String,
@@ -347,6 +343,7 @@ pub struct EvaluationJob {
     pub assigned_at: Option<i64>,
 }
 
+#[allow(dead_code)] // Used via serde
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum JobStatus {
@@ -542,6 +539,7 @@ pub struct AuthResponse {
     pub error: Option<String>,
 }
 
+#[allow(dead_code)] // Fields stored but not yet read (session lookup removed)
 #[derive(Debug, Clone)]
 pub struct AuthSession {
     pub hotkey: String,
@@ -550,21 +548,8 @@ pub struct AuthSession {
 }
 
 // ============================================================================
-// DATA API - Snapshot for /get_weights
+// DATA API
 // ============================================================================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WeightSnapshot {
-    pub epoch: u64,
-    pub weights: Vec<WeightEntry>,
-    pub snapshot_time: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WeightEntry {
-    pub hotkey: String,
-    pub weight: f64,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriteResultRequest {
@@ -599,6 +584,7 @@ pub struct RegisteredChallenge {
 }
 
 impl RegisteredChallenge {
+    #[allow(dead_code)] // Used by bins/platform
     pub fn new(id: &str, name: &str, docker_image: &str) -> Self {
         Self {
             id: id.to_string(),

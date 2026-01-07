@@ -8,8 +8,6 @@ description = "SDK for developing challenges on Platform Network"
 default = []
 # Enable HTTP server mode (requires axum)
 http-server = ["axum", "tower", "tower-http"]
-# Legacy P2P support (deprecated)
-p2p = []
 
 [dependencies]
 platform-core = { path = "../core" }
@@ -40,7 +38,6 @@ sp-core = { workspace = true }
 parity-scale-codec = { workspace = true }
 aes-gcm = "0.10"
 rand = { workspace = true }
-chacha20poly1305 = "0.10"
 
 # Utils
 uuid = { workspace = true }

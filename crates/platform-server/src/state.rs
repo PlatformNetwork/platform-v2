@@ -1,8 +1,7 @@
 //! Application state
 
-use crate::challenge_proxy::ChallengeProxy;
 use crate::db::DbPool;
-use crate::models::{AuthSession, TaskLease, WsEvent};
+use crate::models::WsEvent;
 use crate::orchestration::ChallengeManager;
 use crate::websocket::events::EventBroadcaster;
 use dashmap::DashMap;
@@ -43,18 +42,6 @@ impl MetricsCache {
         cache.retain(|_, (_, instant)| instant.elapsed().as_secs() < 300);
     }
 
-    /// Get metrics for a specific validator (if within 5 min TTL)
-    pub fn get(&self, hotkey: &str) -> Option<ValidatorMetrics> {
-        let cache = self.metrics.read();
-        cache.get(hotkey).and_then(|(m, instant)| {
-            if instant.elapsed().as_secs() < 300 {
-                Some(m.clone())
-            } else {
-                None
-            }
-        })
-    }
-
     /// Get all valid metrics (within 5 min TTL)
     pub fn get_all(&self) -> Vec<(String, ValidatorMetrics)> {
         let cache = self.metrics.read();
@@ -74,15 +61,11 @@ impl Default for MetricsCache {
 
 pub struct AppState {
     pub db: DbPool,
-    pub challenge_id: Option<String>,
-    pub sessions: DashMap<String, AuthSession>,
+    pub sessions: DashMap<String, crate::models::AuthSession>,
     pub broadcaster: Arc<EventBroadcaster>,
     pub owner_hotkey: Option<String>,
-    pub challenge_proxy: Option<Arc<ChallengeProxy>>,
     /// Dynamic challenge manager
     pub challenge_manager: Option<Arc<ChallengeManager>>,
-    /// Active task leases (task_id -> lease info)
-    pub task_leases: DashMap<String, TaskLease>,
     /// Metagraph for validator stake lookups
     pub metagraph: RwLock<Option<Metagraph>>,
     /// Static validator whitelist (for testing without metagraph)
@@ -92,29 +75,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Legacy constructor for single challenge mode
-    pub fn new(
-        db: DbPool,
-        challenge_id: String,
-        owner_hotkey: Option<String>,
-        challenge_proxy: Arc<ChallengeProxy>,
-    ) -> Self {
-        Self {
-            db,
-            challenge_id: Some(challenge_id),
-            sessions: DashMap::new(),
-            broadcaster: Arc::new(EventBroadcaster::new(1000)),
-            owner_hotkey,
-            challenge_proxy: Some(challenge_proxy),
-            challenge_manager: None,
-            task_leases: DashMap::new(),
-            metagraph: RwLock::new(None),
-            validator_whitelist: RwLock::new(HashSet::new()),
-            metrics_cache: MetricsCache::new(),
-        }
-    }
-
-    /// New constructor for dynamic orchestration mode
+    /// Constructor for dynamic orchestration mode
+    #[allow(dead_code)] // Used by bins/platform
     pub fn new_dynamic(
         db: DbPool,
         owner_hotkey: Option<String>,
@@ -123,20 +85,17 @@ impl AppState {
     ) -> Self {
         Self {
             db,
-            challenge_id: None,
             sessions: DashMap::new(),
             broadcaster: Arc::new(EventBroadcaster::new(1000)),
             owner_hotkey,
-            challenge_proxy: None,
             challenge_manager,
-            task_leases: DashMap::new(),
             metagraph: RwLock::new(metagraph),
             validator_whitelist: RwLock::new(HashSet::new()),
             metrics_cache: MetricsCache::new(),
         }
     }
 
-    /// New constructor for dynamic orchestration mode with validator whitelist
+    /// Constructor for dynamic orchestration mode with validator whitelist
     pub fn new_dynamic_with_whitelist(
         db: DbPool,
         owner_hotkey: Option<String>,
@@ -146,13 +105,10 @@ impl AppState {
     ) -> Self {
         Self {
             db,
-            challenge_id: None,
             sessions: DashMap::new(),
             broadcaster: Arc::new(EventBroadcaster::new(1000)),
             owner_hotkey,
-            challenge_proxy: None,
             challenge_manager,
-            task_leases: DashMap::new(),
             metagraph: RwLock::new(metagraph),
             validator_whitelist: RwLock::new(validator_whitelist.into_iter().collect()),
             metrics_cache: MetricsCache::new(),
@@ -183,21 +139,6 @@ impl AppState {
             }
         }
         0
-    }
-
-    /// Check if a validator is in the whitelist
-    pub fn is_whitelisted(&self, hotkey: &str) -> bool {
-        self.validator_whitelist.read().contains(hotkey)
-    }
-
-    /// Add validator to whitelist
-    pub fn add_to_whitelist(&self, hotkey: String) {
-        self.validator_whitelist.write().insert(hotkey);
-    }
-
-    /// Update metagraph
-    pub fn set_metagraph(&self, metagraph: Metagraph) {
-        *self.metagraph.write() = Some(metagraph);
     }
 
     pub async fn broadcast_event(&self, event: WsEvent) {

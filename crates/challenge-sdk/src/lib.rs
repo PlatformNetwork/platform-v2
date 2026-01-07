@@ -74,44 +74,34 @@
 //! - `participant_id` is generic (could be miner hotkey, user id, etc.)
 
 // ============================================================================
-// NEW CENTRALIZED API MODULES (use these for new challenges)
+// MODULES
 // ============================================================================
 
+/// Data types and utilities
+pub mod data;
+/// Database utilities
+pub mod database;
+/// Error types
+pub mod error;
 /// Client mode - connect to platform via WebSocket
 pub mod platform_client;
+/// HTTP routes
+pub mod routes;
 /// Server mode - expose challenge as HTTP server
 pub mod server;
-
-// ============================================================================
-// LEGACY P2P MODULES (deprecated, kept for compatibility)
-// ============================================================================
-
-#[deprecated(since = "0.2.0", note = "Use server module for new challenges")]
-pub mod challenge;
-#[deprecated(since = "0.2.0", note = "Use server module for new challenges")]
-pub mod context;
-pub mod data;
-pub mod database;
-#[deprecated(since = "0.2.0", note = "P2P storage replaced by central API")]
-pub mod distributed_storage;
-pub mod error;
-#[deprecated(since = "0.2.0", note = "P2P replaced by central API")]
-pub mod p2p;
-#[deprecated(since = "0.2.0", note = "P2P storage replaced by central API")]
-pub mod p2p_chain_storage;
-pub mod routes;
-#[deprecated(since = "0.2.0", note = "Storage handled by platform-server")]
-pub mod storage_client;
-#[deprecated(since = "0.2.0", note = "Storage handled by platform-server")]
-pub mod storage_schema;
+/// Submission types
 pub mod submission_types;
+/// Test challenge implementation
 pub mod test_challenge;
+/// Core types
 pub mod types;
+/// Weight calculation types
 pub mod weight_types;
+/// Weight calculation utilities
 pub mod weights;
 
 // ============================================================================
-// NEW API EXPORTS
+// EXPORTS
 // ============================================================================
 
 pub use platform_client::{
@@ -124,23 +114,9 @@ pub use server::{
     ValidationResponse,
 };
 
-// ============================================================================
-// LEGACY EXPORTS (deprecated)
-// ============================================================================
-
-#[allow(deprecated)]
-pub use challenge::*;
-#[allow(deprecated)]
-pub use context::*;
 pub use data::*;
 pub use database::*;
-#[allow(deprecated)]
-pub use distributed_storage::*;
 pub use error::*;
-#[allow(deprecated)]
-pub use p2p::*;
-#[allow(deprecated)]
-pub use p2p_chain_storage::*;
 pub use routes::*;
 pub use submission_types::*;
 pub use test_challenge::SimpleTestChallenge;
@@ -150,7 +126,6 @@ pub use weights::*;
 
 /// Prelude for new centralized API
 pub mod prelude {
-    // New API
     pub use super::error::ChallengeError;
     pub use super::platform_client::{run_as_client, PlatformClient, PlatformClientConfig};
     pub use super::server::{
@@ -163,22 +138,4 @@ pub mod prelude {
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{json, Value};
     pub use tracing::{debug, error, info, warn};
-}
-
-/// Legacy prelude (deprecated, use prelude instead)
-#[deprecated(since = "0.2.0", note = "Use prelude module instead")]
-pub mod legacy_prelude {
-    #[allow(deprecated)]
-    pub use super::challenge::Challenge;
-    #[allow(deprecated)]
-    pub use super::context::ChallengeContext;
-    #[allow(deprecated)]
-    pub use super::p2p::*;
-    pub use super::routes::*;
-    pub use super::submission_types::*;
-    pub use super::types::*;
-    pub use super::weight_types::*;
-    pub use super::weights::*;
-    pub use async_trait::async_trait;
-    pub use serde_json::Value;
 }

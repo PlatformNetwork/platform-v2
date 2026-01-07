@@ -9,5 +9,4 @@ pub mod events;
 pub mod handler;
 
 pub use challenge_handler::*;
-pub use events::*;
 pub use handler::*;

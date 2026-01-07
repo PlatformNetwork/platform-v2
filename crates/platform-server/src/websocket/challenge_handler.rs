@@ -132,7 +132,6 @@ async fn handle_challenge_socket(
     let conn = WsConnection {
         id: conn_id,
         hotkey: Some(format!("challenge:{}", challenge_id)),
-        role: Some("challenge".to_string()),
     };
     state.broadcaster.add_connection(conn.clone());
 
@@ -242,13 +241,11 @@ async fn route_to_validators(
         timestamp: chrono::Utc::now().timestamp(),
     });
 
-    let message = match serde_json::to_string(&ws_event) {
-        Ok(m) => m,
-        Err(e) => {
-            error!("Failed to serialize event: {}", e);
-            return 0;
-        }
-    };
+    // Validate the event can be serialized (will be serialized again by broadcaster)
+    if let Err(e) = serde_json::to_string(&ws_event) {
+        error!("Failed to serialize event: {}", e);
+        return 0;
+    }
 
     // Get all connections and filter to target validators
     let connections = state.broadcaster.get_connections();

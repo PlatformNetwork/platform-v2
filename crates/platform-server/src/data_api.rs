@@ -36,7 +36,6 @@ fn now() -> i64 {
 
 #[derive(Debug, Deserialize)]
 pub struct ListTasksQuery {
-    pub status: Option<String>,
     pub limit: Option<usize>,
 }
 
@@ -92,6 +91,7 @@ pub async fn claim_task(
 #[derive(Debug, Deserialize)]
 pub struct RenewRequest {
     pub validator_hotkey: String,
+    #[allow(dead_code)] // Kept for API compatibility
     pub signature: String,
     pub ttl_seconds: u64,
 }
@@ -112,6 +112,7 @@ pub async fn renew_task(
 #[derive(Debug, Deserialize)]
 pub struct AckRequest {
     pub validator_hotkey: String,
+    #[allow(dead_code)] // Kept for API compatibility
     pub signature: String,
 }
 
@@ -135,6 +136,7 @@ pub async fn ack_task(
 #[derive(Debug, Deserialize)]
 pub struct FailRequest {
     pub validator_hotkey: String,
+    #[allow(dead_code)] // Kept for API compatibility
     pub signature: String,
     pub reason: Option<String>,
 }
@@ -201,16 +203,10 @@ pub async fn write_result(
     })))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct GetResultsQuery {
-    pub limit: Option<usize>,
-}
-
 /// Get evaluation results for an agent
 pub async fn get_results(
     State(state): State<Arc<AppState>>,
     Path(agent_hash): Path<String>,
-    Query(_query): Query<GetResultsQuery>,
 ) -> Result<Json<Vec<Evaluation>>, StatusCode> {
     let results = queries::get_evaluations_for_agent(&state.db, &agent_hash)
         .await

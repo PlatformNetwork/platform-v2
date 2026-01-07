@@ -31,7 +31,6 @@
 pub mod indexes;
 pub mod merkle;
 pub mod merkle_verification;
-pub mod p2p_sync;
 pub mod queries;
 pub mod state;
 pub mod storage;
@@ -41,7 +40,6 @@ pub mod transactions;
 pub use indexes::*;
 pub use merkle::*;
 pub use merkle_verification::*;
-pub use p2p_sync::*;
 pub use queries::*;
 pub use state::*;
 pub use storage::*;

@@ -28,7 +28,8 @@ pub struct WsQuery {
     pub timestamp: Option<i64>,
     /// Signature of "ws_connect:{hotkey}:{timestamp}"
     pub signature: Option<String>,
-    /// Role (validator, miner, etc.)
+    /// Role (validator, miner, etc.) - kept for API compatibility
+    #[allow(dead_code)]
     pub role: Option<String>,
 }
 
@@ -101,13 +102,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, conn_id: Uuid, q
     let conn = WsConnection {
         id: conn_id,
         hotkey: query.hotkey.clone(),
-        role: query.role.clone(),
     };
     state.broadcaster.add_connection(conn);
 
     info!(
-        "WebSocket connected: {} (hotkey: {:?}, role: {:?})",
-        conn_id, query.hotkey, query.role
+        "WebSocket connected: {} (hotkey: {:?})",
+        conn_id, query.hotkey
     );
 
     // Register validator in DB when they connect with a hotkey

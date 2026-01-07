@@ -60,6 +60,7 @@ pub async fn register_validator(
 #[derive(Debug, Deserialize)]
 pub struct HeartbeatRequest {
     pub hotkey: String,
+    #[allow(dead_code)] // Kept for API compatibility
     pub signature: String,
 }
 
@@ -91,6 +92,7 @@ pub async fn get_whitelisted_validators(
 #[derive(Debug, serde::Deserialize)]
 pub struct MetricsReportRequest {
     pub hotkey: String,
+    #[allow(dead_code)] // Kept for API compatibility
     pub signature: String,
     pub timestamp: i64,
     pub cpu_percent: f32,

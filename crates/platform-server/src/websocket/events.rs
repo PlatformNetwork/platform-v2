@@ -14,7 +14,6 @@ pub type EventReceiver = broadcast::Receiver<WsEvent>;
 pub struct WsConnection {
     pub id: Uuid,
     pub hotkey: Option<String>,
-    pub role: Option<String>,
 }
 
 pub struct EventBroadcaster {

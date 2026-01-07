@@ -5,10 +5,6 @@ edition = "2021"
 publish = false
 
 [[test]]
-name = "e2e"
-path = "e2e_test.rs"
-
-[[test]]
 name = "e2e_tests"
 path = "e2e_tests.rs"
 
@@ -36,21 +32,10 @@ path = "bittensor_tests.rs"
 name = "epoch_tests"
 path = "epoch_tests.rs"
 
-[[test]]
-name = "challenge_runtime_tests"
-path = "challenge_runtime_tests.rs"
-
 [dependencies]
 platform-core = { path = "../crates/core" }
 platform-consensus = { path = "../crates/consensus" }
 platform-storage = { path = "../crates/storage" }
-platform-network = { path = "../crates/network" }
-platform-challenge-runtime = { path = "../crates/challenge-runtime" }
-platform-challenge-sdk = { path = "../crates/challenge-sdk" }
-platform-epoch = { path = "../crates/epoch" }
-platform-bittensor = { path = "../crates/bittensor-integration" }
-platform-rpc = { path = "../crates/rpc-server" }
-platform-subnet-manager = { path = "../crates/subnet-manager" }
 
 tokio = { version = "1.40", features = ["full", "test-util"] }
 tempfile = "3.12"

@@ -17,13 +17,11 @@
 //! ```
 
 mod api;
-mod challenge_proxy;
 mod data_api;
 mod db;
 mod models;
 mod observability;
 mod orchestration;
-mod rule_engine;
 mod state;
 mod websocket;
 
@@ -313,18 +311,6 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/leaderboard/:agent_hash",
             get(api::leaderboard::get_agent_rank),
         )
-        // === JOB QUEUE (validators claim and complete jobs) ===
-        .route("/api/v1/jobs/claim", post(api::jobs::claim_job))
-        .route(
-            "/api/v1/jobs/:job_id/progress",
-            post(api::jobs::report_progress),
-        )
-        .route(
-            "/api/v1/jobs/:job_id/complete",
-            post(api::jobs::complete_job),
-        )
-        // LLM proxy moved to term-challenge-server (via bridge)
-        // .route("/api/v1/llm/chat", post(api::llm::chat))
         // === CHALLENGE EVENTS (broadcast to validators) ===
         .route(
             "/api/v1/events/broadcast",

@@ -2,12 +2,10 @@
 resolver = "2"
 members = [
     "crates/core",
-    "crates/network",
     "crates/consensus",
     "crates/storage",
     "crates/challenge-sdk",
     "crates/epoch",
-    "crates/challenge-runtime",
     "crates/bittensor-integration",
     "crates/subnet-manager",
     "crates/rpc-server",
@@ -53,9 +51,6 @@ rand = "0.8"
 hex = "0.4"
 sp-core = "38.1.0"
 parity-scale-codec = { version = "3.7.5", features = ["derive"] }
-
-# P2P Networking
-libp2p = { version = "0.54", features = ["tokio", "noise", "yamux", "tcp", "dns", "gossipsub", "mdns", "request-response", "macros", "identify", "cbor", "serde"] }
 
 # Storage
 sled = "0.34"

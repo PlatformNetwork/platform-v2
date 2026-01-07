@@ -1,196 +1,146 @@
 //! Simple test challenge for integration testing
+//!
+//! This module provides a simple challenge implementation using the new
+//! ServerChallenge API for testing purposes.
 
 use crate::{
-    AgentInfo, Challenge, ChallengeContext, ChallengeId, EvaluationResult, Result, WeightAssignment,
+    error::ChallengeError,
+    server::{
+        EvaluationRequest, EvaluationResponse, ServerChallenge, ValidationRequest,
+        ValidationResponse,
+    },
+    types::ChallengeId,
 };
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 
-/// Simple test challenge that returns random scores
+/// Simple test challenge that returns scores based on submission data
 pub struct SimpleTestChallenge {
-    id: ChallengeId,
+    id: String,
     name: String,
-    emission_weight: f64,
+    version: String,
 }
 
 impl SimpleTestChallenge {
-    pub fn new(name: impl Into<String>, emission_weight: f64) -> Self {
+    pub fn new(name: impl Into<String>) -> Self {
         Self {
-            id: ChallengeId::new(),
+            id: "simple-test-challenge".to_string(),
             name: name.into(),
-            emission_weight,
+            version: "0.1.0".to_string(),
         }
     }
 
-    pub fn with_id(mut self, id: ChallengeId) -> Self {
-        self.id = id;
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = id.into();
         self
     }
 }
 
 impl Default for SimpleTestChallenge {
     fn default() -> Self {
-        Self::new("Simple Test Challenge", 1.0)
+        Self::new("Simple Test Challenge")
     }
 }
 
 #[async_trait]
-impl Challenge for SimpleTestChallenge {
-    fn id(&self) -> ChallengeId {
-        self.id
+impl ServerChallenge for SimpleTestChallenge {
+    fn challenge_id(&self) -> &str {
+        &self.id
     }
 
     fn name(&self) -> &str {
         &self.name
     }
 
-    fn description(&self) -> &str {
-        "A simple test challenge for integration testing"
+    fn version(&self) -> &str {
+        &self.version
     }
 
-    fn emission_weight(&self) -> f64 {
-        self.emission_weight
-    }
+    async fn evaluate(&self, req: EvaluationRequest) -> Result<EvaluationResponse, ChallengeError> {
+        // Simple scoring based on data content
+        let base_score = 0.5;
 
-    async fn evaluate(
-        &self,
-        ctx: &ChallengeContext,
-        agent: &AgentInfo,
-        payload: Value,
-    ) -> Result<EvaluationResult> {
-        ctx.info(&format!("Evaluating agent: {}", agent.hash));
-
-        // Simple scoring based on agent hash length and payload
-        let base_score = (agent.hash.len() as f64 / 100.0).min(1.0);
-
-        // Add some variation based on payload
-        let payload_bonus = if let Some(bonus) = payload.get("bonus").and_then(|v| v.as_f64()) {
-            bonus.clamp(0.0, 0.2)
+        // Add bonus based on payload
+        let payload_bonus = if let Some(bonus) = req.data.get("bonus").and_then(|v| v.as_f64()) {
+            bonus.clamp(0.0, 0.5)
         } else {
             0.0
         };
 
         let score = (base_score + payload_bonus).clamp(0.0, 1.0);
 
-        // Save agent to DB
-        ctx.db().save_agent(agent)?;
-
-        let result = EvaluationResult::new(ctx.job_id(), agent.hash.clone(), score).with_reason(
-            format!("Base: {:.2}, Bonus: {:.2}", base_score, payload_bonus),
-        );
-
-        ctx.info(&format!("Agent {} scored {:.4}", agent.hash, score));
-
-        Ok(result)
+        Ok(EvaluationResponse::success(
+            &req.request_id,
+            score,
+            json!({
+                "base_score": base_score,
+                "bonus": payload_bonus,
+                "participant": req.participant_id
+            }),
+        ))
     }
 
-    async fn calculate_weights(&self, ctx: &ChallengeContext) -> Result<Vec<WeightAssignment>> {
-        ctx.info("Calculating weights");
+    async fn validate(&self, req: ValidationRequest) -> Result<ValidationResponse, ChallengeError> {
+        // Simple validation - just check if data is not empty
+        let is_valid = !req.data.is_null() && req.data != json!({});
 
-        // Get latest results from DB
-        let results = ctx.db().get_latest_results()?;
-
-        if results.is_empty() {
-            ctx.warn("No results to calculate weights from");
-            return Ok(vec![]);
+        if is_valid {
+            Ok(ValidationResponse {
+                valid: true,
+                errors: vec![],
+                warnings: vec![],
+            })
+        } else {
+            Ok(ValidationResponse {
+                valid: false,
+                errors: vec!["Empty or null data".to_string()],
+                warnings: vec![],
+            })
         }
-
-        // Convert scores to weights
-        // Note: In real challenges, agent_hash would be mapped to miner hotkey
-        // Here we use agent_hash as hotkey for testing
-        let scores: Vec<(String, f64)> = results
-            .iter()
-            .map(|r| (r.agent_hash.clone(), r.score))
-            .collect();
-
-        let weights = crate::weights::scores_to_weights(&scores);
-
-        ctx.info(&format!("Calculated weights for {} miners", weights.len()));
-
-        Ok(weights)
-    }
-
-    async fn on_startup(&self, ctx: &ChallengeContext) -> Result<()> {
-        ctx.info(&format!("Challenge '{}' starting up", self.name));
-        Ok(())
-    }
-
-    async fn on_ready(&self, ctx: &ChallengeContext) -> Result<()> {
-        ctx.info(&format!("Challenge '{}' ready", self.name));
-        Ok(())
-    }
-
-    async fn on_epoch_start(&self, ctx: &ChallengeContext, epoch: u64) -> Result<()> {
-        ctx.info(&format!("Epoch {} started", epoch));
-        Ok(())
-    }
-
-    async fn on_epoch_end(&self, ctx: &ChallengeContext, epoch: u64) -> Result<()> {
-        ctx.info(&format!("Epoch {} ended", epoch));
-        Ok(())
-    }
-}
-
-impl EvaluationResult {
-    pub fn with_reason(mut self, reason: String) -> Self {
-        self.logs = Some(reason);
-        self
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ChallengeDatabase;
-    use platform_core::Keypair;
-    use std::sync::Arc;
-    use tempfile::tempdir;
 
     #[tokio::test]
-    async fn test_simple_challenge() {
+    async fn test_simple_challenge_evaluate() {
         let challenge = SimpleTestChallenge::default();
 
-        let dir = tempdir().unwrap();
-        let db = Arc::new(ChallengeDatabase::open(dir.path(), challenge.id()).unwrap());
-        let validator = Keypair::generate().hotkey();
+        let req = EvaluationRequest {
+            request_id: "test-123".to_string(),
+            submission_id: "sub-123".to_string(),
+            participant_id: "participant-1".to_string(),
+            data: json!({"bonus": 0.2}),
+            metadata: None,
+            epoch: 1,
+            deadline: None,
+        };
 
-        let ctx = ChallengeContext::new(challenge.id(), validator, 0, db);
+        let result = challenge.evaluate(req).await.unwrap();
 
-        let agent = AgentInfo::new("test_agent_12345".to_string());
-        let result = challenge.evaluate(&ctx, &agent, Value::Null).await.unwrap();
-
-        assert!(result.score > 0.0);
+        assert!(result.success);
+        assert!(result.score >= 0.5);
         assert!(result.score <= 1.0);
     }
 
     #[tokio::test]
-    async fn test_weight_calculation() {
+    async fn test_simple_challenge_validate() {
         let challenge = SimpleTestChallenge::default();
 
-        let dir = tempdir().unwrap();
-        let db = Arc::new(ChallengeDatabase::open(dir.path(), challenge.id()).unwrap());
-        let validator = Keypair::generate().hotkey();
+        // Valid request
+        let req = ValidationRequest {
+            data: json!({"some": "data"}),
+        };
 
-        let ctx = ChallengeContext::new(challenge.id(), validator, 0, db.clone());
+        let result = challenge.validate(req).await.unwrap();
+        assert!(result.valid);
 
-        // Evaluate some agents
-        for i in 0..3 {
-            let agent = AgentInfo::new(format!("agent_{}", i));
-            let job_ctx = ctx.clone().with_job_id(uuid::Uuid::new_v4());
-            let result = challenge
-                .evaluate(&job_ctx, &agent, Value::Null)
-                .await
-                .unwrap();
-            db.save_result(&result).unwrap();
-        }
+        // Invalid request (empty data)
+        let req = ValidationRequest { data: json!({}) };
 
-        // Calculate weights
-        let weights = challenge.calculate_weights(&ctx).await.unwrap();
-
-        assert_eq!(weights.len(), 3);
-
-        // Weights should sum to ~1.0
-        let total: f64 = weights.iter().map(|w| w.weight).sum();
-        assert!((total - 1.0).abs() < 0.01);
+        let result = challenge.validate(req).await.unwrap();
+        assert!(!result.valid);
     }
 }
