@@ -136,6 +136,18 @@ mod tests {
     }
 
     #[test]
+    fn test_version_default_matches_current() {
+        assert_eq!(Version::default(), Version::current());
+    }
+
+    #[test]
+    fn test_version_parse_invalid_inputs() {
+        assert!(Version::parse("1.2").is_none());
+        assert!(Version::parse("1.2.3.4").is_none());
+        assert!(Version::parse("a.b.c").is_none());
+    }
+
+    #[test]
     fn test_version_display() {
         let v = Version::new(1, 2, 3);
         assert_eq!(v.to_string(), "1.2.3");

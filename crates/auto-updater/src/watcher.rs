@@ -156,6 +156,41 @@ mod tests {
     }
 
     #[test]
+    fn test_watcher_current_version_accessor() {
+        let watcher = VersionWatcher::new(Duration::from_secs(60));
+        assert_eq!(watcher.current_version(), &Version::current());
+    }
+
+    #[test]
+    fn test_watcher_builder_custom_interval() {
+        let watcher = VersionWatcherBuilder::new()
+            .check_interval(Duration::from_secs(10))
+            .build();
+        assert_eq!(watcher.check_interval, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_watcher_builder_default() {
+        let watcher = VersionWatcherBuilder::default().build();
+        assert_eq!(watcher.check_interval, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_watcher_status_up_to_date_after_equal_requirement() {
+        let watcher = VersionWatcher::new(Duration::from_secs(60));
+        let requirement = UpdateRequirement {
+            min_version: watcher.current_version().clone(),
+            recommended_version: watcher.current_version().clone(),
+            docker_image: "same".to_string(),
+            mandatory: false,
+            deadline_block: None,
+            release_notes: None,
+        };
+        watcher.on_version_update(requirement);
+        assert_eq!(watcher.status(), UpdateStatus::UpToDate);
+    }
+
+    #[test]
     fn test_watcher_update_available() {
         let watcher = VersionWatcher::new(Duration::from_secs(60));
 
