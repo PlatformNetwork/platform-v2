@@ -187,6 +187,23 @@ impl SecureBackend {
         Self::with_bridge(SecureClientBridge::new(socket_path), validator_id)
     }
 
+    #[cfg(test)]
+    fn test_backend_slot() -> &'static std::sync::Mutex<Option<SecureBackend>> {
+        use std::sync::{Mutex, OnceLock};
+        static SLOT: OnceLock<Mutex<Option<SecureBackend>>> = OnceLock::new();
+        SLOT.get_or_init(|| Mutex::new(None))
+    }
+
+    #[cfg(test)]
+    fn take_test_backend() -> Option<SecureBackend> {
+        Self::test_backend_slot().lock().unwrap().take()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_backend(backend: SecureBackend) {
+        Self::test_backend_slot().lock().unwrap().replace(backend);
+    }
+
     /// Build a backend from an arbitrary bridge (used for tests)
     pub fn with_bridge(
         client: impl SecureContainerBridge + 'static,
@@ -200,6 +217,11 @@ impl SecureBackend {
 
     /// Create from environment or default socket
     pub fn from_env() -> Option<Self> {
+        #[cfg(test)]
+        if let Some(backend) = Self::take_test_backend() {
+            return Some(backend);
+        }
+
         let validator_id =
             std::env::var("VALIDATOR_HOTKEY").unwrap_or_else(|_| "unknown".to_string());
 
@@ -848,6 +870,35 @@ mod tests {
             .any(|op| op == "pull:ghcr.io/platformnetwork/test:v1"));
 
         reset_env();
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_create_backend_uses_secure_when_broker_available() {
+        reset_env();
+        let temp_socket = NamedTempFile::new().expect("temp socket path");
+        let socket_path = temp_socket.path().to_path_buf();
+        std::env::set_var(BROKER_SOCKET_OVERRIDE_ENV, &socket_path);
+
+        let bridge = RecordingSecureBridge::default();
+        SecureBackend::set_test_backend(SecureBackend::with_bridge(
+            bridge.clone(),
+            "validator-secure",
+        ));
+
+        let backend = create_backend().await.expect("secure backend");
+        backend
+            .pull_image("ghcr.io/platformnetwork/secure:v1")
+            .await
+            .unwrap();
+
+        assert!(bridge
+            .operations()
+            .iter()
+            .any(|op| op == "pull:ghcr.io/platformnetwork/secure:v1"));
+
+        reset_env();
+        drop(temp_socket);
     }
 
     #[tokio::test]
