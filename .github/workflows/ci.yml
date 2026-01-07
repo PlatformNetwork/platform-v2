@@ -71,7 +71,9 @@ jobs:
 
       - name: Run tests with coverage
         if: github.ref == 'refs/heads/main'
-        run: cargo llvm-cov nextest --workspace --json --output-path coverage.json --html --output-dir coverage-html -E 'not (test(/live/) | test(/integration/))'
+        run: |
+          cargo llvm-cov nextest --workspace --json --output-path coverage.json -E 'not (test(/live/) | test(/integration/))'
+          cargo llvm-cov report --html --output-dir coverage-html
 
       - name: Upload coverage HTML report
         if: github.ref == 'refs/heads/main'

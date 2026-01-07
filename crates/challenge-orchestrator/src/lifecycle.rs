@@ -1,26 +1,34 @@
 //! Container lifecycle management
+//!
+//! Handles add/update/remove flows for challenge containers while keeping the
+//! in-memory config/state stores consistent. The lifecycle manager is used by
+//! the orchestrator as the primitive for rolling refreshes, unhealthy restarts,
+//! and declarative sync operations.
 
-use crate::{ChallengeContainerConfig, ChallengeInstance, ContainerStatus, DockerClient};
+#[cfg(test)]
+use crate::CleanupResult;
+use crate::{ChallengeContainerConfig, ChallengeDocker, ChallengeInstance, ContainerStatus};
 use parking_lot::RwLock;
 use platform_core::ChallengeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info};
 
-/// Manages the lifecycle of challenge containers
+/// Manages the lifecycle of challenge containers, retaining both the live
+/// container handles and the configs needed to recreate them during restarts.
 pub struct LifecycleManager {
-    docker: DockerClient,
+    docker: Box<dyn ChallengeDocker>,
     challenges: Arc<RwLock<HashMap<ChallengeId, ChallengeInstance>>>,
     configs: Arc<RwLock<HashMap<ChallengeId, ChallengeContainerConfig>>>,
 }
 
 impl LifecycleManager {
     pub fn new(
-        docker: DockerClient,
+        docker: impl ChallengeDocker + 'static,
         challenges: Arc<RwLock<HashMap<ChallengeId, ChallengeInstance>>>,
     ) -> Self {
         Self {
-            docker,
+            docker: Box::new(docker),
             challenges,
             configs: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -222,6 +230,10 @@ impl SyncResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use chrono::Utc;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_sync_result_default() {
@@ -248,5 +260,314 @@ mod tests {
             .push((ChallengeId::new(), "test error".to_string()));
 
         assert!(!result.is_success());
+    }
+
+    #[tokio::test]
+    async fn test_restart_unhealthy_restarts_only_unhealthy() {
+        let mock = MockDocker::default();
+        let mut manager =
+            LifecycleManager::new(mock.clone(), Arc::new(RwLock::new(HashMap::new())));
+
+        let unhealthy_id = ChallengeId::new();
+        let healthy_id = ChallengeId::new();
+        let unhealthy_container_id = "container-unhealthy";
+        let healthy_container_id = "container-healthy";
+
+        manager.configs.write().insert(
+            unhealthy_id,
+            sample_config(unhealthy_id, "ghcr.io/org/unhealthy:1"),
+        );
+        manager.configs.write().insert(
+            healthy_id,
+            sample_config(healthy_id, "ghcr.io/org/healthy:1"),
+        );
+
+        manager.challenges.write().insert(
+            unhealthy_id,
+            sample_instance(
+                unhealthy_id,
+                unhealthy_container_id,
+                "ghcr.io/org/unhealthy:1",
+                ContainerStatus::Unhealthy,
+            ),
+        );
+        manager.challenges.write().insert(
+            healthy_id,
+            sample_instance(
+                healthy_id,
+                healthy_container_id,
+                "ghcr.io/org/healthy:1",
+                ContainerStatus::Running,
+            ),
+        );
+
+        let results = manager.restart_unhealthy().await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, unhealthy_id);
+        assert!(results[0].1.is_ok());
+
+        let ops = mock.operations();
+        assert!(ops
+            .iter()
+            .any(|op| op == &format!("stop:{unhealthy_container_id}")));
+        assert!(ops
+            .iter()
+            .any(|op| op == &format!("remove:{unhealthy_container_id}")));
+        assert!(ops
+            .iter()
+            .any(|op| op == &format!("start:{}", unhealthy_id.to_string())));
+        assert!(!ops
+            .iter()
+            .any(|op| op == &format!("stop:{healthy_container_id}")));
+    }
+
+    #[tokio::test]
+    async fn test_sync_handles_add_update_remove() {
+        let mock = MockDocker::default();
+        let challenges = Arc::new(RwLock::new(HashMap::new()));
+        let mut manager = LifecycleManager::new(mock.clone(), challenges);
+
+        let update_id = ChallengeId::new();
+        let remove_id = ChallengeId::new();
+        let new_id = ChallengeId::new();
+
+        manager
+            .configs
+            .write()
+            .insert(update_id, sample_config(update_id, "ghcr.io/org/update:v1"));
+        manager
+            .configs
+            .write()
+            .insert(remove_id, sample_config(remove_id, "ghcr.io/org/remove:v1"));
+
+        manager.challenges.write().insert(
+            update_id,
+            sample_instance(
+                update_id,
+                "container-update-old",
+                "ghcr.io/org/update:v1",
+                ContainerStatus::Running,
+            ),
+        );
+        manager.challenges.write().insert(
+            remove_id,
+            sample_instance(
+                remove_id,
+                "container-remove-old",
+                "ghcr.io/org/remove:v1",
+                ContainerStatus::Running,
+            ),
+        );
+
+        let result = manager
+            .sync(vec![
+                sample_config(update_id, "ghcr.io/org/update:v2"),
+                sample_config(new_id, "ghcr.io/org/new:v1"),
+            ])
+            .await
+            .expect("sync succeeds");
+
+        assert_eq!(result.added, vec![new_id]);
+        assert_eq!(result.updated, vec![update_id]);
+        assert_eq!(result.removed, vec![remove_id]);
+        assert!(result.errors.is_empty());
+        assert!(result.unchanged.is_empty());
+
+        let challenges = manager.challenges.read();
+        assert!(challenges.contains_key(&update_id));
+        assert!(challenges.contains_key(&new_id));
+        assert!(!challenges.contains_key(&remove_id));
+        drop(challenges);
+
+        let ops = mock.operations();
+        assert!(ops.iter().any(|op| op == "pull:ghcr.io/org/update:v2"));
+        assert!(ops.iter().any(|op| op == "pull:ghcr.io/org/new:v1"));
+        assert!(ops
+            .iter()
+            .any(|op| op == &format!("start:{}", update_id.to_string())));
+        assert!(ops
+            .iter()
+            .any(|op| op == &format!("start:{}", new_id.to_string())));
+        assert!(ops.iter().any(|op| op == "stop:container-update-old"));
+        assert!(ops.iter().any(|op| op == "remove:container-update-old"));
+        assert!(ops.iter().any(|op| op == "stop:container-remove-old"));
+        assert!(ops.iter().any(|op| op == "remove:container-remove-old"));
+    }
+
+    #[tokio::test]
+    async fn test_add_records_config_and_instance_state() {
+        let mock = MockDocker::default();
+        let challenges = Arc::new(RwLock::new(HashMap::new()));
+        let mut manager = LifecycleManager::new(mock.clone(), challenges);
+        let challenge_id = ChallengeId::new();
+        let config = sample_config(challenge_id, "ghcr.io/org/add:v1");
+
+        manager.add(config.clone()).await.expect("add succeeds");
+
+        assert!(manager.challenges.read().contains_key(&challenge_id));
+        assert!(manager.configs.read().contains_key(&challenge_id));
+
+        let ops = mock.operations();
+        assert!(ops.contains(&format!("pull:{}", config.docker_image)));
+        assert!(ops.contains(&format!("start:{}", challenge_id)));
+    }
+
+    #[tokio::test]
+    async fn test_stop_all_removes_every_challenge() {
+        let mock = MockDocker::default();
+        let challenges = Arc::new(RwLock::new(HashMap::new()));
+        let mut manager = LifecycleManager::new(mock.clone(), challenges);
+
+        let first_id = ChallengeId::new();
+        let second_id = ChallengeId::new();
+
+        manager
+            .configs
+            .write()
+            .insert(first_id, sample_config(first_id, "ghcr.io/org/first:v1"));
+        manager
+            .configs
+            .write()
+            .insert(second_id, sample_config(second_id, "ghcr.io/org/second:v1"));
+
+        manager.challenges.write().insert(
+            first_id,
+            sample_instance(
+                first_id,
+                "container-first",
+                "ghcr.io/org/first:v1",
+                ContainerStatus::Running,
+            ),
+        );
+        manager.challenges.write().insert(
+            second_id,
+            sample_instance(
+                second_id,
+                "container-second",
+                "ghcr.io/org/second:v1",
+                ContainerStatus::Running,
+            ),
+        );
+
+        let results = manager.stop_all().await;
+
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|(_, res)| res.is_ok()));
+        assert!(manager.challenges.read().is_empty());
+        assert!(manager.configs.read().is_empty());
+
+        let ops = mock.operations();
+        assert!(ops.contains(&"stop:container-first".to_string()));
+        assert!(ops.contains(&"remove:container-first".to_string()));
+        assert!(ops.contains(&"stop:container-second".to_string()));
+        assert!(ops.contains(&"remove:container-second".to_string()));
+    }
+
+    #[derive(Clone, Default)]
+    struct MockDocker {
+        inner: Arc<MockDockerInner>,
+    }
+
+    #[derive(Default)]
+    struct MockDockerInner {
+        operations: Mutex<Vec<String>>,
+    }
+
+    impl MockDocker {
+        fn record(&self, entry: impl Into<String>) {
+            self.inner.operations.lock().unwrap().push(entry.into());
+        }
+
+        fn operations(&self) -> Vec<String> {
+            self.inner.operations.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl ChallengeDocker for MockDocker {
+        async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
+            self.record(format!("pull:{image}"));
+            Ok(())
+        }
+
+        async fn start_challenge(
+            &self,
+            config: &ChallengeContainerConfig,
+        ) -> anyhow::Result<ChallengeInstance> {
+            self.record(format!("start:{}", config.challenge_id));
+            Ok(sample_instance(
+                config.challenge_id,
+                &format!("container-{}", config.challenge_id),
+                &config.docker_image,
+                ContainerStatus::Running,
+            ))
+        }
+
+        async fn stop_container(&self, container_id: &str) -> anyhow::Result<()> {
+            self.record(format!("stop:{container_id}"));
+            Ok(())
+        }
+
+        async fn remove_container(&self, container_id: &str) -> anyhow::Result<()> {
+            self.record(format!("remove:{container_id}"));
+            Ok(())
+        }
+
+        async fn is_container_running(&self, container_id: &str) -> anyhow::Result<bool> {
+            self.record(format!("is_running:{container_id}"));
+            Ok(true)
+        }
+
+        async fn get_logs(&self, container_id: &str, tail: usize) -> anyhow::Result<String> {
+            self.record(format!("logs:{container_id}:{tail}"));
+            Ok(String::new())
+        }
+
+        async fn list_challenge_containers(&self) -> anyhow::Result<Vec<String>> {
+            self.record("list_containers".to_string());
+            Ok(Vec::new())
+        }
+
+        async fn cleanup_stale_containers(
+            &self,
+            prefix: &str,
+            _max_age_minutes: u64,
+            _exclude_patterns: &[&str],
+        ) -> anyhow::Result<CleanupResult> {
+            self.record(format!("cleanup:{prefix}"));
+            Ok(CleanupResult::default())
+        }
+    }
+
+    fn sample_config(challenge_id: ChallengeId, image: &str) -> ChallengeContainerConfig {
+        ChallengeContainerConfig {
+            challenge_id,
+            name: format!("challenge-{challenge_id}"),
+            docker_image: image.to_string(),
+            mechanism_id: 0,
+            emission_weight: 1.0,
+            timeout_secs: 3600,
+            cpu_cores: 1.0,
+            memory_mb: 512,
+            gpu_required: false,
+        }
+    }
+
+    fn sample_instance(
+        challenge_id: ChallengeId,
+        container_id: &str,
+        image: &str,
+        status: ContainerStatus,
+    ) -> ChallengeInstance {
+        let id_str = challenge_id.to_string();
+        ChallengeInstance {
+            challenge_id,
+            container_id: container_id.to_string(),
+            image: image.to_string(),
+            endpoint: format!("http://{id_str}"),
+            started_at: Utc::now(),
+            status,
+        }
     }
 }

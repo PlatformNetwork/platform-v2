@@ -41,3 +41,4 @@ hostname = "0.4"
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio-test = "0.4"
+serial_test = "3.2"

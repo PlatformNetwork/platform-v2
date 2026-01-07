@@ -1,62 +1,311 @@
 //! Docker client wrapper for container management
 //!
-//! SECURITY: Only images from whitelisted registries (ghcr.io/platformnetwork/)
-//! are allowed to be pulled or run. This prevents malicious container attacks.
+//! Provides the low-level primitives required when the orchestrator is
+//! connected directly to Docker (typically during development or when the
+//! secure broker is unavailable). Network bootstrap, log streaming, and image
+//! pulls are all funneled through a thin trait (`DockerBridge`) that makes it
+//! easy to stub the Docker daemon in tests.
+//!
+//! SECURITY: Only images from allow-listed registries
+//! (`ghcr.io/platformnetwork/`) are allowed to be pulled or run. This prevents
+//! malicious container attacks when bypassing the broker.
 
 use crate::{ChallengeContainerConfig, ChallengeInstance, ContainerStatus};
+use async_trait::async_trait;
 use bollard::container::{
-    Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions,
-    StartContainerOptions, StopContainerOptions,
+    Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, LogsOptions,
+    RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
 };
+use bollard::errors::Error as DockerError;
 use bollard::image::CreateImageOptions;
-use bollard::models::{DeviceRequest, HostConfig, PortBinding};
+use bollard::models::{
+    ContainerCreateResponse, ContainerInspectResponse, ContainerSummary, CreateImageInfo,
+    DeviceRequest, HostConfig, Network, PortBinding,
+};
+use bollard::network::{ConnectNetworkOptions, CreateNetworkOptions, ListNetworksOptions};
+use bollard::volume::CreateVolumeOptions;
 use bollard::Docker;
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use platform_core::ALLOWED_DOCKER_PREFIXES;
 use std::collections::HashMap;
+use std::pin::Pin;
+use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-/// Docker client for managing challenge containers
-pub struct DockerClient {
+type ImageStream = Pin<Box<dyn Stream<Item = Result<CreateImageInfo, DockerError>> + Send>>;
+type LogStream =
+    Pin<Box<dyn Stream<Item = Result<bollard::container::LogOutput, DockerError>> + Send>>;
+
+#[async_trait]
+pub trait DockerBridge: Send + Sync {
+    async fn ping(&self) -> Result<(), DockerError>;
+    async fn list_networks(
+        &self,
+        options: Option<ListNetworksOptions<String>>,
+    ) -> Result<Vec<Network>, DockerError>;
+    async fn create_network(
+        &self,
+        options: CreateNetworkOptions<String>,
+    ) -> Result<(), DockerError>;
+    async fn inspect_container(
+        &self,
+        id: &str,
+        options: Option<InspectContainerOptions>,
+    ) -> Result<ContainerInspectResponse, DockerError>;
+    async fn connect_network(
+        &self,
+        network: &str,
+        options: ConnectNetworkOptions<String>,
+    ) -> Result<(), DockerError>;
+    fn create_image_stream(&self, options: Option<CreateImageOptions<String>>) -> ImageStream;
+    async fn create_volume(&self, options: CreateVolumeOptions<String>) -> Result<(), DockerError>;
+    async fn create_container(
+        &self,
+        options: Option<CreateContainerOptions<String>>,
+        config: Config<String>,
+    ) -> Result<ContainerCreateResponse, DockerError>;
+    async fn start_container(
+        &self,
+        id: &str,
+        options: Option<StartContainerOptions<String>>,
+    ) -> Result<(), DockerError>;
+    async fn stop_container(
+        &self,
+        id: &str,
+        options: Option<StopContainerOptions>,
+    ) -> Result<(), DockerError>;
+    async fn remove_container(
+        &self,
+        id: &str,
+        options: Option<RemoveContainerOptions>,
+    ) -> Result<(), DockerError>;
+    async fn list_containers(
+        &self,
+        options: Option<ListContainersOptions<String>>,
+    ) -> Result<Vec<ContainerSummary>, DockerError>;
+    fn logs_stream(&self, id: &str, options: LogsOptions<String>) -> LogStream;
+}
+
+#[derive(Clone)]
+struct BollardBridge {
     docker: Docker,
+}
+
+impl BollardBridge {
+    fn new(docker: Docker) -> Self {
+        Self { docker }
+    }
+}
+
+#[async_trait]
+impl DockerBridge for BollardBridge {
+    async fn ping(&self) -> Result<(), DockerError> {
+        self.docker.ping().await.map(|_| ())
+    }
+
+    async fn list_networks(
+        &self,
+        options: Option<ListNetworksOptions<String>>,
+    ) -> Result<Vec<Network>, DockerError> {
+        self.docker.list_networks(options).await
+    }
+
+    async fn create_network(
+        &self,
+        options: CreateNetworkOptions<String>,
+    ) -> Result<(), DockerError> {
+        self.docker.create_network(options).await.map(|_| ())
+    }
+
+    async fn inspect_container(
+        &self,
+        id: &str,
+        options: Option<InspectContainerOptions>,
+    ) -> Result<ContainerInspectResponse, DockerError> {
+        self.docker.inspect_container(id, options).await
+    }
+
+    async fn connect_network(
+        &self,
+        network: &str,
+        options: ConnectNetworkOptions<String>,
+    ) -> Result<(), DockerError> {
+        self.docker.connect_network(network, options).await
+    }
+
+    fn create_image_stream(&self, options: Option<CreateImageOptions<String>>) -> ImageStream {
+        Box::pin(self.docker.create_image(options, None, None))
+    }
+
+    async fn create_volume(&self, options: CreateVolumeOptions<String>) -> Result<(), DockerError> {
+        self.docker.create_volume(options).await.map(|_| ())
+    }
+
+    async fn create_container(
+        &self,
+        options: Option<CreateContainerOptions<String>>,
+        config: Config<String>,
+    ) -> Result<ContainerCreateResponse, DockerError> {
+        self.docker.create_container(options, config).await
+    }
+
+    async fn start_container(
+        &self,
+        id: &str,
+        options: Option<StartContainerOptions<String>>,
+    ) -> Result<(), DockerError> {
+        self.docker.start_container(id, options).await
+    }
+
+    async fn stop_container(
+        &self,
+        id: &str,
+        options: Option<StopContainerOptions>,
+    ) -> Result<(), DockerError> {
+        self.docker.stop_container(id, options).await
+    }
+
+    async fn remove_container(
+        &self,
+        id: &str,
+        options: Option<RemoveContainerOptions>,
+    ) -> Result<(), DockerError> {
+        self.docker.remove_container(id, options).await
+    }
+
+    async fn list_containers(
+        &self,
+        options: Option<ListContainersOptions<String>>,
+    ) -> Result<Vec<ContainerSummary>, DockerError> {
+        self.docker.list_containers(options).await
+    }
+
+    fn logs_stream(&self, id: &str, options: LogsOptions<String>) -> LogStream {
+        Box::pin(self.docker.logs(id, Some(options)))
+    }
+}
+
+/// Docker client for managing challenge containers
+///
+/// The client ensures challenge containers are attached to the configured
+/// network, reuses volumes when possible, and funnels blocking Docker API
+/// calls through an async-friendly bridge.
+pub struct DockerClient {
+    docker: Arc<dyn DockerBridge>,
     network_name: String,
 }
 
+#[async_trait]
+pub trait ChallengeDocker: Send + Sync {
+    async fn pull_image(&self, image: &str) -> anyhow::Result<()>;
+    async fn start_challenge(
+        &self,
+        config: &ChallengeContainerConfig,
+    ) -> anyhow::Result<ChallengeInstance>;
+    async fn stop_container(&self, container_id: &str) -> anyhow::Result<()>;
+    async fn remove_container(&self, container_id: &str) -> anyhow::Result<()>;
+    async fn is_container_running(&self, container_id: &str) -> anyhow::Result<bool>;
+    async fn get_logs(&self, container_id: &str, tail: usize) -> anyhow::Result<String>;
+    async fn list_challenge_containers(&self) -> anyhow::Result<Vec<String>>;
+    async fn cleanup_stale_containers(
+        &self,
+        prefix: &str,
+        max_age_minutes: u64,
+        exclude_patterns: &[&str],
+    ) -> anyhow::Result<CleanupResult>;
+}
+
+#[async_trait]
+impl ChallengeDocker for DockerClient {
+    async fn pull_image(&self, image: &str) -> anyhow::Result<()> {
+        DockerClient::pull_image(self, image).await
+    }
+
+    async fn start_challenge(
+        &self,
+        config: &ChallengeContainerConfig,
+    ) -> anyhow::Result<ChallengeInstance> {
+        DockerClient::start_challenge(self, config).await
+    }
+
+    async fn stop_container(&self, container_id: &str) -> anyhow::Result<()> {
+        DockerClient::stop_container(self, container_id).await
+    }
+
+    async fn remove_container(&self, container_id: &str) -> anyhow::Result<()> {
+        DockerClient::remove_container(self, container_id).await
+    }
+
+    async fn is_container_running(&self, container_id: &str) -> anyhow::Result<bool> {
+        DockerClient::is_container_running(self, container_id).await
+    }
+
+    async fn get_logs(&self, container_id: &str, tail: usize) -> anyhow::Result<String> {
+        DockerClient::get_logs(self, container_id, tail).await
+    }
+
+    async fn list_challenge_containers(&self) -> anyhow::Result<Vec<String>> {
+        DockerClient::list_challenge_containers(self).await
+    }
+
+    async fn cleanup_stale_containers(
+        &self,
+        prefix: &str,
+        max_age_minutes: u64,
+        exclude_patterns: &[&str],
+    ) -> anyhow::Result<CleanupResult> {
+        DockerClient::cleanup_stale_containers(self, prefix, max_age_minutes, exclude_patterns)
+            .await
+    }
+}
+
 impl DockerClient {
+    fn from_bridge(docker: Arc<dyn DockerBridge>, network_name: impl Into<String>) -> Self {
+        Self {
+            docker,
+            network_name: network_name.into(),
+        }
+    }
+
+    /// Build a client from a custom bridge (used for tests/mocks)
+    pub fn with_bridge(
+        docker: impl DockerBridge + 'static,
+        network_name: impl Into<String>,
+    ) -> Self {
+        Self::from_bridge(Arc::new(docker), network_name)
+    }
+
     /// Connect to Docker daemon
     pub async fn connect() -> anyhow::Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
 
         // Verify connection
-        docker.ping().await?;
+        let bridge = Arc::new(BollardBridge::new(docker));
+        bridge.ping().await?;
         info!("Connected to Docker daemon");
 
-        Ok(Self {
-            docker,
-            network_name: "platform-network".to_string(),
-        })
+        Ok(Self::from_bridge(bridge, "platform-network"))
     }
 
     /// Connect with custom network name
     pub async fn connect_with_network(network_name: &str) -> anyhow::Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
-        docker.ping().await?;
+        let bridge = Arc::new(BollardBridge::new(docker));
+        bridge.ping().await?;
 
-        Ok(Self {
-            docker,
-            network_name: network_name.to_string(),
-        })
+        Ok(Self::from_bridge(bridge, network_name))
     }
 
     /// Connect and auto-detect the network from the validator container
     /// This ensures challenge containers are on the same network as the validator
     pub async fn connect_auto_detect() -> anyhow::Result<Self> {
         let docker = Docker::connect_with_local_defaults()?;
-        docker.ping().await?;
+        let bridge = Arc::new(BollardBridge::new(docker));
+        bridge.ping().await?;
         info!("Connected to Docker daemon");
 
         // Try to detect the network from the current container
-        let network_name = Self::detect_validator_network_static(&docker)
+        let network_name = Self::detect_validator_network(&*bridge)
             .await
             .unwrap_or_else(|e| {
                 warn!(
@@ -68,14 +317,11 @@ impl DockerClient {
 
         info!(network = %network_name, "Using network for challenge containers");
 
-        Ok(Self {
-            docker,
-            network_name,
-        })
+        Ok(Self::from_bridge(bridge, network_name))
     }
 
     /// Detect the network the validator container is running on
-    async fn detect_validator_network_static(docker: &Docker) -> anyhow::Result<String> {
+    async fn detect_validator_network(docker: &dyn DockerBridge) -> anyhow::Result<String> {
         // Get our container ID
         let container_id = Self::get_container_id_static()?;
 
@@ -198,7 +444,11 @@ impl DockerClient {
 
     /// Ensure the Docker network exists
     pub async fn ensure_network(&self) -> anyhow::Result<()> {
-        let networks = self.docker.list_networks::<String>(None).await?;
+        let networks = self
+            .docker
+            .list_networks(None::<ListNetworksOptions<String>>)
+            .await
+            .map_err(anyhow::Error::from)?;
 
         let exists = networks.iter().any(|n| {
             n.name
@@ -216,7 +466,10 @@ impl DockerClient {
                 ..Default::default()
             };
 
-            self.docker.create_network(config).await?;
+            self.docker
+                .create_network(config)
+                .await
+                .map_err(anyhow::Error::from)?;
             info!(network = %self.network_name, "Created Docker network");
         } else {
             debug!(network = %self.network_name, "Docker network already exists");
@@ -232,7 +485,11 @@ impl DockerClient {
         let container_id = self.get_self_container_id()?;
 
         // Check if already connected
-        let inspect = self.docker.inspect_container(&container_id, None).await?;
+        let inspect = self
+            .docker
+            .inspect_container(&container_id, None)
+            .await
+            .map_err(anyhow::Error::from)?;
         let networks = inspect
             .network_settings
             .as_ref()
@@ -260,7 +517,8 @@ impl DockerClient {
 
         self.docker
             .connect_network(&self.network_name, config)
-            .await?;
+            .await
+            .map_err(anyhow::Error::from)?;
 
         info!(
             container = %container_id,
@@ -359,11 +617,11 @@ impl DockerClient {
         info!(image = %image, "Pulling Docker image (whitelisted)");
 
         let options = CreateImageOptions {
-            from_image: image,
+            from_image: image.to_string(),
             ..Default::default()
         };
 
-        let mut stream = self.docker.create_image(Some(options), None, None);
+        let mut stream = self.docker.create_image_stream(Some(options));
 
         while let Some(result) = stream.next().await {
             match result {
@@ -457,9 +715,9 @@ impl DockerClient {
         let volume_name = format!("{}-data", container_name);
 
         // Create volumes if they don't exist (Docker will auto-create on mount, but explicit is clearer)
-        let volume_opts = bollard::volume::CreateVolumeOptions {
-            name: volume_name.as_str(),
-            driver: "local",
+        let volume_opts = CreateVolumeOptions {
+            name: volume_name.clone(),
+            driver: "local".to_string(),
             ..Default::default()
         };
         if let Err(e) = self.docker.create_volume(volume_opts).await {
@@ -473,9 +731,9 @@ impl DockerClient {
             "challenge-{}-cache",
             config.name.to_lowercase().replace(' ', "-")
         );
-        let cache_volume_opts = bollard::volume::CreateVolumeOptions {
-            name: cache_volume_name.as_str(),
-            driver: "local",
+        let cache_volume_opts = CreateVolumeOptions {
+            name: cache_volume_name.clone(),
+            driver: "local".to_string(),
             ..Default::default()
         };
         if let Err(e) = self.docker.create_volume(cache_volume_opts).await {
@@ -489,9 +747,9 @@ impl DockerClient {
         let evals_volume = "term-challenge-evals";
 
         for vol_name in [tasks_volume, dind_cache_volume, evals_volume] {
-            let vol_opts = bollard::volume::CreateVolumeOptions {
-                name: vol_name,
-                driver: "local",
+            let vol_opts = CreateVolumeOptions {
+                name: vol_name.to_string(),
+                driver: "local".to_string(),
                 ..Default::default()
             };
             if let Err(e) = self.docker.create_volume(vol_opts).await {
@@ -687,23 +945,29 @@ impl DockerClient {
 
         // Create container
         let options = CreateContainerOptions {
-            name: &container_name,
+            name: container_name.clone(),
             platform: None,
         };
 
         let response = self
             .docker
             .create_container(Some(options), container_config)
-            .await?;
+            .await
+            .map_err(anyhow::Error::from)?;
         let container_id = response.id;
 
         // Start container
         self.docker
             .start_container(&container_id, None::<StartContainerOptions<String>>)
-            .await?;
+            .await
+            .map_err(anyhow::Error::from)?;
 
         // Get assigned port
-        let inspect = self.docker.inspect_container(&container_id, None).await?;
+        let inspect = self
+            .docker
+            .inspect_container(&container_id, None)
+            .await
+            .map_err(anyhow::Error::from)?;
         let port = inspect
             .network_settings
             .and_then(|ns| ns.ports)
@@ -805,24 +1069,27 @@ impl DockerClient {
 
     /// List all challenge containers
     pub async fn list_challenge_containers(&self) -> anyhow::Result<Vec<String>> {
-        let mut filters = HashMap::new();
-        filters.insert("name", vec!["challenge-"]);
-        filters.insert("network", vec![self.network_name.as_str()]);
+        let mut filters: HashMap<String, Vec<String>> = HashMap::new();
+        filters.insert("name".to_string(), vec!["challenge-".to_string()]);
+        filters.insert("network".to_string(), vec![self.network_name.clone()]);
 
-        let options = ListContainersOptions {
+        let options = ListContainersOptions::<String> {
             all: true,
             filters,
             ..Default::default()
         };
 
-        let containers = self.docker.list_containers(Some(options)).await?;
+        let containers = self
+            .docker
+            .list_containers(Some(options))
+            .await
+            .map_err(anyhow::Error::from)?;
 
         Ok(containers.into_iter().filter_map(|c| c.id).collect())
     }
 
     /// Get container logs
     pub async fn get_logs(&self, container_id: &str, tail: usize) -> anyhow::Result<String> {
-        use bollard::container::LogsOptions;
         use futures::TryStreamExt;
 
         let options = LogsOptions::<String> {
@@ -834,7 +1101,7 @@ impl DockerClient {
 
         let logs: Vec<_> = self
             .docker
-            .logs(container_id, Some(options))
+            .logs_stream(container_id, options)
             .try_collect()
             .await?;
 
@@ -867,12 +1134,14 @@ impl DockerClient {
         let mut result = CleanupResult::default();
 
         // List ALL containers (including stopped)
-        let options = ListContainersOptions::<String> {
-            all: true,
-            ..Default::default()
-        };
+        let mut options: ListContainersOptions<String> = Default::default();
+        options.all = true;
 
-        let containers = self.docker.list_containers(Some(options)).await?;
+        let containers = self
+            .docker
+            .list_containers(Some(options))
+            .await
+            .map_err(anyhow::Error::from)?;
         let now = chrono::Utc::now().timestamp();
         let max_age_secs = (max_age_minutes * 60) as i64;
 
@@ -941,8 +1210,335 @@ impl DockerClient {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bollard::models::EndpointSettings;
+    use futures::StreamExt;
+    use serial_test::serial;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn reset_env(keys: &[&str]) {
+        for key in keys {
+            std::env::remove_var(key);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_is_image_allowed_enforces_whitelist() {
+        reset_env(&["DEVELOPMENT_MODE"]);
+        assert!(DockerClient::is_image_allowed(
+            "ghcr.io/platformnetwork/challenge:latest"
+        ));
+        assert!(!DockerClient::is_image_allowed(
+            "docker.io/library/alpine:latest"
+        ));
+    }
+
+    #[test]
+    #[serial]
+    fn test_is_image_allowed_allows_dev_mode_override() {
+        std::env::set_var("DEVELOPMENT_MODE", "true");
+        assert!(DockerClient::is_image_allowed(
+            "docker.io/library/alpine:latest"
+        ));
+        reset_env(&["DEVELOPMENT_MODE"]);
+    }
+
+    #[test]
+    #[serial]
+    fn test_is_image_allowed_case_insensitive() {
+        reset_env(&["DEVELOPMENT_MODE"]);
+        assert!(DockerClient::is_image_allowed(
+            "GHCR.IO/PLATFORMNETWORK/IMAGE:TAG"
+        ));
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_validator_suffix_prefers_validator_name() {
+        reset_env(&["VALIDATOR_NAME", "HOSTNAME"]);
+        std::env::set_var("VALIDATOR_NAME", "Node 42-Test");
+        std::env::set_var("HOSTNAME", "should_not_be_used");
+
+        let suffix = DockerClient::get_validator_suffix();
+        assert_eq!(suffix, "node42test");
+
+        reset_env(&["VALIDATOR_NAME", "HOSTNAME"]);
+    }
+
+    #[test]
+    #[serial]
+    fn test_get_validator_suffix_uses_container_id_from_hostname() {
+        reset_env(&["VALIDATOR_NAME"]);
+        std::env::set_var("HOSTNAME", "abcdef123456");
+
+        let suffix = DockerClient::get_validator_suffix();
+        assert_eq!(suffix, "abcdef123456");
+
+        reset_env(&["HOSTNAME"]);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker"]
+    async fn test_docker_connect() {
+        let client = DockerClient::connect().await;
+        assert!(client.is_ok());
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingBridge {
+        inner: Arc<RecordingBridgeInner>,
+    }
+
+    #[derive(Default)]
+    struct RecordingBridgeInner {
+        networks: Mutex<Vec<Network>>,
+        created_networks: Mutex<Vec<String>>,
+        containers: Mutex<Vec<ContainerSummary>>,
+        removed: Mutex<Vec<String>>,
+        inspect_map: Mutex<HashMap<String, ContainerInspectResponse>>,
+        connect_calls: Mutex<Vec<(String, String)>>,
+    }
+
+    impl RecordingBridge {
+        fn with_networks(names: &[&str]) -> Self {
+            let bridge = RecordingBridge::default();
+            {
+                let mut lock = bridge.inner.networks.lock().unwrap();
+                for name in names {
+                    lock.push(Network {
+                        name: Some(name.to_string()),
+                        ..Default::default()
+                    });
+                }
+            }
+            bridge
+        }
+
+        fn created_networks(&self) -> Vec<String> {
+            self.inner.created_networks.lock().unwrap().clone()
+        }
+
+        fn set_inspect_networks(&self, container_id: &str, networks: &[&str]) {
+            let mut map: HashMap<String, EndpointSettings> = HashMap::new();
+            for name in networks {
+                map.insert(name.to_string(), Default::default());
+            }
+            let response = ContainerInspectResponse {
+                network_settings: Some(bollard::models::NetworkSettings {
+                    networks: Some(map),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            self.inner
+                .inspect_map
+                .lock()
+                .unwrap()
+                .insert(container_id.to_string(), response);
+        }
+
+        fn set_containers(&self, containers: Vec<ContainerSummary>) {
+            *self.inner.containers.lock().unwrap() = containers;
+        }
+
+        fn removed_containers(&self) -> Vec<String> {
+            self.inner.removed.lock().unwrap().clone()
+        }
+
+        fn connect_calls(&self) -> Vec<(String, String)> {
+            self.inner.connect_calls.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl DockerBridge for RecordingBridge {
+        async fn ping(&self) -> Result<(), DockerError> {
+            Ok(())
+        }
+
+        async fn list_networks(
+            &self,
+            _options: Option<ListNetworksOptions<String>>,
+        ) -> Result<Vec<Network>, DockerError> {
+            Ok(self.inner.networks.lock().unwrap().clone())
+        }
+
+        async fn create_network(
+            &self,
+            options: CreateNetworkOptions<String>,
+        ) -> Result<(), DockerError> {
+            self.inner
+                .created_networks
+                .lock()
+                .unwrap()
+                .push(options.name);
+            Ok(())
+        }
+
+        async fn inspect_container(
+            &self,
+            id: &str,
+            _options: Option<InspectContainerOptions>,
+        ) -> Result<ContainerInspectResponse, DockerError> {
+            self.inner
+                .inspect_map
+                .lock()
+                .unwrap()
+                .get(id)
+                .cloned()
+                .ok_or_else(|| DockerError::IOError {
+                    err: std::io::Error::new(std::io::ErrorKind::NotFound, "missing inspect"),
+                })
+        }
+
+        async fn connect_network(
+            &self,
+            network: &str,
+            options: ConnectNetworkOptions<String>,
+        ) -> Result<(), DockerError> {
+            self.inner
+                .connect_calls
+                .lock()
+                .unwrap()
+                .push((options.container, network.to_string()));
+            Ok(())
+        }
+
+        fn create_image_stream(&self, _options: Option<CreateImageOptions<String>>) -> ImageStream {
+            futures::stream::empty().boxed()
+        }
+
+        async fn create_volume(
+            &self,
+            _options: CreateVolumeOptions<String>,
+        ) -> Result<(), DockerError> {
+            Ok(())
+        }
+
+        async fn create_container(
+            &self,
+            _options: Option<CreateContainerOptions<String>>,
+            _config: Config<String>,
+        ) -> Result<ContainerCreateResponse, DockerError> {
+            panic!("not used in tests")
+        }
+
+        async fn start_container(
+            &self,
+            _id: &str,
+            _options: Option<StartContainerOptions<String>>,
+        ) -> Result<(), DockerError> {
+            panic!("not used in tests")
+        }
+
+        async fn stop_container(
+            &self,
+            _id: &str,
+            _options: Option<StopContainerOptions>,
+        ) -> Result<(), DockerError> {
+            panic!("not used in tests")
+        }
+
+        async fn remove_container(
+            &self,
+            id: &str,
+            _options: Option<RemoveContainerOptions>,
+        ) -> Result<(), DockerError> {
+            self.inner.removed.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
+
+        async fn list_containers(
+            &self,
+            _options: Option<ListContainersOptions<String>>,
+        ) -> Result<Vec<ContainerSummary>, DockerError> {
+            Ok(self.inner.containers.lock().unwrap().clone())
+        }
+
+        fn logs_stream(&self, _id: &str, _options: LogsOptions<String>) -> LogStream {
+            futures::stream::empty().boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ensure_network_creates_when_missing() {
+        let bridge = RecordingBridge::default();
+        let client = DockerClient::with_bridge(bridge.clone(), "platform-network");
+        client.ensure_network().await.unwrap();
+        assert_eq!(
+            bridge.created_networks(),
+            vec!["platform-network".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ensure_network_skips_existing() {
+        let bridge = RecordingBridge::with_networks(&["platform-network"]);
+        let client = DockerClient::with_bridge(bridge.clone(), "platform-network");
+        client.ensure_network().await.unwrap();
+        assert!(bridge.created_networks().is_empty());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_connect_self_to_network_only_when_needed() {
+        let bridge = RecordingBridge::default();
+        let container_id = "aaaaaaaaaaaa";
+        std::env::set_var("HOSTNAME", container_id);
+        bridge.set_inspect_networks(container_id, &[]);
+        let client = DockerClient::with_bridge(bridge.clone(), "platform-network");
+        client.connect_self_to_network().await.unwrap();
+        assert_eq!(
+            bridge.connect_calls(),
+            vec![(container_id.to_string(), "platform-network".to_string())]
+        );
+
+        let bridge2 = RecordingBridge::default();
+        let container_two = "bbbbbbbbbbbb";
+        std::env::set_var("HOSTNAME", container_two);
+        bridge2.set_inspect_networks(container_two, &["platform-network"]);
+        let client2 = DockerClient::with_bridge(bridge2.clone(), "platform-network");
+        client2.connect_self_to_network().await.unwrap();
+        assert!(bridge2.connect_calls().is_empty());
+        std::env::remove_var("HOSTNAME");
+    }
+
+    fn make_container_summary(id: &str, name: &str, created: i64) -> ContainerSummary {
+        ContainerSummary {
+            id: Some(id.to_string()),
+            names: Some(vec![format!("/{name}")]),
+            created: Some(created),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_stale_containers_filters_entries() {
+        let bridge = RecordingBridge::default();
+        let now = chrono::Utc::now().timestamp();
+        bridge.set_containers(vec![
+            make_container_summary("old", "term-challenge-old", now - 10_000),
+            make_container_summary("exclude", "platform-helper", now - 10_000),
+            make_container_summary("young", "term-challenge-young", now - 100),
+        ]);
+        let client = DockerClient::with_bridge(bridge.clone(), "platform-network");
+
+        let result = client
+            .cleanup_stale_containers("term-challenge-", 120, &["platform-"])
+            .await
+            .unwrap();
+        assert_eq!(result.total_found, 1);
+        assert_eq!(result.removed, 1);
+        assert_eq!(bridge.removed_containers(), vec!["old".to_string()]);
+    }
+}
+
 /// Result of container cleanup operation
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CleanupResult {
     pub total_found: usize,
     pub removed: usize,
@@ -956,13 +1552,15 @@ impl CleanupResult {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod cleanup_tests {
+    use super::CleanupResult;
 
-    #[tokio::test]
-    #[ignore = "requires Docker"]
-    async fn test_docker_connect() {
-        let client = DockerClient::connect().await;
-        assert!(client.is_ok());
+    #[test]
+    fn test_cleanup_result_success_flag() {
+        let mut result = CleanupResult::default();
+        assert!(result.success());
+
+        result.errors.push("boom".into());
+        assert!(!result.success());
     }
 }
