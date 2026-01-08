@@ -2412,7 +2412,7 @@ mod tests {
         let (kp, stake) = create_test_validator(1_000_000_000_000);
         gov.update_validator_stakes(vec![stake]);
 
-        let mut proposal = gov
+        let proposal = gov
             .create_proposal(
                 GovernanceActionType::Resume,
                 "Test".to_string(),
@@ -2438,7 +2438,7 @@ mod tests {
         let (kp, stake) = create_test_validator(1_000_000_000_000);
         gov.update_validator_stakes(vec![stake]);
 
-        let mut proposal = gov
+        let proposal = gov
             .create_proposal(
                 GovernanceActionType::Resume,
                 "Test".to_string(),
