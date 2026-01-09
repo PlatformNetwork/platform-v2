@@ -96,4 +96,80 @@ mod tests {
         assert!(result.is_ok());
         assert!(result.unwrap());
     }
+
+    #[test]
+    fn test_signature_verification_invalid_hotkey() {
+        let result = verify_validator_signature("invalid_hotkey", "message", "signature");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_signature_verification_invalid_signature_hex() {
+        let kp = Keypair::generate();
+        let result = verify_validator_signature(&kp.hotkey().to_hex(), "message", "not_hex");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_signature_verification_wrong_signature() {
+        let kp1 = Keypair::generate();
+        let kp2 = Keypair::generate();
+        let message = "test:1234567890:nonce";
+        let signed = kp1.sign(message.as_bytes());
+
+        // Use kp2's hotkey but kp1's signature - should fail
+        let hotkey_hex = kp2.hotkey().to_hex();
+        let sig_hex = hex::encode(&signed.signature);
+
+        let result = verify_validator_signature(&hotkey_hex, message, &sig_hex);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Signature doesn't match
+    }
+
+    #[test]
+    fn test_signature_verification_wrong_message() {
+        let kp = Keypair::generate();
+        let message1 = "test:1234567890:nonce1";
+        let message2 = "test:1234567890:nonce2";
+        let signed = kp.sign(message1.as_bytes());
+
+        let hotkey_hex = kp.hotkey().to_hex();
+        let sig_hex = hex::encode(&signed.signature);
+
+        // Try to verify with different message - should fail
+        let result = verify_validator_signature(&hotkey_hex, message2, &sig_hex);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+
+    #[test]
+    fn test_verify_timestamp_edge_case() {
+        let now = chrono::Utc::now().timestamp();
+        // Test exactly at 5 minute boundary
+        assert!(!verify_timestamp(now - 301)); // 5 minutes 1 second ago
+        assert!(verify_timestamp(now - 299)); // 4 minutes 59 seconds ago
+    }
+
+    #[test]
+    fn test_verify_timestamp_future() {
+        let now = chrono::Utc::now().timestamp();
+        assert!(verify_timestamp(now + 10)); // Future timestamp within 5 min should be valid
+        assert!(verify_timestamp(now + 299)); // Just under 5 minutes in future
+    }
+
+    #[test]
+    fn test_signature_verification_invalid_length() {
+        let kp = Keypair::generate();
+        let message = "test:1234567890:nonce";
+        
+        // Test with signature that's too short (not 64 bytes)
+        let short_sig = hex::encode(&[0u8; 32]); // Only 32 bytes
+        let result = verify_validator_signature(&kp.hotkey().to_hex(), message, &short_sig);
+        assert!(result.is_err());
+        
+        // Test with signature that's too long
+        let long_sig = hex::encode(&[0u8; 128]); // 128 bytes
+        let result = verify_validator_signature(&kp.hotkey().to_hex(), message, &long_sig);
+        assert!(result.is_err());
+    }
 }

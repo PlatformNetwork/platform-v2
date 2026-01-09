@@ -556,6 +556,7 @@ pub async fn start_rpc_server(
 mod tests {
     use super::*;
     use platform_core::{Keypair, NetworkConfig};
+    use serde_json::json;
 
     #[test]
     fn test_rpc_config_default() {
@@ -578,5 +579,116 @@ mod tests {
 
         let router = server.router();
         // Router created successfully
+    }
+
+    #[test]
+    fn test_rpc_server_rpc_handler() {
+        let kp = Keypair::generate();
+        let state = Arc::new(RwLock::new(ChainState::new(
+            kp.hotkey(),
+            NetworkConfig::default(),
+        )));
+        let bans = Arc::new(RwLock::new(BanList::new()));
+
+        let config = RpcConfig::default();
+        let server = RpcServer::new(config, state, bans);
+
+        let handler = server.rpc_handler();
+        assert_eq!(handler.netuid, 1);
+    }
+
+    #[test]
+    fn test_rpc_server_addr() {
+        let kp = Keypair::generate();
+        let state = Arc::new(RwLock::new(ChainState::new(
+            kp.hotkey(),
+            NetworkConfig::default(),
+        )));
+        let bans = Arc::new(RwLock::new(BanList::new()));
+
+        let config = RpcConfig {
+            addr: "127.0.0.1:9999".parse().unwrap(),
+            netuid: 42,
+            name: "Test".to_string(),
+            min_stake: 1000,
+            cors_enabled: false,
+        };
+        let server = RpcServer::new(config, state, bans);
+
+        assert_eq!(server.addr().port(), 9999);
+    }
+
+    #[tokio::test]
+    async fn test_handle_single_request_invalid_json() {
+        let kp = Keypair::generate();
+        let state = Arc::new(RwLock::new(ChainState::new(
+            kp.hotkey(),
+            NetworkConfig::default(),
+        )));
+        let handler = Arc::new(RpcHandler::new(state, 1));
+
+        let invalid_body = json!({"method": "test"}); // Missing required fields
+        let (status, resp) = handle_single_request(invalid_body, &handler);
+        
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(resp.0.error.is_some());
+        assert_eq!(resp.0.error.unwrap().code, PARSE_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_handle_single_request_invalid_jsonrpc_version() {
+        let kp = Keypair::generate();
+        let state = Arc::new(RwLock::new(ChainState::new(
+            kp.hotkey(),
+            NetworkConfig::default(),
+        )));
+        let handler = Arc::new(RpcHandler::new(state, 1));
+
+        let body = json!({
+            "jsonrpc": "1.0", // Wrong version
+            "method": "test",
+            "params": null,
+            "id": 1
+        });
+        let (status, resp) = handle_single_request(body, &handler);
+        
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(resp.0.error.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_handle_single_request_success() {
+        let kp = Keypair::generate();
+        let state = Arc::new(RwLock::new(ChainState::new(
+            kp.hotkey(),
+            NetworkConfig::default(),
+        )));
+        let handler = Arc::new(RpcHandler::new(state, 1));
+
+        let body = json!({
+            "jsonrpc": "2.0",
+            "method": "system_version",
+            "params": null,
+            "id": 1
+        });
+        let (status, resp) = handle_single_request(body, &handler);
+        
+        assert_eq!(status, StatusCode::OK);
+        assert!(resp.0.result.is_some());
+    }
+
+    #[test]
+    fn test_rpc_config_custom() {
+        let config = RpcConfig {
+            addr: "0.0.0.0:3000".parse().unwrap(),
+            netuid: 99,
+            name: "CustomChain".to_string(),
+            min_stake: 5_000_000_000_000,
+            cors_enabled: false,
+        };
+        
+        assert_eq!(config.netuid, 99);
+        assert_eq!(config.name, "CustomChain");
+        assert!(!config.cors_enabled);
     }
 }

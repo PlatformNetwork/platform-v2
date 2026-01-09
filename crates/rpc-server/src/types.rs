@@ -375,4 +375,143 @@ mod tests {
         assert_eq!(resp.block_height, 1000);
         assert!(resp.validators.is_empty());
     }
+
+    #[test]
+    fn test_rpc_response_ok() {
+        let resp: RpcResponse<String> = RpcResponse::ok("test data".to_string());
+        assert!(resp.data.is_some());
+        assert!(resp.error.is_none());
+        assert_eq!(resp.data.unwrap(), "test data");
+    }
+
+    #[test]
+    fn test_rpc_response_error() {
+        let resp: RpcResponse<String> = RpcResponse::error("error message");
+        assert!(resp.data.is_none());
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap(), "error message");
+    }
+
+    #[test]
+    fn test_health_response_serde() {
+        let health = HealthResponse {
+            status: "healthy".to_string(),
+            version: "1.0".to_string(),
+            uptime_secs: 100,
+        };
+        let json = serde_json::to_string(&health).unwrap();
+        let parsed: HealthResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.status, "healthy");
+    }
+
+    #[test]
+    fn test_register_request_serde() {
+        let req = RegisterRequest {
+            hotkey: "hotkey123".to_string(),
+            signature: "sig".to_string(),
+            message: "msg".to_string(),
+            peer_id: Some("peer123".to_string()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: RegisterRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.hotkey, "hotkey123");
+        assert!(parsed.peer_id.is_some());
+    }
+
+    #[test]
+    fn test_register_response_accepted() {
+        let resp = RegisterResponse {
+            accepted: true,
+            uid: Some(5),
+            reason: None,
+        };
+        assert!(resp.accepted);
+        assert_eq!(resp.uid, Some(5));
+    }
+
+    #[test]
+    fn test_register_response_rejected() {
+        let resp = RegisterResponse {
+            accepted: false,
+            uid: None,
+            reason: Some("Insufficient stake".to_string()),
+        };
+        assert!(!resp.accepted);
+        assert!(resp.reason.is_some());
+    }
+
+    #[test]
+    fn test_job_result_request_serde() {
+        let req = JobResultRequest {
+            job_id: "job-1".to_string(),
+            hotkey: "hk".to_string(),
+            signature: "sig".to_string(),
+            score: 0.85,
+            metadata: Some(serde_json::json!({"key": "value"})),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: JobResultRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.score, 0.85);
+        assert!(parsed.metadata.is_some());
+    }
+
+    #[test]
+    fn test_job_result_response() {
+        let resp = JobResultResponse {
+            accepted: true,
+            job_id: "job-123".to_string(),
+        };
+        assert!(resp.accepted);
+        assert_eq!(resp.job_id, "job-123");
+    }
+
+    #[test]
+    fn test_weight_commit_request_serde() {
+        let req = WeightCommitRequest {
+            hotkey: "hk".to_string(),
+            signature: "sig".to_string(),
+            challenge_id: "ch1".to_string(),
+            commitment_hash: "hash".to_string(),
+            epoch: 10,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: WeightCommitRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.epoch, 10);
+        assert_eq!(parsed.challenge_id, "ch1");
+    }
+
+    #[test]
+    fn test_weight_reveal_request_serde() {
+        let req = WeightRevealRequest {
+            hotkey: "hk".to_string(),
+            signature: "sig".to_string(),
+            challenge_id: "ch1".to_string(),
+            weights: vec![
+                WeightEntry {
+                    hotkey: "h1".to_string(),
+                    weight: 0.6,
+                },
+                WeightEntry {
+                    hotkey: "h2".to_string(),
+                    weight: 0.4,
+                },
+            ],
+            salt: "salt123".to_string(),
+            epoch: 10,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: WeightRevealRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.weights.len(), 2);
+        assert_eq!(parsed.salt, "salt123");
+    }
+
+    #[test]
+    fn test_pagination_params_custom() {
+        let params = PaginationParams {
+            offset: Some(50),
+            limit: Some(200),
+        };
+        assert_eq!(params.offset, Some(50));
+        assert_eq!(params.limit, Some(200));
+    }
 }

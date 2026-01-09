@@ -1938,4 +1938,740 @@ mod tests {
         let resp = handler.handle(req);
         assert!(resp.result.is_some());
     }
+
+    #[test]
+    fn test_validator_list() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "validator_list".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("validators").is_some());
+    }
+
+    #[test]
+    fn test_validator_list_with_pagination() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "validator_list".to_string(),
+            params: json!([10, 50]), // offset, limit
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert_eq!(result["offset"], 10);
+        assert_eq!(result["limit"], 50);
+    }
+
+    #[test]
+    fn test_validator_count() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "validator_count".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+    }
+
+    #[test]
+    fn test_metagraph_hotkeys() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "metagraph_hotkeys".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("hotkeys").is_some());
+        assert!(result.get("count").is_some());
+    }
+
+    #[test]
+    fn test_metagraph_is_registered_invalid_hotkey() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "metagraph_isRegistered".to_string(),
+            params: json!(["invalid_hotkey"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+    }
+
+    #[test]
+    fn test_metagraph_is_registered_missing_param() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "metagraph_isRegistered".to_string(),
+            params: json!([]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_challenge_list() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_list".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("challenges").is_some());
+    }
+
+    #[test]
+    fn test_challenge_list_only_active() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_list".to_string(),
+            params: json!({"onlyActive": true}),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+    }
+
+    #[test]
+    fn test_challenge_get_not_found() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_get".to_string(),
+            params: json!(["nonexistent"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, CHALLENGE_NOT_FOUND);
+    }
+
+    #[test]
+    fn test_challenge_get_missing_param() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_get".to_string(),
+            params: json!([]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_challenge_get_routes_no_routes() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_getRoutes".to_string(),
+            params: json!(["test-challenge"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert_eq!(result["routesCount"], 0);
+    }
+
+    #[test]
+    fn test_challenge_list_all_routes() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_listAllRoutes".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("routes").is_some());
+    }
+
+    #[test]
+    fn test_job_list() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "job_list".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("jobs").is_some());
+    }
+
+    #[test]
+    fn test_job_list_with_filter() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "job_list".to_string(),
+            params: json!([0, 100, "pending"]), // offset, limit, status
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+    }
+
+    #[test]
+    fn test_job_get_invalid_id() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "job_get".to_string(),
+            params: json!(["not-a-uuid"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_job_get_not_found() {
+        let handler = create_handler();
+        let job_id = uuid::Uuid::new_v4().to_string();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "job_get".to_string(),
+            params: json!([job_id]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, JOB_NOT_FOUND);
+    }
+
+    #[test]
+    fn test_job_get_missing_param() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "job_get".to_string(),
+            params: json!([]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_epoch_current() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "epoch_current".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("epochNumber").is_some());
+        assert!(result.get("phase").is_some());
+        assert!(result.get("blocksPerEpoch").is_some());
+    }
+
+    #[test]
+    fn test_epoch_get_phase() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "epoch_getPhase".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let phase = resp.result.unwrap();
+        assert!(phase.is_string());
+    }
+
+    #[test]
+    fn test_state_get_storage_invalid_key() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "state_getStorage".to_string(),
+            params: json!(["unknownKey"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_state_get_storage_block_height() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "state_getStorage".to_string(),
+            params: json!(["blockHeight"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+    }
+
+    #[test]
+    fn test_state_get_storage_missing_key() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "state_getStorage".to_string(),
+            params: json!([]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_state_get_storage_validator_key() {
+        let handler = create_handler();
+        let kp = Keypair::generate();
+        let key = format!("validator:{}", kp.hotkey().to_hex());
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "state_getStorage".to_string(),
+            params: json!([key]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+    }
+
+    #[test]
+    fn test_state_get_storage_challenge_key() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "state_getStorage".to_string(),
+            params: json!(["challenge:test"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+    }
+
+    #[test]
+    fn test_state_get_metadata() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "state_getMetadata".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("pallets").is_some());
+    }
+
+    #[test]
+    fn test_monitor_get_challenge_health() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "monitor_getChallengeHealth".to_string(),
+            params: Value::Null,
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert!(result.get("challenges").is_some());
+    }
+
+    #[test]
+    fn test_monitor_get_challenge_logs() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "monitor_getChallengeLogs".to_string(),
+            params: json!(["test-challenge", 100]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+    }
+
+    #[test]
+    fn test_monitor_get_challenge_logs_missing_param() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "monitor_getChallengeLogs".to_string(),
+            params: json!([]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_sudo_submit_missing_param() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "sudo_submit".to_string(),
+            params: json!([]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_sudo_submit_invalid_hex() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "sudo_submit".to_string(),
+            params: json!(["not-hex"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_json_rpc_error_with_data() {
+        let resp = JsonRpcResponse::error_with_data(
+            json!(1),
+            -32000,
+            "Custom error",
+            json!({"detail": "extra info"}),
+        );
+        assert!(resp.error.is_some());
+        let error = resp.error.unwrap();
+        assert_eq!(error.code, -32000);
+        assert!(error.data.is_some());
+    }
+
+    #[test]
+    fn test_normalize_challenge_name() {
+        assert_eq!(
+            RpcHandler::normalize_challenge_name("Test Challenge"),
+            "test-challenge"
+        );
+        assert_eq!(
+            RpcHandler::normalize_challenge_name("My_Cool_Challenge"),
+            "my-cool-challenge"
+        );
+        assert_eq!(
+            RpcHandler::normalize_challenge_name("  Spaces  "),
+            "spaces"
+        );
+        assert_eq!(
+            RpcHandler::normalize_challenge_name("Special!@#$%Chars"),
+            "specialchars"
+        );
+    }
+
+    #[test]
+    fn test_register_challenge_routes() {
+        let handler = create_handler();
+        use platform_challenge_sdk::ChallengeRoute;
+        
+        let routes = vec![
+            ChallengeRoute::get("/test", "Test route"),
+            ChallengeRoute::post("/submit", "Submit route"),
+        ];
+        
+        handler.register_challenge_routes("test-challenge", routes);
+        
+        let registered = handler.challenge_routes.read();
+        assert!(registered.contains_key("test-challenge"));
+        assert_eq!(registered.get("test-challenge").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_unregister_challenge_routes() {
+        let handler = create_handler();
+        use platform_challenge_sdk::ChallengeRoute;
+        
+        let routes = vec![ChallengeRoute::get("/test", "Test route")];
+        handler.register_challenge_routes("test-challenge", routes);
+        
+        handler.unregister_challenge_routes("test-challenge");
+        
+        let registered = handler.challenge_routes.read();
+        assert!(!registered.contains_key("test-challenge"));
+    }
+
+    #[test]
+    fn test_get_all_challenge_routes() {
+        let handler = create_handler();
+        use platform_challenge_sdk::ChallengeRoute;
+        
+        let routes = vec![ChallengeRoute::get("/test", "Test route")];
+        handler.register_challenge_routes("test-challenge", routes);
+        
+        let all_routes = handler.get_all_challenge_routes();
+        assert_eq!(all_routes.len(), 1);
+    }
+
+    #[test]
+    fn test_set_keypair() {
+        let handler = create_handler();
+        let kp = Keypair::generate();
+        handler.set_keypair(kp.clone());
+        
+        let stored = handler.keypair.read();
+        assert!(stored.is_some());
+    }
+
+    #[test]
+    fn test_json_rpc_request_default_params() {
+        let json_str = r#"{"jsonrpc":"2.0","method":"test","id":1}"#;
+        let req: JsonRpcRequest = serde_json::from_str(json_str).unwrap();
+        assert_eq!(req.params, Value::Null);
+    }
+
+    #[test]
+    fn test_get_param_helpers() {
+        let handler = create_handler();
+        let params = json!([10, "test", true]);
+        
+        assert_eq!(handler.get_param_u64(&params, 0, "x"), Some(10));
+        assert_eq!(handler.get_param_str(&params, 1, "y"), Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_set_broadcast_tx() {
+        let handler = create_handler();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        handler.set_broadcast_tx(tx);
+        assert!(handler.broadcast_tx.read().is_some());
+    }
+
+    #[test]
+    fn test_set_orchestrator_tx() {
+        let handler = create_handler();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        handler.set_orchestrator_tx(tx);
+        assert!(handler.orchestrator_tx.read().is_some());
+    }
+
+    #[test]
+    fn test_set_route_handler() {
+        let handler = create_handler();
+        let route_handler: ChallengeRouteHandler = Arc::new(|_challenge_id, _req| {
+            Box::pin(async move {
+                ChallengeRouteResponse {
+                    status: 200,
+                    body: json!({"success": true}),
+                    headers: std::collections::HashMap::new(),
+                }
+            })
+        });
+        handler.set_route_handler(route_handler);
+        assert!(handler.route_handler.read().is_some());
+    }
+
+    #[test]
+    fn test_chain_get_block_invalid_number() {
+        let handler = create_handler();
+        // Request a block that doesn't exist
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "chain_getBlock".to_string(),
+            params: json!([999]), // Block that doesn't exist
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+    }
+
+    #[test]
+    fn test_chain_get_block_hash_invalid() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "chain_getBlockHash".to_string(),
+            params: json!([999]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        assert_eq!(resp.result.unwrap(), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_state_get_storage_validator_key_invalid_hotkey() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "state_getStorage".to_string(),
+            params: json!(["validator:invalid_hex"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+    }
+
+    #[test]
+    fn test_validator_get_invalid_hotkey_format() {
+        let handler = create_handler();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "validator_get".to_string(),
+            params: json!(["not_a_valid_hotkey"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.error.is_some());
+        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
+    }
+
+    #[test]
+    fn test_metagraph_is_registered_with_valid_hotkey() {
+        let handler = create_handler();
+        let kp = Keypair::generate();
+        
+        // Add hotkey to registered_hotkeys
+        {
+            let mut chain = handler.chain_state.write();
+            chain.registered_hotkeys.insert(kp.hotkey());
+        }
+        
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "metagraph_isRegistered".to_string(),
+            params: json!([kp.hotkey().to_hex()]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert_eq!(result["isRegistered"], true);
+    }
+
+    #[test]
+    fn test_challenge_get_with_routes() {
+        let handler = create_handler();
+        use platform_challenge_sdk::ChallengeRoute;
+        
+        // Add a challenge
+        let kp = Keypair::generate();
+        let challenge_id = platform_core::ChallengeId::new();
+        let config = platform_core::ChallengeConfig::default();
+        let challenge = platform_core::Challenge {
+            id: challenge_id,
+            name: "test-challenge".to_string(),
+            description: "Test description".to_string(),
+            wasm_code: vec![1, 2, 3],
+            code_hash: "abc123".to_string(),
+            owner: kp.hotkey(),
+            config,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            is_active: true,
+        };
+        
+        handler.chain_state.write().challenges.insert(challenge_id, challenge);
+        
+        // Register routes for the challenge
+        let routes = vec![
+            ChallengeRoute::get("/test", "Test route"),
+            ChallengeRoute::post("/submit", "Submit route"),
+        ];
+        handler.register_challenge_routes(&challenge_id.to_string(), routes);
+        
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_get".to_string(),
+            params: json!([challenge_id.to_string()]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert_eq!(result["routes"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_challenge_get_routes_by_name() {
+        let handler = create_handler();
+        use platform_challenge_sdk::ChallengeRoute;
+        
+        // Add a challenge
+        let kp = Keypair::generate();
+        let challenge_id = platform_core::ChallengeId::new();
+        let config = platform_core::ChallengeConfig::default();
+        let challenge = platform_core::Challenge {
+            id: challenge_id,
+            name: "my-challenge".to_string(),
+            description: "Test description".to_string(),
+            wasm_code: vec![],
+            code_hash: "abc123".to_string(),
+            owner: kp.hotkey(),
+            config,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            is_active: true,
+        };
+        
+        handler.chain_state.write().challenges.insert(challenge_id, challenge);
+        
+        // Register routes
+        let routes = vec![ChallengeRoute::get("/status", "Status route")];
+        handler.register_challenge_routes(&challenge_id.to_string(), routes);
+        
+        // Query by name instead of ID
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "challenge_getRoutes".to_string(),
+            params: json!(["my-challenge"]),
+            id: json!(1),
+        };
+        let resp = handler.handle(req);
+        assert!(resp.result.is_some());
+        let result = resp.result.unwrap();
+        assert_eq!(result["routesCount"], 1);
+    }
+
+    #[test]
+    fn test_register_empty_routes() {
+        let handler = create_handler();
+        // Registering empty routes should be a no-op
+        handler.register_challenge_routes("test-challenge", vec![]);
+        let routes = handler.challenge_routes.read();
+        assert!(!routes.contains_key("test-challenge"));
+    }
 }
