@@ -389,4 +389,341 @@ mod tests {
         let result = state.submit_reveal(reveal);
         assert!(matches!(result, Err(CommitRevealError::CommitmentMismatch)));
     }
+
+    #[test]
+    fn test_wrong_epoch_commitment() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator = Keypair::generate();
+        let (mut commitment, _) = create_test_commitment(&validator, 1, challenge_id);
+        commitment.epoch = 1; // Wrong epoch
+
+        let result = state.submit_commitment(commitment);
+        assert!(matches!(
+            result,
+            Err(CommitRevealError::WrongEpoch { expected: 0, got: 1 })
+        ));
+    }
+
+    #[test]
+    fn test_wrong_challenge() {
+        let challenge_id = ChallengeId::new();
+        let different_challenge = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator = Keypair::generate();
+        let (commitment, _) = create_test_commitment(&validator, 0, different_challenge);
+
+        let result = state.submit_commitment(commitment);
+        assert!(matches!(result, Err(CommitRevealError::WrongChallenge)));
+    }
+
+    #[test]
+    fn test_already_committed() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator = Keypair::generate();
+        let (commitment, _) = create_test_commitment(&validator, 0, challenge_id);
+
+        state.submit_commitment(commitment.clone()).unwrap();
+        let result = state.submit_commitment(commitment);
+        assert!(matches!(result, Err(CommitRevealError::AlreadyCommitted)));
+    }
+
+    #[test]
+    fn test_already_revealed() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator = Keypair::generate();
+        let (commitment, reveal) = create_test_commitment(&validator, 0, challenge_id);
+
+        state.submit_commitment(commitment).unwrap();
+        state.submit_reveal(reveal.clone()).unwrap();
+        
+        let result = state.submit_reveal(reveal);
+        assert!(matches!(result, Err(CommitRevealError::AlreadyRevealed)));
+    }
+
+    #[test]
+    fn test_reveal_no_commitment() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator = Keypair::generate();
+        let (_, reveal) = create_test_commitment(&validator, 0, challenge_id);
+
+        let result = state.submit_reveal(reveal);
+        assert!(matches!(result, Err(CommitRevealError::NoCommitment)));
+    }
+
+    #[test]
+    fn test_reveal_wrong_epoch() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator = Keypair::generate();
+        let (commitment, mut reveal) = create_test_commitment(&validator, 0, challenge_id);
+
+        state.submit_commitment(commitment).unwrap();
+        reveal.epoch = 1; // Wrong epoch
+
+        let result = state.submit_reveal(reveal);
+        assert!(matches!(
+            result,
+            Err(CommitRevealError::WrongEpoch { expected: 0, got: 1 })
+        ));
+    }
+
+    #[test]
+    fn test_finalize_insufficient_validators() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator = Keypair::generate();
+        let (commitment, reveal) = create_test_commitment(&validator, 0, challenge_id);
+
+        state.submit_commitment(commitment).unwrap();
+        state.submit_reveal(reveal).unwrap();
+
+        // Require more validators than we have
+        let result = state.finalize(0.3, 5);
+        assert!(matches!(
+            result,
+            Err(CommitRevealError::InsufficientValidators {
+                required: 5,
+                got: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn test_finalize_success() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator1 = Keypair::generate();
+        let validator2 = Keypair::generate();
+        let validator3 = Keypair::generate();
+
+        let (c1, r1) = create_test_commitment(&validator1, 0, challenge_id);
+        let (c2, r2) = create_test_commitment(&validator2, 0, challenge_id);
+        let (c3, r3) = create_test_commitment(&validator3, 0, challenge_id);
+
+        state.submit_commitment(c1).unwrap();
+        state.submit_commitment(c2).unwrap();
+        state.submit_commitment(c3).unwrap();
+
+        state.submit_reveal(r1).unwrap();
+        state.submit_reveal(r2).unwrap();
+        state.submit_reveal(r3).unwrap();
+
+        let finalized = state.finalize(0.3, 3).unwrap();
+        assert_eq!(finalized.epoch, 0);
+        assert_eq!(finalized.challenge_id, challenge_id);
+        assert_eq!(finalized.participating_validators.len(), 3);
+        assert_eq!(finalized.excluded_validators.len(), 0);
+    }
+
+    #[test]
+    fn test_finalize_missing_reveals() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        let validator1 = Keypair::generate();
+        let validator2 = Keypair::generate();
+        let validator3 = Keypair::generate();
+
+        let (c1, r1) = create_test_commitment(&validator1, 0, challenge_id);
+        let (c2, _r2) = create_test_commitment(&validator2, 0, challenge_id);
+        let (c3, r3) = create_test_commitment(&validator3, 0, challenge_id);
+
+        state.submit_commitment(c1).unwrap();
+        state.submit_commitment(c2).unwrap();
+        state.submit_commitment(c3).unwrap();
+
+        state.submit_reveal(r1).unwrap();
+        // validator2 doesn't reveal
+        state.submit_reveal(r3).unwrap();
+
+        let finalized = state.finalize(0.3, 2).unwrap();
+        assert_eq!(finalized.participating_validators.len(), 2);
+        assert_eq!(finalized.excluded_validators.len(), 1);
+        assert!(finalized.excluded_validators.contains(&validator2.hotkey()));
+    }
+
+    #[test]
+    fn test_commitment_count() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        assert_eq!(state.commitment_count(), 0);
+
+        let validator = Keypair::generate();
+        let (commitment, _) = create_test_commitment(&validator, 0, challenge_id);
+        state.submit_commitment(commitment).unwrap();
+
+        assert_eq!(state.commitment_count(), 1);
+    }
+
+    #[test]
+    fn test_reveal_count() {
+        let challenge_id = ChallengeId::new();
+        let mut state = CommitRevealState::new(0, challenge_id);
+
+        assert_eq!(state.reveal_count(), 0);
+
+        let validator = Keypair::generate();
+        let (commitment, reveal) = create_test_commitment(&validator, 0, challenge_id);
+        state.submit_commitment(commitment).unwrap();
+        state.submit_reveal(reveal).unwrap();
+
+        assert_eq!(state.reveal_count(), 1);
+    }
+
+    #[test]
+    fn test_commit_reveal_manager() {
+        let manager = CommitRevealManager::new();
+        let challenge_id = ChallengeId::new();
+        let epoch = 1;
+
+        let validator = Keypair::generate();
+        let (commitment, reveal) = create_test_commitment(&validator, epoch, challenge_id);
+
+        manager.commit(epoch, challenge_id, commitment).unwrap();
+        manager.reveal(epoch, challenge_id, reveal).unwrap();
+
+        let finalized = manager.finalize(epoch, challenge_id, 0.3, 1).unwrap();
+        assert_eq!(finalized.epoch, epoch);
+    }
+
+    #[test]
+    fn test_commit_reveal_manager_default() {
+        let manager = CommitRevealManager::default();
+        // Verify initial state
+        let result = manager.finalize(0, ChallengeId::new(), 0.3, 1);
+        assert!(result.is_err()); // No commits exist
+    }
+
+    #[test]
+    fn test_cleanup_old_epochs() {
+        let manager = CommitRevealManager::new();
+        let challenge_id = ChallengeId::new();
+
+        let validator = Keypair::generate();
+
+        // Create states for epochs 0, 1, 2
+        for epoch in 0..3 {
+            let (commitment, _) = create_test_commitment(&validator, epoch, challenge_id);
+            manager.commit(epoch, challenge_id, commitment).unwrap();
+        }
+
+        // Cleanup, keeping only last 1 epoch
+        manager.cleanup_old_epochs(2, 1);
+
+        // Should only have epoch 2 remaining (current 2 - keep 1 = cutoff 1)
+        // Verify old epochs were removed by checking that get_or_create returns empty for epoch 0
+        {
+            let states_map = manager.get_or_create(0, challenge_id);
+            let state = states_map.get(&(0, challenge_id)).unwrap();
+            assert_eq!(state.commitment_count(), 0);
+        }
+        
+        // Verify epoch 2 still exists with commitment
+        {
+            let states_map = manager.get_or_create(2, challenge_id);
+            let state = states_map.get(&(2, challenge_id)).unwrap();
+            assert_eq!(state.commitment_count(), 1);
+        }
+    }
+
+    #[test]
+    fn test_manager_get_or_create() {
+        let manager = CommitRevealManager::new();
+        let challenge_id = ChallengeId::new();
+        let epoch = 0;
+
+        // First call creates the state
+        {
+            let states = manager.get_or_create(epoch, challenge_id);
+            assert!(states.contains_key(&(epoch, challenge_id)));
+        }
+
+        // Second call retrieves existing - verify by checking it exists
+        {
+            let states = manager.get_or_create(epoch, challenge_id);
+            let state = states.get(&(epoch, challenge_id)).unwrap();
+            assert_eq!(state.epoch, epoch);
+            assert_eq!(state.challenge_id, challenge_id);
+        }
+    }
+
+    #[test]
+    fn test_finalize_manager_no_state() {
+        let manager = CommitRevealManager::new();
+        let challenge_id = ChallengeId::new();
+
+        // Try to finalize without any commits
+        let result = manager.finalize(0, challenge_id, 0.3, 1);
+        assert!(matches!(
+            result,
+            Err(CommitRevealError::InsufficientValidators { .. })
+        ));
+    }
+
+    #[test]
+    fn test_multiple_challenges_same_epoch() {
+        let manager = CommitRevealManager::new();
+        let challenge1 = ChallengeId::new();
+        let challenge2 = ChallengeId::new();
+        let epoch = 0;
+
+        let validator1 = Keypair::generate();
+        let validator2 = Keypair::generate();
+
+        let (c1_1, r1_1) = create_test_commitment(&validator1, epoch, challenge1);
+        let (c2_1, r2_1) = create_test_commitment(&validator2, epoch, challenge1);
+        let (c1_2, r1_2) = create_test_commitment(&validator1, epoch, challenge2);
+
+        // Submit to challenge1
+        manager.commit(epoch, challenge1, c1_1).unwrap();
+        manager.commit(epoch, challenge1, c2_1).unwrap();
+        manager.reveal(epoch, challenge1, r1_1).unwrap();
+        manager.reveal(epoch, challenge1, r2_1).unwrap();
+
+        // Submit to challenge2
+        manager.commit(epoch, challenge2, c1_2).unwrap();
+        manager.reveal(epoch, challenge2, r1_2).unwrap();
+
+        // Finalize both
+        let finalized1 = manager.finalize(epoch, challenge1, 0.3, 2).unwrap();
+        let finalized2 = manager.finalize(epoch, challenge2, 0.3, 1).unwrap();
+
+        assert_eq!(finalized1.challenge_id, challenge1);
+        assert_eq!(finalized2.challenge_id, challenge2);
+    }
+
+    #[test]
+    fn test_commit_reveal_error_display() {
+        let err1 = CommitRevealError::WrongEpoch { expected: 1, got: 2 };
+        let err2 = CommitRevealError::WrongChallenge;
+        let err3 = CommitRevealError::AlreadyCommitted;
+        let err4 = CommitRevealError::AlreadyRevealed;
+        let err5 = CommitRevealError::NoCommitment;
+        let err6 = CommitRevealError::CommitmentMismatch;
+        let err7 = CommitRevealError::InsufficientValidators { required: 3, got: 1 };
+        let err8 = CommitRevealError::AggregationFailed("test".to_string());
+
+        // Verify error messages can be formatted
+        assert!(!format!("{}", err1).is_empty());
+        assert!(!format!("{}", err2).is_empty());
+        assert!(!format!("{}", err3).is_empty());
+        assert!(!format!("{}", err4).is_empty());
+        assert!(!format!("{}", err5).is_empty());
+        assert!(!format!("{}", err6).is_empty());
+        assert!(!format!("{}", err7).is_empty());
+        assert!(!format!("{}", err8).is_empty());
+    }
 }

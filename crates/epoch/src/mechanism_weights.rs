@@ -590,4 +590,550 @@ mod tests {
         assert_eq!(mech_weights.uids[0], BURN_UID);
         assert_eq!(mech_weights.weights[0], MAX_WEIGHT);
     }
+
+    #[test]
+    fn test_zero_emission_weight_goes_to_burn() {
+        let assignments = vec![WeightAssignment::new("hotkey1".to_string(), 1.0)];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            0.0,
+            &hotkey_to_uid,
+        );
+
+        // All weight should go to UID 0 when emission_weight is 0
+        assert_eq!(mech_weights.uids.len(), 1);
+        assert_eq!(mech_weights.uids[0], BURN_UID);
+        assert_eq!(mech_weights.weights[0], MAX_WEIGHT);
+    }
+
+    #[test]
+    fn test_negative_total_weight() {
+        // Can't really have negative weights, but test zero/invalid case
+        let assignments = vec![WeightAssignment::new("hotkey1".to_string(), 0.0)];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            0.5,
+            &hotkey_to_uid,
+        );
+
+        // Should go to burn when weights are zero
+        assert_eq!(mech_weights.uids[0], BURN_UID);
+    }
+
+    #[test]
+    fn test_hotkey_not_in_mapping() {
+        let assignments = vec![
+            WeightAssignment::new("hotkey1".to_string(), 0.6),
+            WeightAssignment::new("hotkey_unknown".to_string(), 0.4),
+        ];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            0.5,
+            &hotkey_to_uid,
+        );
+
+        // Should only have weights for hotkey1 + burn
+        // hotkey_unknown is skipped
+        assert!(mech_weights.uids.len() <= 2);
+    }
+
+    #[test]
+    fn test_uid_zero_skipped() {
+        let assignments = vec![
+            WeightAssignment::new("hotkey_zero".to_string(), 0.5),
+            WeightAssignment::new("hotkey1".to_string(), 0.5),
+        ];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey_zero".to_string(), BURN_UID); // Maps to UID 0
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            0.5,
+            &hotkey_to_uid,
+        );
+
+        // hotkey_zero assignment should be skipped, UID 0 gets burn weight
+        assert!(mech_weights.uids.contains(&BURN_UID));
+        assert!(mech_weights.uids.contains(&1));
+    }
+
+    #[test]
+    fn test_as_batch_tuple() {
+        let assignments = vec![WeightAssignment::new("hotkey1".to_string(), 1.0)];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            5,
+            ChallengeId::new(),
+            assignments,
+            0.3,
+            &hotkey_to_uid,
+        );
+
+        let (mech_id, uids, weights) = mech_weights.as_batch_tuple();
+        assert_eq!(mech_id, 5);
+        assert_eq!(uids.len(), weights.len());
+    }
+
+    #[test]
+    fn test_mechanism_weight_manager_operations() {
+        let manager = MechanismWeightManager::new(5);
+
+        assert_eq!(manager.epoch(), 5);
+        assert_eq!(manager.mechanism_count(), 0);
+
+        let challenge1 = ChallengeId::new();
+        manager.register_challenge(challenge1, 1);
+
+        assert_eq!(manager.get_mechanism_for_challenge(&challenge1), Some(1));
+
+        let weights = vec![WeightAssignment::new("agent".to_string(), 1.0)];
+        manager.submit_weights(challenge1, 1, weights, 0.5);
+
+        assert_eq!(manager.mechanism_count(), 1);
+        assert!(manager.list_mechanisms().contains(&1));
+
+        let mech_weights = manager.get_mechanism_weights(1);
+        assert!(mech_weights.is_some());
+
+        let all_weights = manager.get_all_mechanism_weights();
+        assert_eq!(all_weights.len(), 1);
+
+        manager.clear();
+        assert_eq!(manager.mechanism_count(), 0);
+    }
+
+    #[test]
+    fn test_mechanism_weight_manager_metagraph() {
+        let manager = MechanismWeightManager::new(1);
+        let challenge = ChallengeId::new();
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        let weights = vec![WeightAssignment::new("hotkey1".to_string(), 1.0)];
+
+        manager.submit_weights_with_metagraph(challenge, 1, weights, 0.5, &hotkey_to_uid);
+
+        assert_eq!(manager.mechanism_count(), 1);
+    }
+
+    #[test]
+    fn test_mechanism_commitment_hash() {
+        let weights = MechanismWeights::new(
+            1,
+            ChallengeId::new(),
+            vec![WeightAssignment::new("agent".to_string(), 1.0)],
+            1.0,
+        );
+
+        let salt = b"test_salt";
+        let commitment = MechanismCommitment::new(1, 1, &weights, salt);
+
+        assert_eq!(commitment.mechanism_id, 1);
+        assert_eq!(commitment.epoch, 1);
+        assert_eq!(commitment.salt, salt);
+        assert!(!commitment.hash_hex().is_empty());
+    }
+
+    #[test]
+    fn test_mechanism_commitment_different_salts() {
+        let weights = MechanismWeights::new(
+            1,
+            ChallengeId::new(),
+            vec![WeightAssignment::new("agent".to_string(), 1.0)],
+            1.0,
+        );
+
+        let commitment1 = MechanismCommitment::new(1, 1, &weights, b"salt1");
+        let commitment2 = MechanismCommitment::new(1, 1, &weights, b"salt2");
+
+        // Different salts should produce different hashes
+        assert_ne!(commitment1.commit_hash, commitment2.commit_hash);
+    }
+
+    #[test]
+    fn test_mechanism_commit_reveal_manager() {
+        let manager = MechanismCommitRevealManager::new();
+        manager.new_epoch(1);
+
+        let weights = MechanismWeights::new(
+            1,
+            ChallengeId::new(),
+            vec![WeightAssignment::new("agent".to_string(), 1.0)],
+            1.0,
+        );
+
+        let salt = b"test_salt".to_vec();
+        let commitment = MechanismCommitment::new(1, 1, &weights, &salt);
+
+        manager.commit(commitment.clone());
+        
+        let retrieved = manager.get_commitment(1);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().mechanism_id, commitment.mechanism_id);
+
+        assert!(manager.reveal(1, weights).is_ok());
+        assert!(manager.all_revealed());
+
+        let revealed_weights = manager.get_revealed_weights();
+        assert_eq!(revealed_weights.len(), 1);
+    }
+
+    #[test]
+    fn test_mechanism_commit_reveal_mismatch() {
+        let manager = MechanismCommitRevealManager::new();
+        manager.new_epoch(1);
+
+        let assignments1 = vec![WeightAssignment::new("agent1".to_string(), 1.0)];
+        let assignments2 = vec![WeightAssignment::new("agent2".to_string(), 1.0)];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("agent1".to_string(), 1);
+        hotkey_to_uid.insert("agent2".to_string(), 2);
+
+        let weights1 = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments1,
+            1.0,
+            &hotkey_to_uid,
+        );
+
+        let weights2 = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments2,
+            1.0,
+            &hotkey_to_uid,
+        );
+
+        let salt = b"test_salt".to_vec();
+        let commitment = MechanismCommitment::new(1, 1, &weights1, &salt);
+
+        manager.commit(commitment);
+
+        // Try to reveal with different weights
+        let result = manager.reveal(1, weights2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mechanism_commit_reveal_no_commitment() {
+        let manager = MechanismCommitRevealManager::new();
+        manager.new_epoch(1);
+
+        let weights = MechanismWeights::new(
+            1,
+            ChallengeId::new(),
+            vec![WeightAssignment::new("agent".to_string(), 1.0)],
+            1.0,
+        );
+
+        // Try to reveal without committing
+        let result = manager.reveal(1, weights);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mechanism_commit_reveal_manager_default() {
+        let manager = MechanismCommitRevealManager::default();
+        // Verify initial state - with no commitments, all_revealed() returns true (vacuously)
+        assert!(manager.all_revealed());
+        assert!(manager.get_all_commitments().is_empty());
+    }
+
+    #[test]
+    fn test_get_all_commitments() {
+        let manager = MechanismCommitRevealManager::new();
+        manager.new_epoch(1);
+
+        let weights1 = MechanismWeights::new(1, ChallengeId::new(), vec![], 1.0);
+        let weights2 = MechanismWeights::new(2, ChallengeId::new(), vec![], 1.0);
+
+        let commitment1 = MechanismCommitment::new(1, 1, &weights1, b"salt1");
+        let commitment2 = MechanismCommitment::new(2, 1, &weights2, b"salt2");
+
+        manager.commit(commitment1);
+        manager.commit(commitment2);
+
+        let all = manager.get_all_commitments();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_partial_reveals() {
+        let manager = MechanismCommitRevealManager::new();
+        manager.new_epoch(1);
+
+        let weights1 = MechanismWeights::new(1, ChallengeId::new(), vec![], 1.0);
+        let weights2 = MechanismWeights::new(2, ChallengeId::new(), vec![], 1.0);
+
+        let commitment1 = MechanismCommitment::new(1, 1, &weights1, b"salt1");
+        let commitment2 = MechanismCommitment::new(2, 1, &weights2, b"salt2");
+
+        manager.commit(commitment1);
+        manager.commit(commitment2);
+
+        // Only reveal mechanism 1
+        manager.reveal(1, weights1).unwrap();
+
+        assert!(!manager.all_revealed());
+    }
+
+    #[test]
+    fn test_emission_weight_clamping() {
+        let assignments = vec![WeightAssignment::new("hotkey1".to_string(), 1.0)];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        // Test clamping to [0, 1] range
+        let mech_weights_over = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments.clone(),
+            1.5, // Over 1.0
+            &hotkey_to_uid,
+        );
+        assert_eq!(mech_weights_over.emission_weight, 1.0);
+
+        let mech_weights_under = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            -0.5, // Under 0.0
+            &hotkey_to_uid,
+        );
+        assert_eq!(mech_weights_under.emission_weight, 0.0);
+    }
+
+    #[test]
+    fn test_mechanism_weights_new_warning() {
+        // Test that MechanismWeights::new() without hotkey mapping works
+        // (even though it logs a warning)
+        let assignments = vec![WeightAssignment::new("hotkey1".to_string(), 1.0)];
+        
+        let mech_weights = MechanismWeights::new(
+            1,
+            ChallengeId::new(),
+            assignments,
+            0.5,
+        );
+
+        // Should have UID 0 since no hotkeys can be resolved
+        assert!(mech_weights.uids.contains(&BURN_UID));
+    }
+
+    #[test]
+    fn test_multiple_mechanisms() {
+        let manager = MechanismWeightManager::new(1);
+
+        let challenge1 = ChallengeId::new();
+        let challenge2 = ChallengeId::new();
+        let challenge3 = ChallengeId::new();
+
+        manager.register_challenge(challenge1, 1);
+        manager.register_challenge(challenge2, 2);
+        manager.register_challenge(challenge3, 3);
+
+        let weights1 = vec![WeightAssignment::new("a".to_string(), 1.0)];
+        let weights2 = vec![WeightAssignment::new("b".to_string(), 1.0)];
+        let weights3 = vec![WeightAssignment::new("c".to_string(), 1.0)];
+
+        manager.submit_weights(challenge1, 1, weights1, 0.3);
+        manager.submit_weights(challenge2, 2, weights2, 0.3);
+        manager.submit_weights(challenge3, 3, weights3, 0.4);
+
+        let mechanisms = manager.list_mechanisms();
+        assert_eq!(mechanisms.len(), 3);
+
+        let all_weights = manager.get_all_mechanism_weights();
+        assert_eq!(all_weights.len(), 3);
+    }
+
+    #[test]
+    fn test_mechanism_weights_raw_storage() {
+        let assignments = vec![
+            WeightAssignment::new("hotkey1".to_string(), 0.6),
+            WeightAssignment::new("hotkey2".to_string(), 0.4),
+        ];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+        hotkey_to_uid.insert("hotkey2".to_string(), 2);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments.clone(),
+            0.5,
+            &hotkey_to_uid,
+        );
+
+        // Verify raw weights are preserved
+        assert_eq!(mech_weights.raw_weights.len(), 2);
+        assert_eq!(mech_weights.raw_weights[0].weight, 0.6);
+        assert_eq!(mech_weights.raw_weights[1].weight, 0.4);
+    }
+
+    #[test]
+    fn test_very_small_weights() {
+        let assignments = vec![
+            WeightAssignment::new("hotkey1".to_string(), 0.001),
+            WeightAssignment::new("hotkey2".to_string(), 0.002),
+        ];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+        hotkey_to_uid.insert("hotkey2".to_string(), 2);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            0.01, // Very small emission weight
+            &hotkey_to_uid,
+        );
+
+        // Should still handle small weights
+        assert!(!mech_weights.uids.is_empty());
+        let sum: u32 = mech_weights.weights.iter().map(|w| *w as u32).sum();
+        assert_eq!(sum, MAX_WEIGHT as u32);
+    }
+
+    #[test]
+    fn test_rounding_weights() {
+        let assignments = vec![
+            WeightAssignment::new("hotkey1".to_string(), 0.333),
+            WeightAssignment::new("hotkey2".to_string(), 0.333),
+            WeightAssignment::new("hotkey3".to_string(), 0.334),
+        ];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+        hotkey_to_uid.insert("hotkey2".to_string(), 2);
+        hotkey_to_uid.insert("hotkey3".to_string(), 3);
+
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            1.0,
+            &hotkey_to_uid,
+        );
+
+        // Verify weights sum correctly despite rounding
+        let sum: u32 = mech_weights.weights.iter().map(|w| *w as u32).sum();
+        assert!((65530..=65540).contains(&sum));
+    }
+
+    #[test]
+    fn test_saturating_sub_in_burn_weight() {
+        let assignments = vec![WeightAssignment::new("hotkey1".to_string(), 1.0)];
+
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("hotkey1".to_string(), 1);
+
+        // With 100% emission and rounding, burn weight should be 0 or very small
+        let mech_weights = MechanismWeights::with_hotkey_mapping(
+            1,
+            ChallengeId::new(),
+            assignments,
+            1.0,
+            &hotkey_to_uid,
+        );
+
+        // Verify proper handling of saturating_sub
+        let sum: u32 = mech_weights.weights.iter().map(|w| *w as u32).sum();
+        assert!((65530..=65540).contains(&sum));
+    }
+
+    #[test]
+    fn test_mechanism_id_storage() {
+        let mech_weights = MechanismWeights::new(
+            255, // Max u8 value
+            ChallengeId::new(),
+            vec![],
+            0.5,
+        );
+
+        assert_eq!(mech_weights.mechanism_id, 255);
+        
+        let (mech_id, _, _) = mech_weights.as_batch_tuple();
+        assert_eq!(mech_id, 255);
+    }
+
+    #[test]
+    fn test_complete_workflow() {
+        // Complete workflow test
+        let manager = MechanismWeightManager::new(10);
+        
+        let challenge = ChallengeId::new();
+        manager.register_challenge(challenge, 5);
+        
+        let mut hotkey_to_uid: HotkeyUidMap = HashMap::new();
+        hotkey_to_uid.insert("validator1".to_string(), 10);
+        hotkey_to_uid.insert("validator2".to_string(), 20);
+        
+        let weights = vec![
+            WeightAssignment::new("validator1".to_string(), 0.7),
+            WeightAssignment::new("validator2".to_string(), 0.3),
+        ];
+        
+        manager.submit_weights_with_metagraph(challenge, 5, weights, 0.4, &hotkey_to_uid);
+        
+        let retrieved = manager.get_mechanism_weights(5);
+        assert!(retrieved.is_some());
+        
+        let mech_weights = retrieved.unwrap();
+        assert_eq!(mech_weights.mechanism_id, 5);
+        assert_eq!(mech_weights.challenge_id, challenge);
+        
+        let all = manager.get_all_mechanism_weights();
+        assert_eq!(all.len(), 1);
+        
+        let (mech_id, uids, weights) = &all[0];
+        assert_eq!(*mech_id, 5);
+        assert!(!uids.is_empty());
+        assert_eq!(uids.len(), weights.len());
+    }
+
+    #[test]
+    fn test_unknown_challenge_mechanism() {
+        let manager = MechanismWeightManager::new(1);
+        let unknown_challenge = ChallengeId::new();
+        
+        assert_eq!(manager.get_mechanism_for_challenge(&unknown_challenge), None);
+    }
+
+    #[test]
+    fn test_get_nonexistent_mechanism() {
+        let manager = MechanismWeightManager::new(1);
+        assert!(manager.get_mechanism_weights(99).is_none());
+    }
 }
