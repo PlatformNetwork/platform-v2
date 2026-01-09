@@ -846,6 +846,49 @@ mod tests {
         assert!(!result.success);
         assert!(result.message.contains("Failed to create snapshot"));
     }
+    #[tokio::test]
+    async fn test_rollback_to_snapshot_apply_failure() {
+        use crate::snapshot::Snapshot;
+
+        let (executor, _dir) = create_test_executor();
+
+        // Create a snapshot via the command interface
+        executor
+            .execute_command(&SubnetCommand::CreateSnapshot {
+                name: "Corruptible".into(),
+                reason: "Testing failure".into(),
+            })
+            .await;
+
+        // Fetch the snapshot ID
+        let list_result = executor.execute_command(&SubnetCommand::ListSnapshots).await;
+        let snapshot_id = list_result
+            .data
+            .and_then(|data| data.as_array().cloned())
+            .and_then(|mut arr| arr.pop())
+            .and_then(|snapshot| snapshot.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .and_then(|s| uuid::Uuid::parse_str(&s).ok())
+            .expect("expected snapshot id");
+
+        // Corrupt the snapshot contents so apply_snapshot fails (while restore succeeds)
+        let snapshot_path = executor
+            .data_dir
+            .join("snapshots")
+            .join(format!("{}.snapshot", snapshot_id));
+        let bytes = std::fs::read(&snapshot_path).unwrap();
+        let mut snapshot: Snapshot = bincode::deserialize(&bytes).unwrap();
+        snapshot.chain_state = vec![1, 2, 3];
+        snapshot.meta.state_hash = sha256_hex(&snapshot.chain_state);
+        let corrupt = bincode::serialize(&snapshot).unwrap();
+        std::fs::write(&snapshot_path, corrupt).unwrap();
+
+        let result = executor
+            .execute_command(&SubnetCommand::RollbackToSnapshot { snapshot_id })
+            .await;
+
+        assert!(!result.success);
+        assert!(result.message.contains("Failed to apply snapshot"));
+    }
 
     #[tokio::test]
     async fn test_rollback_to_snapshot_error_path() {

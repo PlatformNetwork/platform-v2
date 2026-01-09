@@ -753,6 +753,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_check_and_recover_degraded_branch_from_history() {
+        let config = RecoveryConfig {
+            auto_recover: true,
+            cooldown_secs: 0,
+            ..Default::default()
+        };
+        let (mut manager, _, _, _dir) = create_manager_with_config(config);
+        let mut health = create_aggressive_health_monitor();
+
+        health
+            .test_failure_counts_mut()
+            .insert("memory".into(), 1);
+        health.test_history_mut().push_back(HealthCheck {
+            timestamp: chrono::Utc::now(),
+            status: HealthStatus::Degraded,
+            components: Vec::new(),
+            alerts: Vec::new(),
+            metrics: HealthMetrics::default(),
+        });
+
+        let attempt = manager
+            .check_and_recover(&health)
+            .await
+            .expect("expected degraded recovery from history");
+        assert!(matches!(attempt.action, RecoveryAction::RestartEvaluations));
+    }
+
+    #[tokio::test]
     async fn test_check_and_recover_healthy_branch_returns_none() {
         let config = RecoveryConfig {
             auto_recover: true,
