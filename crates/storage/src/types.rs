@@ -370,4 +370,237 @@ mod tests {
         std::thread::sleep(Duration::from_millis(10));
         assert!(entry.is_expired());
     }
+
+    #[test]
+    fn test_storage_key_to_bytes() {
+        let key = StorageKey::system("version");
+        let bytes = key.to_bytes();
+        assert!(bytes.len() > 0);
+        assert!(bytes.contains(&0x00)); // Separator
+    }
+
+    #[test]
+    fn test_storage_key_namespace_prefix() {
+        let prefix = StorageKey::namespace_prefix("system");
+        assert!(prefix.ends_with(&[0x00]));
+    }
+
+    #[test]
+    fn test_storage_key_global_validator() {
+        let hotkey = Hotkey([2u8; 32]);
+        let key = StorageKey::global_validator(&hotkey, "reputation");
+        assert_eq!(key.namespace, "validators");
+        assert!(key.validator.is_some());
+        assert_eq!(key.key, "reputation");
+    }
+
+    #[test]
+    fn test_storage_value_as_u128() {
+        let v = StorageValue::U128(1000u128);
+        assert_eq!(v.as_u128(), Some(1000u128));
+
+        let v = StorageValue::U64(100);
+        assert_eq!(v.as_u128(), Some(100u128));
+
+        let v = StorageValue::String("not a number".into());
+        assert_eq!(v.as_u128(), None);
+    }
+
+    #[test]
+    fn test_storage_value_as_f64() {
+        let v = StorageValue::F64(3.14);
+        assert_eq!(v.as_f64(), Some(3.14));
+
+        let v = StorageValue::U64(42);
+        assert_eq!(v.as_f64(), Some(42.0));
+
+        let v = StorageValue::I64(-10);
+        assert_eq!(v.as_f64(), Some(-10.0));
+
+        let v = StorageValue::String("not a number".into());
+        assert_eq!(v.as_f64(), None);
+    }
+
+    #[test]
+    fn test_storage_value_as_bytes() {
+        let bytes = vec![1u8, 2, 3];
+        let v = StorageValue::Bytes(bytes.clone());
+        assert_eq!(v.as_bytes(), Some(bytes.as_slice()));
+
+        let v = StorageValue::String("test".into());
+        assert_eq!(v.as_bytes(), None);
+    }
+
+    #[test]
+    fn test_storage_value_as_json() {
+        let json = serde_json::json!({"key": "value"});
+        let v = StorageValue::Json(json.clone());
+        assert_eq!(v.as_json(), Some(&json));
+
+        let v = StorageValue::String("test".into());
+        assert_eq!(v.as_json(), None);
+    }
+
+    #[test]
+    fn test_storage_value_as_list() {
+        let list = vec![StorageValue::U64(1), StorageValue::U64(2)];
+        let v = StorageValue::List(list.clone());
+        assert!(v.as_list().is_some());
+        assert_eq!(v.as_list().unwrap().len(), 2);
+
+        let v = StorageValue::String("test".into());
+        assert!(v.as_list().is_none());
+    }
+
+    #[test]
+    fn test_storage_value_as_map() {
+        let mut map = HashMap::new();
+        map.insert("key".to_string(), StorageValue::U64(42));
+        let v = StorageValue::Map(map.clone());
+        assert!(v.as_map().is_some());
+        assert_eq!(v.as_map().unwrap().len(), 1);
+
+        let v = StorageValue::String("test".into());
+        assert!(v.as_map().is_none());
+    }
+    #[test]
+    fn test_storage_value_is_null() {
+        let v = StorageValue::Null;
+        assert!(v.is_null());
+
+        let v = StorageValue::U64(0);
+        assert!(!v.is_null());
+    }
+
+    #[test]
+    fn test_storage_value_from_conversions() {
+        let v: StorageValue = 123i64.into();
+        assert_eq!(v.as_i64(), Some(123));
+
+        let v: StorageValue = 456u128.into();
+        assert_eq!(v.as_u128(), Some(456));
+
+        let v: StorageValue = 3.14f64.into();
+        assert_eq!(v.as_f64(), Some(3.14));
+
+        let v: StorageValue = vec![1u8, 2, 3].into();
+        assert!(v.as_bytes().is_some());
+
+        let v: StorageValue = serde_json::json!({"test": "value"}).into();
+        assert!(v.as_json().is_some());
+    }
+
+    #[test]
+    fn test_storage_entry_new() {
+        let hotkey = Hotkey([3u8; 32]);
+        let entry = StorageEntry::new(StorageValue::U64(100), Some(hotkey.clone()));
+
+        assert_eq!(entry.value.as_u64(), Some(100));
+        assert_eq!(entry.version, 1);
+        assert_eq!(entry.writer, Some(hotkey));
+        assert!(entry.ttl.is_none());
+        assert!(!entry.is_expired());
+    }
+
+    #[test]
+    fn test_storage_entry_update() {
+        let hotkey1 = Hotkey([4u8; 32]);
+        let hotkey2 = Hotkey([5u8; 32]);
+        let mut entry = StorageEntry::new(StorageValue::U64(100), Some(hotkey1));
+
+        assert_eq!(entry.version, 1);
+
+        entry.update(StorageValue::U64(200), Some(hotkey2.clone()));
+
+        assert_eq!(entry.value.as_u64(), Some(200));
+        assert_eq!(entry.version, 2);
+        assert_eq!(entry.writer, Some(hotkey2));
+    }
+
+    #[test]
+    fn test_storage_entry_not_expired() {
+        let entry =
+            StorageEntry::new(StorageValue::Bool(true), None).with_ttl(Duration::from_secs(3600));
+
+        assert!(!entry.is_expired());
+    }
+
+    #[test]
+    fn test_storage_entry_no_ttl_never_expires() {
+        let entry = StorageEntry::new(StorageValue::Bool(true), None);
+        assert!(!entry.is_expired());
+    }
+
+    #[test]
+    fn test_storage_change_creation() {
+        let key = StorageKey::system("test");
+        let change = StorageChange {
+            key: key.clone(),
+            old_value: Some(StorageValue::U64(1)),
+            new_value: Some(StorageValue::U64(2)),
+            block_height: 100,
+            timestamp: SystemTime::now(),
+        };
+
+        assert_eq!(change.key.key, "test");
+        assert_eq!(change.old_value.as_ref().unwrap().as_u64(), Some(1));
+        assert_eq!(change.new_value.as_ref().unwrap().as_u64(), Some(2));
+        assert_eq!(change.block_height, 100);
+    }
+
+    #[test]
+    fn test_storage_stats_default() {
+        let stats = StorageStats::default();
+        assert_eq!(stats.total_keys, 0);
+        assert_eq!(stats.total_size_bytes, 0);
+        assert!(stats.namespaces.is_empty());
+    }
+
+    #[test]
+    fn test_namespace_stats_default() {
+        let stats = NamespaceStats::default();
+        assert_eq!(stats.key_count, 0);
+        assert_eq!(stats.size_bytes, 0);
+        assert_eq!(stats.validator_count, 0);
+    }
+
+    #[test]
+    fn test_storage_value_as_i64_conversion() {
+        let v = StorageValue::U64(100);
+        assert_eq!(v.as_i64(), Some(100));
+
+        let v = StorageValue::U64(u64::MAX);
+        assert_eq!(v.as_i64(), None); // Too large for i64
+    }
+
+    #[test]
+    fn test_storage_value_as_u64_conversion() {
+        let v = StorageValue::I64(50);
+        assert_eq!(v.as_u64(), Some(50));
+
+        let v = StorageValue::I64(-1);
+        assert_eq!(v.as_u64(), None); // Negative
+    }
+
+    #[test]
+    fn test_storage_value_as_u128_from_u64() {
+        // Line 115: Covers StorageValue::U64(v) => Some(*v as u128) path
+        let v = StorageValue::U64(12345);
+        assert_eq!(v.as_u128(), Some(12345u128));
+    }
+
+    #[test]
+    fn test_storage_value_as_f64_from_i64() {
+        // Line 155: Covers StorageValue::I64(v) => Some(*v as f64) path
+        let v = StorageValue::I64(-42);
+        assert_eq!(v.as_f64(), Some(-42.0));
+    }
+
+    #[test]
+    fn test_storage_value_from_string() {
+        // Test impl From<String> for StorageValue
+        let s = String::from("test value");
+        let v: StorageValue = s.into();
+        assert_eq!(v.as_str(), Some("test value"));
+    }
 }

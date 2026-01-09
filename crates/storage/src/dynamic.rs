@@ -722,4 +722,465 @@ mod tests {
         let recorded = changes.read();
         assert_eq!(recorded.len(), 3);
     }
+
+    #[test]
+    fn test_set_block_height() {
+        let (_dir, storage) = create_test_storage();
+
+        storage.set_block_height(100);
+        assert_eq!(*storage.block_height.read(), 100);
+
+        storage.set_block_height(200);
+        assert_eq!(*storage.block_height.read(), 200);
+    }
+
+    #[test]
+    fn test_with_cache() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage = DynamicStorage::new(&db).unwrap().with_cache(false, 5000);
+
+        assert!(!storage.cache_enabled);
+        assert_eq!(storage.max_cache_size, 5000);
+    }
+
+    #[test]
+    fn test_validator_storage_global() {
+        let (_dir, storage) = create_test_storage();
+        let validator = Hotkey([2u8; 32]);
+
+        let vs = storage.validator_storage(validator.clone());
+        vs.set("reputation", 95u64).unwrap();
+
+        let value = vs.get("reputation").unwrap();
+        assert_eq!(value.unwrap().as_u64(), Some(95));
+    }
+
+    #[test]
+    fn test_get_nonexistent() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("nonexistent");
+        let value = storage.get(&key).unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_get_value_nonexistent() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("nonexistent");
+        let value = storage.get_value(&key).unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_delete_nonexistent() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("nonexistent");
+        let deleted = storage.delete(&key).unwrap();
+        assert!(deleted.is_none());
+    }
+
+    #[test]
+    fn test_increment_nonexistent() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("new_counter");
+        let result = storage.increment(&key, 10, None).unwrap();
+        assert_eq!(result, 10);
+    }
+
+    #[test]
+    fn test_list_push() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("my_list");
+
+        storage.list_push(&key, StorageValue::U64(1), None).unwrap();
+        storage.list_push(&key, StorageValue::U64(2), None).unwrap();
+        storage.list_push(&key, StorageValue::U64(3), None).unwrap();
+
+        let value = storage.get_value(&key).unwrap().unwrap();
+        let list = value.as_list().unwrap();
+
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].as_u64(), Some(1));
+        assert_eq!(list[2].as_u64(), Some(3));
+    }
+
+    #[test]
+    fn test_list_push_to_nonlist() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("not_a_list");
+        storage
+            .set(key.clone(), StorageValue::U64(42), None)
+            .unwrap();
+
+        // Pushing to non-list creates a new list
+        let len = storage.list_push(&key, StorageValue::U64(1), None).unwrap();
+        assert_eq!(len, 1);
+
+        // Verify it's now a list
+        let value = storage.get_value(&key).unwrap().unwrap();
+        assert!(value.as_list().is_some());
+    }
+
+    #[test]
+    fn test_map_set_new_map() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("new_map");
+
+        storage
+            .map_set(&key, "field1", StorageValue::String("value1".into()), None)
+            .unwrap();
+
+        let value = storage.map_get(&key, "field1").unwrap();
+        assert_eq!(value.unwrap().as_str(), Some("value1"));
+    }
+
+    #[test]
+    fn test_map_get_nonexistent_key() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("map");
+        storage
+            .map_set(&key, "field1", StorageValue::U64(1), None)
+            .unwrap();
+
+        let value = storage.map_get(&key, "nonexistent").unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_map_set_to_nonmap() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("not_a_map");
+        storage
+            .set(key.clone(), StorageValue::U64(42), None)
+            .unwrap();
+
+        // Setting map field on non-map creates a new map
+        storage
+            .map_set(&key, "field", StorageValue::U64(1), None)
+            .unwrap();
+
+        // Verify it's now a map
+        let value = storage.get_value(&key).unwrap().unwrap();
+        assert!(value.as_map().is_some());
+        assert_eq!(
+            value.as_map().unwrap().get("field").unwrap().as_u64(),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn test_scan_namespace() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+
+        let cs = storage.challenge_storage(cid);
+        cs.set("key1", 1u64).unwrap();
+        cs.set("key2", 2u64).unwrap();
+        cs.set("key3", 3u64).unwrap();
+
+        let results = storage.scan_namespace(&cid.0.to_string()).unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_cleanup_expired() {
+        let (_dir, storage) = create_test_storage();
+
+        // Add expired entry
+        let key = StorageKey::system("expired");
+        storage
+            .set_with_ttl(
+                key.clone(),
+                StorageValue::U64(42),
+                None,
+                Duration::from_millis(1),
+            )
+            .unwrap();
+
+        std::thread::sleep(Duration::from_millis(10));
+
+        let removed = storage.cleanup_expired().unwrap();
+        assert!(removed > 0);
+        assert!(storage.get_value(&key).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_stats() {
+        let (_dir, storage) = create_test_storage();
+
+        storage
+            .set(StorageKey::system("k1"), StorageValue::U64(1), None)
+            .unwrap();
+        storage
+            .set(StorageKey::system("k2"), StorageValue::U64(2), None)
+            .unwrap();
+
+        let stats = storage.stats().unwrap();
+        assert!(stats.total_keys >= 2);
+    }
+
+    #[test]
+    fn test_challenge_storage_delete() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+
+        let cs = storage.challenge_storage(cid);
+        cs.set("key", 42u64).unwrap();
+
+        let deleted = cs.delete("key").unwrap();
+        assert!(deleted.is_some());
+
+        let value = cs.get("key").unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_validator_storage_delete() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+        let validator = Hotkey([3u8; 32]);
+
+        let cs = storage.challenge_storage(cid);
+        let vs = cs.validator(&validator);
+
+        vs.set("score", 100u64).unwrap();
+        vs.delete("score").unwrap();
+
+        assert!(vs.get("score").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_challenge_storage_with_ttl() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+
+        let cs = storage.challenge_storage(cid);
+        cs.set_with_ttl("temp", 100u64, Duration::from_secs(5))
+            .unwrap();
+
+        let value = cs.get("temp").unwrap();
+        assert_eq!(value.unwrap().as_u64(), Some(100));
+    }
+
+    #[test]
+    fn test_challenge_storage_scan() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+
+        let cs = storage.challenge_storage(cid);
+        cs.set("key1", 1u64).unwrap();
+        cs.set("key2", 2u64).unwrap();
+
+        let results = cs.scan().unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_challenge_storage_increment() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+
+        let cs = storage.challenge_storage(cid);
+        let val1 = cs.increment("counter", 5).unwrap();
+        assert_eq!(val1, 5);
+
+        let val2 = cs.increment("counter", 3).unwrap();
+        assert_eq!(val2, 8);
+    }
+
+    #[test]
+    fn test_challenge_storage_map_operations() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+
+        let cs = storage.challenge_storage(cid);
+        cs.map_set("config", "timeout", 30u64).unwrap();
+        cs.map_set("config", "retries", 3u64).unwrap();
+
+        let timeout = cs.map_get("config", "timeout").unwrap();
+        assert_eq!(timeout.unwrap().as_u64(), Some(30));
+
+        let retries = cs.map_get("config", "retries").unwrap();
+        assert_eq!(retries.unwrap().as_u64(), Some(3));
+    }
+
+    #[test]
+    fn test_validator_storage_with_ttl() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+        let validator = Hotkey([5u8; 32]);
+
+        let cs = storage.challenge_storage(cid);
+        let vs = cs.validator(&validator);
+
+        vs.set_with_ttl("temp", 200u64, Duration::from_secs(10))
+            .unwrap();
+
+        let value = vs.get("temp").unwrap();
+        assert_eq!(value.unwrap().as_u64(), Some(200));
+    }
+
+    #[test]
+    fn test_on_change_listener() {
+        let (_dir, storage) = create_test_storage();
+        let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called_clone = called.clone();
+
+        storage.on_change(move |_change| {
+            called_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+
+        let key = StorageKey::system("test");
+        storage.set(key, StorageValue::U64(100), None).unwrap();
+
+        // Listener should have been called
+        assert!(called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_set_with_options() {
+        let (_dir, storage) = create_test_storage();
+        let key = StorageKey::system("test");
+
+        storage
+            .set_with_options(
+                key.clone(),
+                StorageValue::U64(42),
+                Some(Hotkey([8u8; 32])),
+                Some(Duration::from_secs(5)),
+            )
+            .unwrap();
+
+        let entry = storage.get(&key).unwrap();
+        assert!(entry.is_some());
+        let entry = entry.unwrap();
+        assert_eq!(entry.value.as_u64(), Some(42));
+        assert!(entry.ttl.is_some());
+    }
+
+    #[test]
+    fn test_clear_cache() {
+        let (_dir, storage) = create_test_storage();
+
+        // Set some values to populate cache
+        let key = StorageKey::system("test");
+        storage
+            .set(key.clone(), StorageValue::U64(1), None)
+            .unwrap();
+        storage.get(&key).unwrap();
+
+        // Clear cache
+        storage.clear_cache();
+
+        // Should still be able to read from disk
+        let value = storage.get(&key).unwrap();
+        assert!(value.is_some());
+    }
+
+    #[test]
+    fn test_flush() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("test");
+        storage.set(key, StorageValue::U64(999), None).unwrap();
+
+        // Flush to disk
+        storage.flush().unwrap();
+    }
+
+    #[test]
+    fn test_exists() {
+        let (_dir, storage) = create_test_storage();
+
+        let key = StorageKey::system("test");
+        assert!(!storage.exists(&key).unwrap());
+
+        storage
+            .set(key.clone(), StorageValue::U64(1), None)
+            .unwrap();
+        assert!(storage.exists(&key).unwrap());
+    }
+
+    #[test]
+    fn test_set_with_options_update_existing() {
+        let (_dir, storage) = create_test_storage();
+        let key = StorageKey::system("test");
+
+        // Set initial value
+        storage
+            .set(key.clone(), StorageValue::U64(1), None)
+            .unwrap();
+
+        // Update with options (line 187 path - updating existing entry)
+        storage
+            .set_with_options(
+                key.clone(),
+                StorageValue::U64(2),
+                Some(Hotkey([1u8; 32])),
+                Some(Duration::from_secs(10)),
+            )
+            .unwrap();
+
+        let entry = storage.get(&key).unwrap().unwrap();
+        assert_eq!(entry.value.as_u64(), Some(2));
+        assert!(entry.ttl.is_some());
+    }
+
+    #[test]
+    fn test_parse_key_with_validator() {
+        let (_dir, storage) = create_test_storage();
+        let cid = ChallengeId(uuid::Uuid::new_v4());
+        let validator = Hotkey([5u8; 32]);
+
+        let key = StorageKey::validator(&cid, &validator, "test_key");
+        let key_bytes = key.to_bytes();
+
+        // Parse the key back (lines 367-374)
+        let parsed = storage.parse_key(&key_bytes);
+        assert!(parsed.is_some());
+        let parsed = parsed.unwrap();
+        assert!(parsed.validator.is_some());
+    }
+
+    #[test]
+    fn test_parse_key_invalid() {
+        let (_dir, storage) = create_test_storage();
+
+        // Invalid key format (line 386 - returns None)
+        let invalid_key = b"invalid";
+        let parsed = storage.parse_key(invalid_key);
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn test_stats_with_namespaces() {
+        let (_dir, storage) = create_test_storage();
+
+        // Add keys in different namespaces
+        storage
+            .set(StorageKey::system("key1"), StorageValue::U64(1), None)
+            .unwrap();
+        storage
+            .set(
+                StorageKey::challenge(&ChallengeId(uuid::Uuid::new_v4()), "key2"),
+                StorageValue::U64(2),
+                None,
+            )
+            .unwrap();
+
+        // Get stats (line 441)
+        let stats = storage.stats().unwrap();
+        assert!(stats.total_keys >= 2);
+        assert!(stats.total_size_bytes > 0);
+    }
 }

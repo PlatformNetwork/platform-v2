@@ -556,4 +556,513 @@ mod tests {
         ctx.delete(&key).unwrap();
         assert!(ctx.get(&key).unwrap().is_none());
     }
+
+    #[test]
+    fn test_migration_context_scan_prefix() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut ctx = MigrationContext::new(&storage_tree, &state_tree, 0);
+
+        // Add multiple keys with same namespace
+        for i in 0..3 {
+            let key = StorageKey::system(format!("key{}", i));
+            ctx.set(key, StorageValue::U64(i)).unwrap();
+        }
+
+        let results = ctx.scan_prefix("system").unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn test_migration_context_get_state_raw() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        state_tree.insert("test_state", b"state_value").unwrap();
+
+        let ctx = MigrationContext::new(&storage_tree, &state_tree, 0);
+        let value = ctx.get_state_raw("test_state").unwrap();
+
+        assert_eq!(value, Some(b"state_value".to_vec()));
+    }
+
+    #[test]
+    fn test_migration_context_set_state_raw() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let ctx = MigrationContext::new(&storage_tree, &state_tree, 0);
+        ctx.set_state_raw("test_state", b"new_value".to_vec())
+            .unwrap();
+
+        let value = state_tree.get("test_state").unwrap();
+        assert_eq!(value.unwrap().as_ref(), b"new_value");
+    }
+
+    #[test]
+    fn test_migration_runner_current_version_default() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+
+        let runner = MigrationRunner::new(&db).unwrap();
+        assert_eq!(runner.current_version().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_migration_runner_is_applied() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+        runner.register(Box::new(InitialMigration));
+
+        assert!(!runner.is_applied(1).unwrap());
+
+        runner.run_pending(&storage_tree, &state_tree, 0).unwrap();
+
+        assert!(runner.is_applied(1).unwrap());
+    }
+
+    #[test]
+    fn test_migration_runner_applied_migrations() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+        runner.register(Box::new(InitialMigration));
+
+        runner.run_pending(&storage_tree, &state_tree, 0).unwrap();
+
+        let applied = runner.applied_migrations().unwrap();
+        assert_eq!(applied.len(), 1);
+        assert_eq!(applied[0].version, 1);
+    }
+
+    #[test]
+    fn test_migration_runner_pending_migrations() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+        runner.register(Box::new(InitialMigration));
+        runner.register(Box::new(AddChallengeMetricsMigration));
+
+        let pending = runner.pending_migrations().unwrap();
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[0], 1);
+        assert_eq!(pending[1], 2);
+    }
+
+    #[test]
+    fn test_initial_migration_properties() {
+        let migration = InitialMigration;
+        assert_eq!(migration.version(), 1);
+        assert_eq!(migration.name(), "initial_setup");
+        assert!(!migration.description().is_empty());
+        assert!(!migration.reversible());
+    }
+
+    #[test]
+    fn test_add_challenge_metrics_migration_properties() {
+        let migration = AddChallengeMetricsMigration;
+        assert_eq!(migration.version(), 2);
+        assert_eq!(migration.name(), "add_challenge_metrics");
+        assert!(!migration.description().is_empty());
+        assert!(migration.reversible());
+    }
+
+    #[test]
+    fn test_migration_record_serialization() {
+        let record = MigrationRecord {
+            version: 1,
+            name: "test".to_string(),
+            applied_at: SystemTime::now(),
+            block_height: 100,
+            checksum: [1u8; 32],
+        };
+
+        let serialized = bincode::serialize(&record).unwrap();
+        let deserialized: MigrationRecord = bincode::deserialize(&serialized).unwrap();
+
+        assert_eq!(deserialized.version, record.version);
+        assert_eq!(deserialized.name, record.name);
+    }
+
+    #[test]
+    fn test_migration_context_delete() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+
+        // Set a value first
+        let key = StorageKey::system("to_delete");
+        ctx.set(key.clone(), StorageValue::U64(123)).unwrap();
+
+        // Delete it
+        let deleted = ctx.delete(&key).unwrap();
+        assert!(deleted.is_some());
+        assert_eq!(deleted.unwrap().as_u64(), Some(123));
+
+        // Verify it's gone
+        let value = ctx.get(&key).unwrap();
+        assert!(value.is_none());
+
+        // Delete non-existent key
+        let deleted2 = ctx.delete(&StorageKey::system("nonexistent")).unwrap();
+        assert!(deleted2.is_none());
+    }
+
+    #[test]
+    fn test_migration_context_changes_tracking() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+
+        // Initially no changes
+        assert_eq!(ctx.changes.len(), 0);
+
+        // Set a value
+        ctx.set(StorageKey::system("key1"), StorageValue::U64(1))
+            .unwrap();
+        assert_eq!(ctx.changes.len(), 1);
+        assert!(ctx.changes[0].old_value.is_none());
+        assert!(ctx.changes[0].new_value.is_some());
+
+        // Update the value
+        ctx.set(StorageKey::system("key1"), StorageValue::U64(2))
+            .unwrap();
+        assert_eq!(ctx.changes.len(), 2);
+        assert!(ctx.changes[1].old_value.is_some());
+
+        // Delete a value
+        ctx.delete(&StorageKey::system("key1")).unwrap();
+        assert_eq!(ctx.changes.len(), 3);
+    }
+
+    #[test]
+    fn test_migration_runner_is_applied_after_run() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+        runner.register(Box::new(InitialMigration));
+
+        // Not applied initially
+        assert!(!runner.is_applied(1).unwrap());
+
+        // Apply it
+        runner.run_pending(&storage_tree, &state_tree, 0).unwrap();
+
+        // Now it's applied
+        assert!(runner.is_applied(1).unwrap());
+    }
+
+    #[test]
+    fn test_add_challenge_metrics_migration_details() {
+        let migration = AddChallengeMetricsMigration;
+        assert_eq!(migration.version(), 2);
+        assert_eq!(migration.name(), "add_challenge_metrics");
+        assert!(!migration.description().is_empty());
+        assert!(migration.reversible());
+    }
+
+    #[test]
+    fn test_add_challenge_metrics_migration_up() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+        let migration = AddChallengeMetricsMigration;
+
+        migration.up(&mut ctx).unwrap();
+
+        // Check that metrics_enabled was set
+        let metrics_enabled = ctx.get(&StorageKey::system("metrics_enabled")).unwrap();
+        assert!(metrics_enabled.is_some());
+        assert_eq!(metrics_enabled.unwrap().as_bool(), Some(true));
+
+        // Check that retention was set
+        let retention = ctx
+            .get(&StorageKey::system("metrics_retention_secs"))
+            .unwrap();
+        assert!(retention.is_some());
+        assert_eq!(retention.unwrap().as_u64(), Some(7 * 24 * 60 * 60));
+    }
+
+    #[test]
+    fn test_add_challenge_metrics_migration_down() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+        let migration = AddChallengeMetricsMigration;
+
+        // First run up
+        migration.up(&mut ctx).unwrap();
+
+        // Then run down
+        migration.down(&mut ctx).unwrap();
+
+        // Keys should be deleted
+        let metrics_enabled = ctx.get(&StorageKey::system("metrics_enabled")).unwrap();
+        assert!(metrics_enabled.is_none());
+
+        let retention = ctx
+            .get(&StorageKey::system("metrics_retention_secs"))
+            .unwrap();
+        assert!(retention.is_none());
+    }
+
+    #[test]
+    fn test_initial_migration_up() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+        let migration = InitialMigration;
+
+        migration.up(&mut ctx).unwrap();
+
+        // Check all keys were set
+        let schema_version = ctx.get(&StorageKey::system("schema_version")).unwrap();
+        assert_eq!(schema_version.unwrap().as_u64(), Some(1));
+
+        let created_at = ctx.get(&StorageKey::system("created_at")).unwrap();
+        assert!(created_at.is_some());
+
+        let total_challenges = ctx.get(&StorageKey::system("total_challenges")).unwrap();
+        assert_eq!(total_challenges.unwrap().as_u64(), Some(0));
+
+        let total_validators = ctx.get(&StorageKey::system("total_validators")).unwrap();
+        assert_eq!(total_validators.unwrap().as_u64(), Some(0));
+
+        let total_jobs = ctx.get(&StorageKey::system("total_jobs")).unwrap();
+        assert_eq!(total_jobs.unwrap().as_u64(), Some(0));
+    }
+
+    #[test]
+    fn test_migration_runner_multiple_migrations() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+        runner.register(Box::new(InitialMigration));
+        runner.register(Box::new(AddChallengeMetricsMigration));
+
+        // Run all pending
+        let applied = runner.run_pending(&storage_tree, &state_tree, 0).unwrap();
+        assert_eq!(applied.len(), 2);
+        assert_eq!(applied[0], 1);
+        assert_eq!(applied[1], 2);
+
+        // Version should be 2
+        assert_eq!(runner.current_version().unwrap(), 2);
+
+        // Both should be applied
+        assert!(runner.is_applied(1).unwrap());
+        assert!(runner.is_applied(2).unwrap());
+    }
+
+    #[test]
+    fn test_migration_context_state_operations() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+
+        // Set raw state
+        ctx.set_state_raw("test_key", vec![1, 2, 3, 4]).unwrap();
+
+        // Get raw state
+        let value = ctx.get_state_raw("test_key").unwrap();
+        assert!(value.is_some());
+        assert_eq!(value.unwrap(), vec![1, 2, 3, 4]);
+
+        // Get non-existent
+        let none = ctx.get_state_raw("nonexistent").unwrap();
+        assert!(none.is_none());
+    }
+
+    #[test]
+    fn test_migration_runner_duplicate_registration() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+
+        // Register same migration twice
+        runner.register(Box::new(InitialMigration));
+        runner.register(Box::new(InitialMigration));
+
+        // Should only have one migration
+        assert_eq!(runner.pending_migrations().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_migration_context_update_existing_value() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+
+        let key = StorageKey::system("counter");
+
+        // Set initial value
+        ctx.set(key.clone(), StorageValue::U64(1)).unwrap();
+
+        // Update it
+        ctx.set(key.clone(), StorageValue::U64(2)).unwrap();
+
+        // Verify updated
+        let value = ctx.get(&key).unwrap();
+        assert_eq!(value.unwrap().as_u64(), Some(2));
+    }
+
+    #[test]
+    fn test_migration_default_methods() {
+        struct TestMigration;
+        impl Migration for TestMigration {
+            fn version(&self) -> MigrationVersion {
+                1
+            }
+            fn name(&self) -> &str {
+                "test"
+            }
+            fn up(&self, _ctx: &mut MigrationContext) -> Result<()> {
+                Ok(())
+            }
+        }
+
+        let migration = TestMigration;
+        // Test default implementations
+        assert_eq!(migration.description(), ""); // Default description
+        assert!(!migration.reversible()); // Default not reversible
+        assert!(migration
+            .down(&mut MigrationContext::new(
+                &sled::Config::new()
+                    .temporary(true)
+                    .open()
+                    .unwrap()
+                    .open_tree("test")
+                    .unwrap(),
+                &sled::Config::new()
+                    .temporary(true)
+                    .open()
+                    .unwrap()
+                    .open_tree("state")
+                    .unwrap(),
+                0
+            ))
+            .is_err()); // Default down returns error
+    }
+
+    #[test]
+    fn test_migration_context_get_nonexistent() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+
+        // Test line 76 - getting nonexistent key returns Ok(None)
+        let value = ctx.get(&StorageKey::system("nonexistent")).unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_migration_context_scan_prefix_error_handling() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let ctx = MigrationContext::new(&storage_tree, &state_tree, 100);
+
+        // Test line 128 - scan_prefix error handling
+        let result = ctx.scan_prefix("test_namespace");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_migration_record_field_access() {
+        let record = MigrationRecord {
+            version: 1,
+            name: "test".to_string(),
+            applied_at: SystemTime::now(),
+            block_height: 100,
+            checksum: [1u8; 32],
+        };
+
+        // Test line 195 - record_applied serialization
+        let serialized = bincode::serialize(&record).unwrap();
+        assert!(!serialized.is_empty());
+    }
+
+    #[test]
+    fn test_run_pending_empty_migrations() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+        runner.register(Box::new(InitialMigration));
+
+        // Run once
+        runner.run_pending(&storage_tree, &state_tree, 0).unwrap();
+
+        // Run again - lines 296-297: pending.is_empty() should return early
+        let result = runner.run_pending(&storage_tree, &state_tree, 0).unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_rollback_to_non_reversible() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let storage_tree = db.open_tree("dynamic_storage").unwrap();
+        let state_tree = db.open_tree("state").unwrap();
+
+        let mut runner = MigrationRunner::new(&db).unwrap();
+        runner.register(Box::new(InitialMigration));
+
+        // Apply migration
+        runner.run_pending(&storage_tree, &state_tree, 0).unwrap();
+
+        // Try to rollback non-reversible migration (lines 409-410)
+        let result = runner.rollback_to(0, &storage_tree, &state_tree, 0);
+        assert!(result.is_err());
+    }
 }

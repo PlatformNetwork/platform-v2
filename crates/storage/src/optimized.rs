@@ -392,4 +392,327 @@ mod tests {
         assert_eq!(cached.get(b"key1").unwrap(), Some(b"value1".to_vec()));
         assert_eq!(cached.stats().misses, 1);
     }
+
+    #[test]
+    fn test_batch_writer_auto_flush() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        let mut writer = BatchWriter::new(tree.clone(), 10); // Small buffer
+
+        // Write 20 items, should auto-flush at 10
+        for i in 0..20 {
+            writer
+                .write(format!("key{}", i).into_bytes(), vec![i as u8])
+                .unwrap();
+        }
+
+        // Should be flushed automatically
+        assert!(tree.get("key0").unwrap().is_some());
+    }
+
+    #[test]
+    fn test_batch_writer_drop_flushes() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        {
+            let mut writer = BatchWriter::new(tree.clone(), 1000);
+            writer.write(b"key".to_vec(), b"value".to_vec()).unwrap();
+            // Drop should trigger flush
+        }
+
+        assert_eq!(tree.get(b"key").unwrap().unwrap().as_ref(), b"value");
+    }
+
+    #[test]
+    fn test_lru_cache_eviction() {
+        let mut cache = LruCache::new(2, Duration::from_secs(60));
+
+        cache.insert("a", 1);
+        cache.insert("b", 2);
+
+        // Cache is full with 2 items
+        assert_eq!(cache.get(&"a"), Some(1));
+        assert_eq!(cache.get(&"b"), Some(2));
+
+        // Insert "c", should evict "a" (oldest by insertion time)
+        cache.insert("c", 3);
+
+        assert_eq!(cache.get(&"a"), None); // Evicted
+        assert_eq!(cache.get(&"b"), Some(2));
+        assert_eq!(cache.get(&"c"), Some(3));
+    }
+
+    #[test]
+    fn test_lru_cache_remove() {
+        let mut cache = LruCache::new(3, Duration::from_secs(60));
+
+        cache.insert("a", 1);
+        cache.insert("b", 2);
+
+        assert_eq!(cache.remove(&"a"), Some(1));
+        assert_eq!(cache.get(&"a"), None);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn test_lru_cache_clear() {
+        let mut cache = LruCache::new(3, Duration::from_secs(60));
+
+        cache.insert("a", 1);
+        cache.insert("b", 2);
+        cache.insert("c", 3);
+
+        cache.clear();
+
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn test_lru_cache_is_empty() {
+        let mut cache: LruCache<&str, i32> = LruCache::new(3, Duration::from_secs(60));
+
+        assert!(cache.is_empty());
+
+        cache.insert("a", 1);
+        assert!(!cache.is_empty());
+    }
+
+    #[test]
+    fn test_lru_cache_ttl_cleanup() {
+        let mut cache = LruCache::new(3, Duration::from_millis(1));
+
+        cache.insert("a", 1);
+        cache.insert("b", 2);
+
+        std::thread::sleep(Duration::from_millis(10));
+
+        cache.cleanup();
+
+        // All entries should be expired and removed
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn test_cached_tree_remove() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        let cached = CachedTree::new(tree, 100, Duration::from_secs(60));
+
+        cached.insert(b"key1", b"value1").unwrap();
+        assert_eq!(cached.get(b"key1").unwrap(), Some(b"value1".to_vec()));
+
+        let removed = cached.remove(b"key1").unwrap();
+        assert_eq!(removed, Some(b"value1".to_vec()));
+
+        assert_eq!(cached.get(b"key1").unwrap(), None);
+    }
+
+    #[test]
+    fn test_cached_tree_flush() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        let cached = CachedTree::new(tree, 100, Duration::from_secs(60));
+
+        cached.insert(b"key1", b"value1").unwrap();
+        cached.flush().unwrap();
+    }
+
+    #[test]
+    fn test_cache_stats_hit_rate() {
+        let stats = CacheStats {
+            hits: 7,
+            misses: 3,
+            writes: 0,
+        };
+
+        assert_eq!(stats.hit_rate(), 0.7);
+    }
+
+    #[test]
+    fn test_cache_stats_hit_rate_no_requests() {
+        let stats = CacheStats {
+            hits: 0,
+            misses: 0,
+            writes: 0,
+        };
+
+        assert_eq!(stats.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_prefix_scan_count() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        tree.insert(b"prefix:a", b"value1").unwrap();
+        tree.insert(b"prefix:b", b"value2").unwrap();
+        tree.insert(b"other:c", b"value3").unwrap();
+
+        let scan = PrefixScanner::new(&tree, b"prefix:".to_vec());
+        assert_eq!(scan.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_prefix_scan_keys() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        tree.insert(b"prefix:a", b"value1").unwrap();
+        tree.insert(b"prefix:b", b"value2").unwrap();
+
+        let scan = PrefixScanner::new(&tree, b"prefix:".to_vec());
+        let keys = scan.keys().unwrap();
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[test]
+    fn test_prefix_scan_values() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        tree.insert(b"prefix:a", b"value1").unwrap();
+        tree.insert(b"prefix:b", b"value2").unwrap();
+
+        let scan = PrefixScanner::new(&tree, b"prefix:".to_vec());
+        let values = scan.values().unwrap();
+        assert_eq!(values.len(), 2);
+        assert!(values.contains(&b"value1".to_vec()));
+        assert!(values.contains(&b"value2".to_vec()));
+    }
+
+    #[test]
+    fn test_prefix_scan_for_each() {
+        let dir = tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        tree.insert(b"prefix:a", b"1").unwrap();
+        tree.insert(b"prefix:b", b"2").unwrap();
+
+        let scan = PrefixScanner::new(&tree, b"prefix:".to_vec());
+        let mut sum = 0;
+
+        scan.for_each(|_key, value| {
+            sum += value[0] as i32;
+            Ok(true)
+        })
+        .unwrap();
+
+        assert_eq!(sum, 99); // ASCII '1' (49) + '2' (50)
+    }
+
+    #[test]
+    fn test_storage_metrics_avg_read_latency() {
+        let metrics = StorageMetrics {
+            read_ops: 10,
+            write_ops: 0,
+            read_latency_us: 1000,
+            write_latency_us: 0,
+            read_bytes: 0,
+            write_bytes: 0,
+            cache_hit_rate: 0.0,
+        };
+
+        assert_eq!(metrics.avg_read_latency_us(), 100.0);
+    }
+    #[test]
+    fn test_storage_metrics_avg_write_latency() {
+        let metrics = StorageMetrics {
+            read_ops: 0,
+            write_ops: 5,
+            read_latency_us: 0,
+            write_latency_us: 500,
+            read_bytes: 0,
+            write_bytes: 0,
+            cache_hit_rate: 0.0,
+        };
+
+        assert_eq!(metrics.avg_write_latency_us(), 100.0);
+    }
+    #[test]
+    fn test_storage_metrics_zero_operations() {
+        let metrics = StorageMetrics {
+            read_ops: 0,
+            write_ops: 0,
+            read_bytes: 0,
+            write_bytes: 0,
+            read_latency_us: 0,
+            write_latency_us: 0,
+            cache_hit_rate: 0.0,
+        };
+
+        assert_eq!(metrics.avg_read_latency_us(), 0.0);
+        assert_eq!(metrics.avg_write_latency_us(), 0.0);
+    }
+
+    #[test]
+    fn test_lru_cache_ttl_expiry() {
+        let mut cache = LruCache::new(10, Duration::from_millis(50));
+        cache.insert("key1", "value1");
+
+        // Should exist immediately
+        assert_eq!(cache.get(&"key1"), Some("value1"));
+
+        // Wait for TTL to expire
+        std::thread::sleep(Duration::from_millis(60));
+
+        // Line 106: t.elapsed() >= self.ttl should return None
+        assert_eq!(cache.get(&"key1"), None);
+    }
+
+    #[test]
+    fn test_lru_cache_eviction_oldest() {
+        let mut cache = LruCache::new(2, Duration::from_secs(100));
+
+        cache.insert("key1", "value1");
+        cache.insert("key2", "value2");
+
+        // Cache is at capacity (2)
+        cache.insert("key3", "value3");
+
+        // Line 125: evict_oldest should have removed the oldest entry
+        // key1 should be evicted (oldest)
+        assert_eq!(cache.get(&"key1"), None);
+        assert_eq!(cache.get(&"key2"), Some("value2"));
+        assert_eq!(cache.get(&"key3"), Some("value3"));
+    }
+
+    #[test]
+    fn test_prefix_scanner_early_break() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = sled::open(dir.path()).unwrap();
+        let tree = db.open_tree("test").unwrap();
+
+        tree.insert(b"prefix:key1", b"value1").unwrap();
+        tree.insert(b"prefix:key2", b"value2").unwrap();
+        tree.insert(b"prefix:key3", b"value3").unwrap();
+
+        let scanner = PrefixScanner::new(&tree, b"prefix:".to_vec());
+
+        let mut count = 0;
+        let result = scanner.for_each(|_k, _v| {
+            count += 1;
+            if count >= 2 {
+                // Line 291: break when f returns false
+                Ok(false)
+            } else {
+                Ok(true)
+            }
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(count, 2); // Should stop after 2 iterations
+    }
 }
