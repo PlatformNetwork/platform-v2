@@ -316,6 +316,42 @@ mod tests {
     use crate::HealthConfig;
     use tempfile::tempdir;
 
+    fn create_manager_with_config(
+        config: RecoveryConfig,
+    ) -> (
+        RecoveryManager,
+        Arc<RwLock<SnapshotManager>>,
+        Arc<RwLock<UpdateManager>>,
+        tempfile::TempDir,
+    ) {
+        let dir = tempdir().unwrap();
+        let data_dir = dir.path().to_path_buf();
+        let snapshots = Arc::new(RwLock::new(
+            SnapshotManager::new(data_dir.clone(), 3).unwrap(),
+        ));
+        let updates = Arc::new(RwLock::new(UpdateManager::new(data_dir.clone())));
+        let manager = RecoveryManager::new(config, data_dir, snapshots.clone(), updates.clone());
+        (manager, snapshots, updates, dir)
+    }
+
+    fn create_aggressive_health_monitor() -> HealthMonitor {
+        let health_config = HealthConfig {
+            failure_threshold: 1,
+            max_pending_jobs: 10,
+            cpu_warn_percent: 50,
+            memory_warn_percent: 50,
+            max_eval_time: 1,
+            ..Default::default()
+        };
+        HealthMonitor::new(health_config)
+    }
+
+    fn base_metrics() -> HealthMetrics {
+        let mut metrics = HealthMetrics::default();
+        metrics.connected_peers = 5;
+        metrics
+    }
+
     #[test]
     fn test_recovery_action_serialization() {
         let actions = vec![
@@ -518,6 +554,182 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_check_and_recover_skips_when_paused() {
+        let config = RecoveryConfig::default();
+        let (mut manager, _, _, _dir) = create_manager_with_config(config);
+
+        manager.manual_recovery(RecoveryAction::Pause).await;
+        assert!(manager.is_paused());
+
+        let health = HealthMonitor::new(HealthConfig::default());
+        let attempt = manager.check_and_recover(&health).await;
+        assert!(attempt.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_check_and_recover_rolls_back_on_attempt_limit() {
+        let config = RecoveryConfig {
+            auto_recover: true,
+            max_attempts: 0,
+            cooldown_secs: 0,
+            rollback_on_failure: true,
+            pause_on_critical: false,
+        };
+        let (mut manager, snapshots, _, _dir) = create_manager_with_config(config);
+
+        {
+            let keypair = platform_core::Keypair::generate();
+            let sudo_key = keypair.hotkey();
+            let chain_state = ChainState::new(sudo_key, platform_core::NetworkConfig::default());
+            let mut snap_mgr = snapshots.write();
+            snap_mgr
+                .create_snapshot("limit", 100, 1, &chain_state, "limit", false)
+                .unwrap();
+        }
+
+        let mut health = create_aggressive_health_monitor();
+        let mut metrics = base_metrics();
+        metrics.pending_jobs = 100;
+        metrics.running_jobs = 1;
+        health.check(metrics);
+        assert_eq!(health.current_status(), HealthStatus::Unhealthy);
+
+        let attempt = manager
+            .check_and_recover(&health)
+            .await
+            .expect("expected rollback");
+        assert!(matches!(attempt.action, RecoveryAction::RollbackToSnapshot(_))); 
+    }
+
+    #[tokio::test]
+    async fn test_check_and_recover_pauses_on_attempt_limit() {
+        let config = RecoveryConfig {
+            auto_recover: true,
+            max_attempts: 0,
+            cooldown_secs: 0,
+            rollback_on_failure: false,
+            pause_on_critical: true,
+        };
+        let (mut manager, _, _, _dir) = create_manager_with_config(config);
+
+        let mut health = create_aggressive_health_monitor();
+        let mut metrics = base_metrics();
+        metrics.memory_percent = 90.0;
+        health.check(metrics);
+
+        let attempt = manager
+            .check_and_recover(&health)
+            .await
+            .expect("expected pause");
+        assert!(matches!(attempt.action, RecoveryAction::Pause));
+        assert!(manager.is_paused());
+    }
+
+    #[tokio::test]
+    async fn test_check_and_recover_unhealthy_branch_actions() {
+        fn acknowledge_component(health: &mut HealthMonitor, component: &str) {
+            if let Some(alert) = health
+                .active_alerts()
+                .into_iter()
+                .find(|alert| alert.component == component)
+            {
+                health.acknowledge_alert(alert.id);
+            }
+        }
+
+        async fn run_case<F>(prepare: F) -> RecoveryAction
+        where
+            F: FnOnce(&mut HealthMonitor),
+        {
+            let config = RecoveryConfig {
+                auto_recover: true,
+                max_attempts: 5,
+                cooldown_secs: 0,
+                rollback_on_failure: false,
+                pause_on_critical: false,
+            };
+            let (mut manager, _, _, _dir) = create_manager_with_config(config);
+            let mut health = create_aggressive_health_monitor();
+            prepare(&mut health);
+            assert_eq!(health.current_status(), HealthStatus::Unhealthy);
+            manager
+                .check_and_recover(&health)
+                .await
+                .expect("expected action")
+                .action
+        }
+
+        let job_queue_action = run_case(|health| {
+            let mut metrics = base_metrics();
+            metrics.pending_jobs = 100;
+            metrics.running_jobs = 1;
+            health.check(metrics);
+        })
+        .await;
+        assert!(matches!(job_queue_action, RecoveryAction::ClearJobQueue));
+
+        let network_action = run_case(|health| {
+            let mut first = base_metrics();
+            first.connected_peers = 1;
+            health.check(first);
+
+            acknowledge_component(health, "network");
+
+            let mut second = base_metrics();
+            second.connected_peers = 1;
+            health.check(second);
+
+            let mut third = base_metrics();
+            third.connected_peers = 1;
+            third.pending_jobs = 100;
+            third.running_jobs = 1;
+            health.check(third);
+        })
+        .await;
+        assert!(matches!(network_action, RecoveryAction::ReconnectPeers));
+
+        let evaluations_action = run_case(|health| {
+            let mut first = base_metrics();
+            first.avg_eval_time_ms = 5_000;
+            health.check(first);
+
+            acknowledge_component(health, "evaluations");
+
+            let mut second = base_metrics();
+            second.avg_eval_time_ms = 5_000;
+            health.check(second);
+
+            let mut third = base_metrics();
+            third.avg_eval_time_ms = 5_000;
+            third.pending_jobs = 100;
+            third.running_jobs = 1;
+            health.check(third);
+        })
+        .await;
+        assert!(matches!(evaluations_action, RecoveryAction::RestartEvaluations));
+
+        let fallback_action = run_case(|health| {
+            let mut first = base_metrics();
+            first.memory_percent = 90.0;
+            health.check(first);
+
+            acknowledge_component(health, "memory");
+
+            let mut second = base_metrics();
+            second.memory_percent = 90.0;
+            health.check(second);
+
+            let mut third = base_metrics();
+            third.memory_percent = 90.0;
+            third.pending_jobs = 100;
+            third.running_jobs = 1;
+            health.check(third);
+        })
+        .await;
+        assert!(matches!(fallback_action, RecoveryAction::RestartEvaluations));
+    }
+
+    #[tokio::test]
     async fn test_rollback_to_snapshot_recovery() {
         let dir = tempdir().unwrap();
         let config = RecoveryConfig::default();
@@ -560,6 +772,91 @@ mod tests {
 
         // Rollback might succeed or fail, just verify it runs
         assert!(attempt.details.contains("Rolled back") || attempt.details.contains("failed"));
+    }
+
+    #[tokio::test]
+    async fn test_rollback_to_last_snapshot() {
+        let config = RecoveryConfig::default();
+        let (mut manager, snapshots, _, _dir) = create_manager_with_config(config);
+
+        // No snapshots yet, expect no action
+        assert!(manager.rollback_to_last_snapshot().await.is_none());
+
+        // Create two snapshots so the latest can be selected
+        {
+            let keypair = platform_core::Keypair::generate();
+            let sudo_key = keypair.hotkey();
+            let chain_state = ChainState::new(sudo_key, platform_core::NetworkConfig::default());
+            let mut snap_mgr = snapshots.write();
+            snap_mgr
+                .create_snapshot("first", 10, 1, &chain_state, "first", false)
+                .unwrap();
+            snap_mgr
+                .create_snapshot("second", 20, 2, &chain_state, "second", false)
+                .unwrap();
+        }
+
+        let latest_id = {
+            let snap_mgr = snapshots.read();
+            snap_mgr.latest_snapshot().unwrap().id
+        };
+
+        let attempt = manager
+            .rollback_to_last_snapshot()
+            .await
+            .expect("expected rollback attempt");
+
+        match attempt.action {
+            RecoveryAction::RollbackToSnapshot(id) => assert_eq!(id, latest_id),
+            other => panic!("unexpected action: {:?}", other),
+        }
+
+        assert_eq!(manager.history().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_current_attempts_tracking() {
+        let config = RecoveryConfig {
+            auto_recover: true,
+            cooldown_secs: 0,
+            ..Default::default()
+        };
+        let (mut manager, _, _, _dir) = create_manager_with_config(config);
+        let mut health = create_aggressive_health_monitor();
+
+        assert_eq!(manager.current_attempts(), 0);
+
+        // First unhealthy check increments attempts
+        let mut unhealthy = base_metrics();
+        unhealthy.pending_jobs = 100;
+        unhealthy.running_jobs = 1;
+        health.check(unhealthy);
+        assert!(health.needs_recovery());
+
+        manager
+            .check_and_recover(&health)
+            .await
+            .expect("expected recovery attempt");
+        assert_eq!(manager.current_attempts(), 1);
+
+        // Healthy metrics reset attempts counter
+        let healthy_metrics = base_metrics();
+        health.check(healthy_metrics);
+        assert!(!health.needs_recovery());
+        assert!(manager.check_and_recover(&health).await.is_none());
+        assert_eq!(manager.current_attempts(), 0);
+
+        // Another unhealthy event increments again
+        let mut second_unhealthy = base_metrics();
+        second_unhealthy.pending_jobs = 150;
+        second_unhealthy.running_jobs = 1;
+        health.check(second_unhealthy);
+
+        manager
+            .check_and_recover(&health)
+            .await
+            .expect("expected second recovery attempt");
+        assert_eq!(manager.current_attempts(), 1);
     }
 
     #[tokio::test]
