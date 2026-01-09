@@ -368,36 +368,24 @@ mod tests {
     }
 
     // Helper functions for tests
-    fn create_test_state() -> AppState {
+    fn create_test_pool() -> crate::db::DbPool {
         use deadpool_postgres::{Config, Runtime};
         use tokio_postgres::NoTls;
 
         let mut cfg = Config::new();
         cfg.url = Some("postgresql://localhost/test".to_string());
-        let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls).unwrap();
+        cfg.create_pool(Some(Runtime::Tokio1), NoTls).unwrap()
+    }
 
-        AppState::new_dynamic(pool, None, None, None)
+    fn create_test_state() -> AppState {
+        AppState::new_dynamic(create_test_pool(), None, None, None)
     }
 
     fn create_test_state_with_whitelist(whitelist: Vec<String>) -> AppState {
-        use deadpool_postgres::{Config, Runtime};
-        use tokio_postgres::NoTls;
-
-        let mut cfg = Config::new();
-        cfg.url = Some("postgresql://localhost/test".to_string());
-        let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls).unwrap();
-
-        AppState::new_dynamic_with_whitelist(pool, None, None, None, whitelist)
+        AppState::new_dynamic_with_whitelist(create_test_pool(), None, None, None, whitelist)
     }
 
     fn create_test_state_with_owner(owner: String) -> AppState {
-        use deadpool_postgres::{Config, Runtime};
-        use tokio_postgres::NoTls;
-
-        let mut cfg = Config::new();
-        cfg.url = Some("postgresql://localhost/test".to_string());
-        let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls).unwrap();
-
-        AppState::new_dynamic(pool, Some(owner), None, None)
+        AppState::new_dynamic(create_test_pool(), Some(owner), None, None)
     }
 }

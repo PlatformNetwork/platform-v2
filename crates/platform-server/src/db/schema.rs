@@ -276,12 +276,13 @@ mod tests {
 
     #[test]
     fn test_schema_sql_default_values() {
-        // Verify default values are set correctly
-        assert!(SCHEMA_SQL.contains("DEFAULT 'pending'"));
-        assert!(SCHEMA_SQL.contains("DEFAULT 'active'"));
-        assert!(SCHEMA_SQL.contains("DEFAULT 0"));
-        assert!(SCHEMA_SQL.contains("DEFAULT FALSE"));
-        assert!(SCHEMA_SQL.contains("DEFAULT TRUE"));
+        // Verify default values are set correctly with specific column checks
+        assert!(SCHEMA_SQL.contains("status VARCHAR(32) DEFAULT 'pending'"));
+        assert!(SCHEMA_SQL.contains("status VARCHAR(32) DEFAULT 'active'"));
+        assert!(SCHEMA_SQL.contains("is_active BOOLEAN DEFAULT TRUE"));
+        assert!(SCHEMA_SQL.contains("stake BIGINT NOT NULL DEFAULT 0"));
+        assert!(SCHEMA_SQL.contains("gpu_required BOOLEAN DEFAULT FALSE"));
+        assert!(SCHEMA_SQL.contains("is_healthy BOOLEAN DEFAULT FALSE"));
         assert!(SCHEMA_SQL.contains("DEFAULT NOW()"));
     }
 

@@ -66,10 +66,9 @@ mod tests {
         // but tests syntax and compilation
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let result = create_pool("postgresql://localhost/test").await;
-            // We just check that the function returns a Result
+            let _result = create_pool("postgresql://localhost/test").await;
+            // No assertion - we just verify compilation and type checking
             // Actual connection will fail without a running database
-            assert!(result.is_ok() || result.is_err());
         });
     }
 
