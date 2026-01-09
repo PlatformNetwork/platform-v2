@@ -154,3 +154,45 @@ pub struct AgentEmission {
     pub emission: u64,
     pub challenge_id: ChallengeId,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_epoch_config_default() {
+        let config = EpochConfig::default();
+        assert_eq!(config.blocks_per_epoch, 360);
+        assert_eq!(config.evaluation_blocks, 270);
+        assert_eq!(config.commit_blocks, 45);
+        assert_eq!(config.reveal_blocks, 45);
+        assert_eq!(config.min_validators_for_consensus, 3);
+        assert_eq!(config.weight_smoothing, 0.3);
+    }
+
+    #[test]
+    fn test_epoch_phase_display() {
+        assert_eq!(EpochPhase::Evaluation.to_string(), "evaluation");
+        assert_eq!(EpochPhase::Commit.to_string(), "commit");
+        assert_eq!(EpochPhase::Reveal.to_string(), "reveal");
+        assert_eq!(EpochPhase::Finalization.to_string(), "finalization");
+    }
+
+    #[test]
+    fn test_epoch_phase_equality() {
+        assert_eq!(EpochPhase::Evaluation, EpochPhase::Evaluation);
+        assert_ne!(EpochPhase::Evaluation, EpochPhase::Commit);
+    }
+
+    #[test]
+    fn test_epoch_state_new() {
+        let config = EpochConfig::default();
+        let state = EpochState::new(5, 1800, &config);
+        
+        assert_eq!(state.epoch, 5);
+        assert_eq!(state.phase, EpochPhase::Evaluation);
+        assert_eq!(state.start_block, 1800);
+        assert_eq!(state.current_block, 1800);
+        assert_eq!(state.blocks_remaining, config.evaluation_blocks);
+    }
+}
