@@ -905,15 +905,41 @@ async fn handle_block_event(
                                     debug!("  UIDs: {:?}, Weights: {:?}", uids, vals);
                                     weights.push((challenge.mechanism_id as u8, uids, vals));
                                 } else {
+                                    // No UIDs resolved - send 100% to burn for this mechanism
                                     warn!(
-                                        "Challenge {} has weights but no UIDs resolved",
+                                        "Challenge {} has weights but no UIDs resolved - sending 100% burn",
                                         challenge.id
                                     );
+                                    weights.push((
+                                        challenge.mechanism_id as u8,
+                                        vec![0u16],
+                                        vec![65535u16],
+                                    ));
                                 }
                             }
-                            Ok(_) => debug!("Challenge {} has no weights", challenge.id),
+                            Ok(_) => {
+                                // No weights returned - send 100% to burn for this mechanism
+                                info!(
+                                    "Challenge {} has no weights - sending 100% burn",
+                                    challenge.id
+                                );
+                                weights.push((
+                                    challenge.mechanism_id as u8,
+                                    vec![0u16],
+                                    vec![65535u16],
+                                ));
+                            }
                             Err(e) => {
-                                warn!("Failed to get weights for {}: {}", challenge.id, e)
+                                // Error fetching weights - send 100% to burn for this mechanism
+                                warn!(
+                                    "Failed to get weights for {} - sending 100% burn: {}",
+                                    challenge.id, e
+                                );
+                                weights.push((
+                                    challenge.mechanism_id as u8,
+                                    vec![0u16],
+                                    vec![65535u16],
+                                ));
                             }
                         }
                     }
