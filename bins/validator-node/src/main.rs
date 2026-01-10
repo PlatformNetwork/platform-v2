@@ -674,6 +674,12 @@ async fn main() -> Result<()> {
     let version_key = args.version_key;
     let mut interval = tokio::time::interval(Duration::from_secs(60));
     let mut metrics_interval = tokio::time::interval(Duration::from_secs(5));
+    let mut challenge_refresh_interval = tokio::time::interval(Duration::from_secs(60));
+
+    // Store challenges in Arc<RwLock> for periodic refresh
+    let cached_challenges: Arc<RwLock<Vec<ChallengeInfo>>> = Arc::new(RwLock::new(
+        platform_client.list_challenges().await.unwrap_or_default(),
+    ));
 
     // Create HTTP client and extract values for metrics reporting
     let metrics_client = reqwest::Client::builder()
@@ -697,6 +703,7 @@ async fn main() -> Result<()> {
                     &subtensor,
                     &subtensor_signer,
                     &subtensor_client,
+                    &cached_challenges,
                     netuid,
                     version_key,
                 ).await;
@@ -714,6 +721,20 @@ async fn main() -> Result<()> {
                     &hotkey,
                 ).await {
                     debug!("Failed to report metrics: {}", e);
+                }
+            }
+
+            _ = challenge_refresh_interval.tick() => {
+                match platform_client.list_challenges().await {
+                    Ok(new_challenges) => {
+                        let mut cached = cached_challenges.write();
+                        let count = new_challenges.len();
+                        *cached = new_challenges;
+                        info!("Refreshed {} challenges from platform-server", count);
+                    }
+                    Err(e) => {
+                        warn!("Failed to refresh challenges: {}", e);
+                    }
                 }
             }
 
@@ -754,6 +775,7 @@ async fn handle_block_event(
     subtensor: &Option<Arc<Subtensor>>,
     signer: &Option<Arc<BittensorSigner>>,
     subtensor_client: &Option<Arc<RwLock<SubtensorClient>>>,
+    cached_challenges: &Arc<RwLock<Vec<ChallengeInfo>>>,
     netuid: u16,
     version_key: u64,
 ) {
@@ -779,73 +801,92 @@ async fn handle_block_event(
                 signer.as_ref(),
                 subtensor_client.as_ref(),
             ) {
-                // Fetch weights from platform-server
-                let mechanism_weights = match platform_client.list_challenges().await {
-                    Ok(challenges) if !challenges.is_empty() => {
-                        let mut weights = Vec::new();
+                // Get weights from platform-server using cached challenges
+                let challenges = cached_challenges.read().clone();
+                let mechanism_weights = if !challenges.is_empty() {
+                    let mut weights = Vec::new();
 
-                        for challenge in challenges.iter().filter(|c| c.is_healthy) {
-                            match platform_client.get_weights(&challenge.id, epoch).await {
-                                Ok(w) if !w.is_empty() => {
-                                    // Convert hotkeys to UIDs using metagraph
-                                    let client_guard = client.read();
-                                    let mut uids = Vec::new();
-                                    let mut vals = Vec::new();
+                    for challenge in challenges.iter().filter(|c| c.is_healthy) {
+                        match platform_client.get_weights(&challenge.id, epoch).await {
+                            Ok(w) if !w.is_empty() => {
+                                // Get challenge emission weight (0.0-1.0)
+                                let emission_weight = challenge.emission_weight.clamp(0.0, 1.0);
 
-                                    for (hotkey, weight_f64) in &w {
-                                        if let Some(uid) = client_guard.get_uid_for_hotkey(hotkey) {
-                                            // Convert f64 weight (0.0-1.0) to u16 (0-65535)
-                                            let weight_u16 = (weight_f64 * 65535.0).round() as u16;
-                                            uids.push(uid);
-                                            vals.push(weight_u16);
-                                            info!(
-                                                "  {} -> UID {} (weight: {:.4} = {})",
-                                                &hotkey[..16],
-                                                uid,
-                                                weight_f64,
-                                                weight_u16
-                                            );
-                                        } else {
-                                            warn!(
-                                                "Hotkey {} not found in metagraph, skipping",
-                                                &hotkey[..16]
-                                            );
-                                        }
-                                    }
-                                    drop(client_guard);
+                                // Convert hotkeys to UIDs using metagraph
+                                let client_guard = client.read();
+                                let mut uids = Vec::new();
+                                let mut vals = Vec::new();
+                                let mut total_weight: f64 = 0.0;
 
-                                    if !uids.is_empty() {
+                                for (hotkey, weight_f64) in &w {
+                                    if let Some(uid) = client_guard.get_uid_for_hotkey(hotkey) {
+                                        // Apply emission_weight: scale the challenge weight
+                                        let scaled_weight = weight_f64 * emission_weight;
+                                        // Convert f64 weight (0.0-1.0) to u16 (0-65535)
+                                        let weight_u16 = (scaled_weight * 65535.0).round() as u16;
+                                        uids.push(uid);
+                                        vals.push(weight_u16);
+                                        total_weight += scaled_weight;
                                         info!(
-                                            "Challenge {} (mech {}): {} weights",
-                                            challenge.id,
-                                            challenge.mechanism_id,
-                                            uids.len()
+                                            "  {} -> UID {} (weight: {:.4} * {:.2} = {:.4} = {})",
+                                            &hotkey[..16],
+                                            uid,
+                                            weight_f64,
+                                            emission_weight,
+                                            scaled_weight,
+                                            weight_u16
                                         );
-                                        weights.push((challenge.mechanism_id as u8, uids, vals));
                                     } else {
                                         warn!(
-                                            "Challenge {} has weights but no UIDs resolved",
-                                            challenge.id
+                                            "Hotkey {} not found in metagraph, skipping",
+                                            &hotkey[..16]
                                         );
                                     }
                                 }
-                                Ok(_) => debug!("Challenge {} has no weights", challenge.id),
-                                Err(e) => {
-                                    warn!("Failed to get weights for {}: {}", challenge.id, e)
+                                drop(client_guard);
+
+                                // Add remaining weight to burn (UID 0)
+                                // remaining = 1.0 - emission_weight (goes to burn)
+                                let burn_weight = 1.0 - total_weight;
+                                if burn_weight > 0.001 {
+                                    let burn_u16 = (burn_weight * 65535.0).round() as u16;
+                                    // Check if UID 0 already exists, if not add it
+                                    if let Some(pos) = uids.iter().position(|&u| u == 0) {
+                                        vals[pos] = vals[pos].saturating_add(burn_u16);
+                                    } else {
+                                        uids.push(0);
+                                        vals.push(burn_u16);
+                                    }
+                                    info!("  Burn (UID 0): {:.4} = {}", burn_weight, burn_u16);
+                                }
+
+                                if !uids.is_empty() {
+                                    info!(
+                                        "Challenge {} (mech {}, emission_weight={:.2}): {} weights",
+                                        challenge.id,
+                                        challenge.mechanism_id,
+                                        emission_weight,
+                                        uids.len()
+                                    );
+                                    weights.push((challenge.mechanism_id as u8, uids, vals));
+                                } else {
+                                    warn!(
+                                        "Challenge {} has weights but no UIDs resolved",
+                                        challenge.id
+                                    );
                                 }
                             }
+                            Ok(_) => debug!("Challenge {} has no weights", challenge.id),
+                            Err(e) => {
+                                warn!("Failed to get weights for {}: {}", challenge.id, e)
+                            }
                         }
+                    }
 
-                        weights
-                    }
-                    Ok(_) => {
-                        info!("No challenges on platform-server");
-                        vec![]
-                    }
-                    Err(e) => {
-                        warn!("Failed to list challenges: {}", e);
-                        vec![]
-                    }
+                    weights
+                } else {
+                    info!("No challenges cached from platform-server");
+                    vec![]
                 };
 
                 // Submit weights (or burn weights if none)
