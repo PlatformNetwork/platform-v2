@@ -123,21 +123,27 @@ impl PlatformServerClient {
         }
     }
 
-    /// Get weights with infinite retry loop (30s interval)
+    /// Get weights with timeout (max 3 attempts, 10s timeout each)
     /// Returns hotkey-based weights: Vec<(hotkey, weight_f64)>
-    /// Supports both formats:
-    /// - New format: { weights: [{ hotkey: "...", weight: 0.5 }] }
-    /// - Legacy format: { weights: [{ uid: 1, weight: 65535 }] }
+    /// Returns error after 3 failed attempts instead of blocking forever
     pub async fn get_weights(&self, challenge_id: &str, epoch: u64) -> Result<Vec<(String, f64)>> {
         let url = format!(
             "{}/api/v1/challenges/{}/get_weights?epoch={}",
             self.base_url, challenge_id, epoch
         );
-        let mut attempt = 0u64;
-        loop {
-            attempt += 1;
-            match self.client.get(&url).send().await {
-                Ok(resp) if resp.status().is_success() => {
+
+        const MAX_ATTEMPTS: u64 = 3;
+        const TIMEOUT_SECS: u64 = 10;
+        const RETRY_DELAY_SECS: u64 = 5;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            match tokio::time::timeout(
+                Duration::from_secs(TIMEOUT_SECS),
+                self.client.get(&url).send(),
+            )
+            .await
+            {
+                Ok(Ok(resp)) if resp.status().is_success() => {
                     match resp.json::<serde_json::Value>().await {
                         Ok(data) => {
                             let weights = data
@@ -166,29 +172,45 @@ impl PlatformServerClient {
                         }
                         Err(e) => {
                             warn!(
-                                "Failed to parse weights response: {} (attempt {}, retrying in 30s)",
-                                e, attempt
+                                "Failed to parse weights response for {}: {} (attempt {}/{})",
+                                challenge_id, e, attempt, MAX_ATTEMPTS
                             );
                         }
                     }
                 }
-                Ok(resp) => {
+                Ok(Ok(resp)) => {
                     warn!(
-                        "Failed to get weights for {}: {} (attempt {}, retrying in 30s)",
+                        "Failed to get weights for {}: {} (attempt {}/{})",
                         challenge_id,
                         resp.status(),
-                        attempt
+                        attempt,
+                        MAX_ATTEMPTS
                     );
                 }
-                Err(e) => {
+                Ok(Err(e)) => {
                     warn!(
-                        "Platform server not reachable: {} (attempt {}, retrying in 30s)",
-                        e, attempt
+                        "Request error getting weights for {}: {} (attempt {}/{})",
+                        challenge_id, e, attempt, MAX_ATTEMPTS
+                    );
+                }
+                Err(_) => {
+                    warn!(
+                        "Timeout getting weights for {} after {}s (attempt {}/{})",
+                        challenge_id, TIMEOUT_SECS, attempt, MAX_ATTEMPTS
                     );
                 }
             }
-            tokio::time::sleep(Duration::from_secs(30)).await;
+
+            if attempt < MAX_ATTEMPTS {
+                tokio::time::sleep(Duration::from_secs(RETRY_DELAY_SECS)).await;
+            }
         }
+
+        Err(anyhow::anyhow!(
+            "Failed to get weights for {} after {} attempts",
+            challenge_id,
+            MAX_ATTEMPTS
+        ))
     }
 }
 
@@ -893,7 +915,17 @@ async fn handle_block_event(
                 let mechanism_weights = if !challenges.is_empty() {
                     let mut weights = Vec::new();
 
-                    for challenge in challenges.iter().filter(|c| c.is_healthy) {
+                    for challenge in challenges.iter() {
+                        // Skip unhealthy challenges - don't send burn, just skip
+                        // The chain will keep existing weights for this mechanism
+                        if !challenge.is_healthy {
+                            info!(
+                                "Challenge {} is unhealthy - skipping (chain keeps existing weights)",
+                                challenge.id
+                            );
+                            continue;
+                        }
+
                         match platform_client.get_weights(&challenge.id, epoch).await {
                             Ok(w) if !w.is_empty() => {
                                 // Get challenge emission weight (0.0-1.0)
@@ -987,28 +1019,19 @@ async fn handle_block_event(
                                 }
                             }
                             Ok(_) => {
-                                // No weights returned - send 100% to burn for this mechanism
+                                // No weights returned - skip, chain keeps existing weights
                                 info!(
-                                    "Challenge {} has no weights - sending 100% burn",
+                                    "Challenge {} returned empty weights - skipping (chain keeps existing)",
                                     challenge.id
                                 );
-                                weights.push((
-                                    challenge.mechanism_id as u8,
-                                    vec![0u16],
-                                    vec![65535u16],
-                                ));
                             }
                             Err(e) => {
-                                // Error fetching weights - send 100% to burn for this mechanism
+                                // Error fetching weights - skip, chain keeps existing weights
+                                // Don't send burn - let chain maintain current state
                                 warn!(
-                                    "Failed to get weights for {} - sending 100% burn: {}",
+                                    "Failed to get weights for {} - skipping (chain keeps existing): {}",
                                     challenge.id, e
                                 );
-                                weights.push((
-                                    challenge.mechanism_id as u8,
-                                    vec![0u16],
-                                    vec![65535u16],
-                                ));
                             }
                         }
                     }
