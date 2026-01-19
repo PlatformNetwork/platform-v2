@@ -915,9 +915,9 @@ async fn handle_block_event(
                 // We must merge weights by mechanism before submitting
                 let challenges = cached_challenges.read().clone();
                 let mechanism_weights = if !challenges.is_empty() {
-                    // Collect weights per mechanism: HashMap<mechanism_id, HashMap<uid, weight_u32>>
-                    // Using u32 for intermediate accumulation to avoid overflow
-                    let mut mechanism_uid_weights: HashMap<u8, HashMap<u16, u32>> = HashMap::new();
+                    // Collect weights per mechanism using f64 for accurate accumulation
+                    // HashMap<mechanism_id, HashMap<uid, weight_f64>>
+                    let mut mechanism_uid_weights: HashMap<u8, HashMap<u16, f64>> = HashMap::new();
 
                     for challenge in challenges.iter() {
                         // Skip unhealthy challenges - don't send burn, just skip
@@ -930,88 +930,96 @@ async fn handle_block_event(
                             continue;
                         }
 
+                        let mech_id = challenge.mechanism_id as u8;
+                        let emission_weight = challenge.emission_weight.clamp(0.0, 1.0);
+
                         match platform_client.get_weights(&challenge.id, epoch).await {
                             Ok(w) if !w.is_empty() => {
-                                // Get challenge emission weight (0.0-1.0)
-                                let emission_weight = challenge.emission_weight.clamp(0.0, 1.0);
-                                let mech_id = challenge.mechanism_id as u8;
-
                                 // Get or create the UID->weight map for this mechanism
                                 let uid_weights = mechanism_uid_weights.entry(mech_id).or_default();
 
                                 // Convert hotkeys to UIDs using metagraph
                                 let client_guard = client.read();
-                                let mut total_weight: f64 = 0.0;
+                                let mut resolved_count = 0usize;
+                                let mut unresolved_count = 0usize;
 
                                 for (hotkey, weight_f64) in &w {
-                                    // Apply emission_weight: scale the challenge weight
+                                    // Scale by emission_weight: this challenge's share
                                     let scaled_weight = weight_f64 * emission_weight;
 
                                     if let Some(uid) = client_guard.get_uid_for_hotkey(hotkey) {
-                                        // Convert f64 weight (0.0-1.0) to u16 (0-65535)
-                                        let weight_u16 = (scaled_weight * 65535.0).round() as u16;
-                                        // Accumulate weight for this UID
-                                        *uid_weights.entry(uid).or_insert(0) += weight_u16 as u32;
-                                        total_weight += scaled_weight;
+                                        // Accumulate f64 weight for this UID
+                                        *uid_weights.entry(uid).or_insert(0.0) += scaled_weight;
+                                        resolved_count += 1;
                                         info!(
-                                            "  [{}] {} -> UID {} (weight: {:.4} * {:.2} = {:.4} = {})",
+                                            "  [{}] {} -> UID {} (weight: {:.4} * {:.2} = {:.4})",
                                             challenge.id,
                                             &hotkey[..16],
                                             uid,
                                             weight_f64,
                                             emission_weight,
-                                            scaled_weight,
-                                            weight_u16
+                                            scaled_weight
                                         );
                                     } else {
-                                        // Hotkey not in metagraph - this weight goes to burn
+                                        // Hotkey not in metagraph - add to burn (UID 0)
+                                        *uid_weights.entry(0).or_insert(0.0) += scaled_weight;
+                                        unresolved_count += 1;
                                         warn!(
-                                            "Hotkey {} not found in metagraph, weight {:.4} goes to burn",
+                                            "  [{}] {} not in metagraph -> UID 0 (burn: {:.4})",
+                                            challenge.id,
                                             &hotkey[..16],
                                             scaled_weight
                                         );
-                                        // Don't add to total_weight - it will be added to burn below
                                     }
                                 }
                                 drop(client_guard);
 
-                                // Add remaining weight to burn (UID 0)
-                                // This includes: (1 - emission_weight) + any unresolved hotkey weights
-                                let burn_weight = 1.0 - total_weight;
-                                if burn_weight > 0.001 {
-                                    let burn_u16 = (burn_weight * 65535.0).round() as u16;
-                                    *uid_weights.entry(0).or_insert(0) += burn_u16 as u32;
+                                if unresolved_count > 0 {
+                                    warn!(
+                                        "Challenge {}: {} hotkeys resolved, {} unresolved (sent to burn)",
+                                        challenge.id, resolved_count, unresolved_count
+                                    );
+                                }
+
+                                // Add (1 - sum_of_weights) * emission_weight to burn
+                                // This handles the case where challenge weights don't sum to 1.0
+                                let weights_sum: f64 = w.iter().map(|(_, w)| w).sum();
+                                let unallocated = (1.0 - weights_sum.min(1.0)) * emission_weight;
+                                if unallocated > 0.001 {
+                                    *uid_weights.entry(0).or_insert(0.0) += unallocated;
                                     info!(
-                                        "  [{}] Burn (UID 0): {:.4} = {}",
-                                        challenge.id, burn_weight, burn_u16
+                                        "  [{}] Unallocated -> UID 0 (burn: {:.4})",
+                                        challenge.id, unallocated
                                     );
                                 }
 
                                 info!(
-                                    "Challenge {} (mech {}, emission_weight={:.2}): collected weights",
-                                    challenge.id, challenge.mechanism_id, emission_weight
+                                    "Challenge {} (mech {}, emission={:.2}): collected weights",
+                                    challenge.id, mech_id, emission_weight
                                 );
                             }
                             Ok(_) => {
-                                // No weights returned - skip, chain keeps existing weights
+                                // No weights returned - send this challenge's emission to burn
+                                let uid_weights = mechanism_uid_weights.entry(mech_id).or_default();
+                                *uid_weights.entry(0).or_insert(0.0) += emission_weight;
                                 info!(
-                                    "Challenge {} returned empty weights - skipping (chain keeps existing)",
-                                    challenge.id
+                                    "Challenge {} returned empty weights - {:.4} burn to UID 0",
+                                    challenge.id, emission_weight
                                 );
                             }
                             Err(e) => {
-                                // Error fetching weights - skip, chain keeps existing weights
-                                // Don't send burn - let chain maintain current state
+                                // Error fetching weights - send this challenge's emission to burn
+                                let uid_weights = mechanism_uid_weights.entry(mech_id).or_default();
+                                *uid_weights.entry(0).or_insert(0.0) += emission_weight;
                                 warn!(
-                                    "Failed to get weights for {} - skipping (chain keeps existing): {}",
-                                    challenge.id, e
+                                    "Failed to get weights for {} - {:.4} burn to UID 0: {}",
+                                    challenge.id, emission_weight, e
                                 );
                             }
                         }
                     }
 
-                    // Convert HashMap<mechanism_id, HashMap<uid, weight>> to Vec<(mech, uids, weights)>
-                    // Apply max-upscaling per mechanism
+                    // Convert HashMap<mechanism_id, HashMap<uid, weight_f64>> to Vec<(mech, uids, weights_u16)>
                     let mut weights: Vec<(u8, Vec<u16>, Vec<u16>)> = Vec::new();
 
                     for (mech_id, uid_weights) in mechanism_uid_weights {
@@ -1019,29 +1027,41 @@ async fn handle_block_event(
                             continue;
                         }
 
-                        let uids: Vec<u16> = uid_weights.keys().copied().collect();
-                        let mut vals: Vec<u16> = uids
-                            .iter()
-                            .map(|uid| {
-                                // Clamp accumulated value to u16 max
-                                uid_weights.get(uid).copied().unwrap_or(0).min(65535) as u16
-                            })
-                            .collect();
-
-                        // Max-upscale weights so largest = 65535
-                        // This matches Python's convert_weights_and_uids_for_emit behavior
-                        let max_val = *vals.iter().max().unwrap_or(&0) as f64;
-                        if max_val > 0.0 && max_val < 65535.0 {
-                            vals = vals
-                                .iter()
-                                .map(|v| ((*v as f64 / max_val) * 65535.0).round() as u16)
-                                .collect();
+                        // Normalize weights to sum to 1.0, then convert to u16
+                        let total: f64 = uid_weights.values().sum();
+                        if total <= 0.0 {
+                            // Should not happen, but fallback to 100% burn
+                            warn!(
+                                "Mechanism {} has zero total weight - sending 100% burn",
+                                mech_id
+                            );
+                            weights.push((mech_id, vec![0u16], vec![65535u16]));
+                            continue;
                         }
 
+                        let uids: Vec<u16> = uid_weights.keys().copied().collect();
+                        let vals_f64: Vec<f64> = uids
+                            .iter()
+                            .map(|uid| uid_weights.get(uid).copied().unwrap_or(0.0) / total)
+                            .collect();
+
+                        // Max-upscale: largest weight becomes 65535
+                        // This matches Python's convert_weights_and_uids_for_emit behavior
+                        let max_val = vals_f64.iter().cloned().fold(0.0_f64, f64::max);
+                        let vals: Vec<u16> = if max_val > 0.0 {
+                            vals_f64
+                                .iter()
+                                .map(|v| ((v / max_val) * 65535.0).round() as u16)
+                                .collect()
+                        } else {
+                            vec![0u16; uids.len()]
+                        };
+
                         info!(
-                            "Mechanism {}: {} UIDs merged from all challenges (max-upscaled)",
+                            "Mechanism {}: {} UIDs, total_weight={:.4} (normalized & max-upscaled)",
                             mech_id,
-                            uids.len()
+                            uids.len(),
+                            total
                         );
                         debug!("  UIDs: {:?}, Weights: {:?}", uids, vals);
                         weights.push((mech_id, uids, vals));
