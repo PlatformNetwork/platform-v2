@@ -932,6 +932,15 @@ impl DockerClient {
             warn!(challenge = %config.name, "Failed to generate broker JWT token");
         }
 
+        // Pass through EXTRA_* environment variables to challenge containers
+        // This allows the platform server to pass custom configuration to challenges
+        for (key, value) in std::env::vars() {
+            if key.starts_with("EXTRA_") {
+                env.push(format!("{}={}", key, value));
+                debug!(challenge = %config.name, key = %key, "Passing extra env var to challenge");
+            }
+        }
+
         // Create container config
         let container_config = Config {
             image: Some(config.docker_image.clone()),
@@ -1284,6 +1293,40 @@ mod tests {
         assert_eq!(suffix, "abcdef123456");
 
         reset_env(&["HOSTNAME"]);
+    }
+
+    #[test]
+    #[serial]
+    fn test_extra_env_vars_collected() {
+        // Clean up any existing EXTRA_ vars
+        for (key, _) in std::env::vars() {
+            if key.starts_with("EXTRA_") {
+                std::env::remove_var(&key);
+            }
+        }
+
+        // Set test EXTRA_ variables
+        std::env::set_var("EXTRA_DEBUG", "1");
+        std::env::set_var("EXTRA_CUSTOM_API_KEY", "test_key_123");
+        std::env::set_var("NOT_EXTRA_VAR", "should_not_be_included");
+
+        // Collect EXTRA_ vars the same way as in start_challenge
+        let mut env: Vec<String> = Vec::new();
+        for (key, value) in std::env::vars() {
+            if key.starts_with("EXTRA_") {
+                env.push(format!("{}={}", key, value));
+            }
+        }
+
+        // Verify EXTRA_ vars are collected
+        assert!(env.iter().any(|e| e == "EXTRA_DEBUG=1"));
+        assert!(env.iter().any(|e| e == "EXTRA_CUSTOM_API_KEY=test_key_123"));
+        assert!(!env.iter().any(|e| e.contains("NOT_EXTRA_VAR")));
+
+        // Clean up
+        std::env::remove_var("EXTRA_DEBUG");
+        std::env::remove_var("EXTRA_CUSTOM_API_KEY");
+        std::env::remove_var("NOT_EXTRA_VAR");
     }
 
     #[tokio::test]
