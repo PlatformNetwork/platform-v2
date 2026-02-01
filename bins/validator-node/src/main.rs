@@ -708,6 +708,7 @@ async fn main() -> Result<()> {
     // Track Bittensor connection state for reconnection
     let mut bittensor_disconnected = false;
     let mut last_reconnect_attempt = std::time::Instant::now();
+    let mut reconnect_failures: u32 = 0;
 
     // Store challenges in Arc<RwLock> for periodic refresh
     let cached_challenges: Arc<RwLock<Vec<ChallengeInfo>>> = Arc::new(RwLock::new(
@@ -778,11 +779,16 @@ async fn main() -> Result<()> {
             } => {
                 // Track disconnection state for reconnection logic
                 match &event {
-                    BlockSyncEvent::Disconnected(_) => {
+                    BlockSyncEvent::Disconnected(msg) => {
                         bittensor_disconnected = true;
+                        // Force immediate reconnect if client needs full restart
+                        if msg.contains("restart required") || msg.contains("connection closed") {
+                            last_reconnect_attempt = std::time::Instant::now() - Duration::from_secs(121);
+                        }
                     }
                     BlockSyncEvent::Reconnected | BlockSyncEvent::NewBlock { .. } => {
                         bittensor_disconnected = false;
+                        reconnect_failures = 0;
                     }
                     _ => {}
                 }
@@ -802,10 +808,12 @@ async fn main() -> Result<()> {
             _ = interval.tick() => {
                 debug!("Heartbeat");
 
-                // Check if we need to attempt Bittensor reconnection
-                if bittensor_disconnected && last_reconnect_attempt.elapsed() > Duration::from_secs(30) {
+                // Check if we need to attempt Bittensor reconnection with exponential backoff
+                // Base delay: 10s, doubles on each failure, max 120s
+                let backoff_secs = std::cmp::min(10 * 2u64.pow(reconnect_failures), 120);
+                if bittensor_disconnected && last_reconnect_attempt.elapsed() > Duration::from_secs(backoff_secs) {
                     last_reconnect_attempt = std::time::Instant::now();
-                    info!("Attempting Bittensor reconnection...");
+                    info!("Attempting Bittensor reconnection (attempt {}, next backoff {}s)...", reconnect_failures + 1, backoff_secs * 2);
 
                     // Try to reconnect by creating a new BlockSync
                     match BittensorClient::new(&subtensor_endpoint).await {
@@ -829,6 +837,7 @@ async fn main() -> Result<()> {
                                         info!("Bittensor reconnected successfully");
                                         block_rx = Some(new_rx);
                                         bittensor_disconnected = false;
+                                        reconnect_failures = 0;
 
                                         // Also refresh metagraph with new client
                                         if let Some(ref st_client) = subtensor_client {
@@ -841,12 +850,15 @@ async fn main() -> Result<()> {
                                     }
                                     Err(e) => {
                                         warn!("Failed to connect block sync: {}", e);
+                                        reconnect_failures = reconnect_failures.saturating_add(1);
                                     }
                                 }
                             }
                         }
                         Err(e) => {
-                            warn!("Bittensor reconnection failed: {} (will retry in 30s)", e);
+                            reconnect_failures = reconnect_failures.saturating_add(1);
+                            let next_backoff = std::cmp::min(10 * 2u64.pow(reconnect_failures), 120);
+                            warn!("Bittensor reconnection failed: {} (will retry in {}s)", e, next_backoff);
                         }
                     }
                 }
