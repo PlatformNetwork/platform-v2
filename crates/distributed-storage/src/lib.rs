@@ -84,9 +84,11 @@
 //! - `weights:{challenge_id}:{epoch}` - Weight aggregations
 //! - `challenges:{challenge_id}` - Challenge metadata
 
+pub mod challenge_store;
 pub mod dht;
 pub mod error;
 pub mod local;
+pub mod query;
 pub mod replication;
 pub mod store;
 pub mod submission;
@@ -98,6 +100,10 @@ pub use dht::{
 };
 pub use error::{StorageError, StorageResult};
 pub use local::{LocalStorage, LocalStorageBuilder, ReplicationInfo};
+pub use query::{
+    block_index_key, block_range_end, block_range_start, parse_block_index_key, QueryBuilder,
+    QueryCursor, QueryFilter, QueryResult,
+};
 pub use replication::{
     ConflictResolution, ConflictResolver, QuorumCalculator, ReplicationConfig, ReplicationManager,
     ReplicationPolicy, ReplicationState,
@@ -110,6 +116,11 @@ pub use submission::{
     AggregatedEvaluations, EvaluationStatus, StoredEvaluation, StoredSubmission, SubmissionStatus,
 };
 pub use weights::{StoredWeights, ValidatorWeightVote, WeightAggregator, WeightHistory};
+
+// Challenge-specific storage
+pub use challenge_store::{
+    ChallengeStorage, ChallengeStore, ChallengeStoreRegistry, MerkleNode, MerkleProof,
+};
 
 #[cfg(test)]
 mod integration_tests {

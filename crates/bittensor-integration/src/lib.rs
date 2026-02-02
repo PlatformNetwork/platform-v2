@@ -20,6 +20,10 @@ mod config;
 mod validator_sync;
 mod weights;
 
+// Mock module for testing - available in tests and to other crates for integration tests
+#[cfg(any(test, feature = "test-utils"))]
+pub mod mock;
+
 #[cfg(test)]
 mod tests;
 

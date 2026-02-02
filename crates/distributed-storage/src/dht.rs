@@ -573,6 +573,107 @@ impl<H: DhtNetworkHandler + 'static> DistributedStore for DhtStorage<H> {
         stats.remote_peers = self.routing_table.read().node_count() as u64;
         Ok(stats)
     }
+
+    async fn list_before_block(
+        &self,
+        namespace: &str,
+        block_id: u64,
+        limit: usize,
+    ) -> StorageResult<crate::query::QueryResult> {
+        // Block-indexed queries are always local (DHT doesn't support range queries)
+        self.local
+            .list_before_block(namespace, block_id, limit)
+            .await
+    }
+
+    async fn list_after_block(
+        &self,
+        namespace: &str,
+        block_id: u64,
+        limit: usize,
+    ) -> StorageResult<crate::query::QueryResult> {
+        // Block-indexed queries are always local
+        self.local
+            .list_after_block(namespace, block_id, limit)
+            .await
+    }
+
+    async fn list_range(
+        &self,
+        namespace: &str,
+        start_block: u64,
+        end_block: u64,
+        limit: usize,
+    ) -> StorageResult<crate::query::QueryResult> {
+        // Block-indexed queries are always local
+        self.local
+            .list_range(namespace, start_block, end_block, limit)
+            .await
+    }
+
+    async fn count_by_namespace(&self, namespace: &str) -> StorageResult<u64> {
+        self.local.count_by_namespace(namespace).await
+    }
+
+    async fn query(
+        &self,
+        query: crate::query::QueryBuilder,
+    ) -> StorageResult<crate::query::QueryResult> {
+        // Complex queries are always local
+        self.local.query(query).await
+    }
+
+    async fn put_with_block(
+        &self,
+        key: StorageKey,
+        value: Vec<u8>,
+        block_id: u64,
+        options: PutOptions,
+    ) -> StorageResult<ValueMetadata> {
+        trace!(
+            "DhtStorage::put_with_block key={} block_id={} local_only={}",
+            key,
+            block_id,
+            options.local_only
+        );
+
+        // Always write locally first (with block_id for indexing)
+        let local_options = PutOptions {
+            local_only: true,
+            ..options.clone()
+        };
+        let metadata = self
+            .local
+            .put_with_block(key.clone(), value.clone(), block_id, local_options)
+            .await?;
+
+        if options.local_only || !self.dht_enabled {
+            return Ok(metadata);
+        }
+
+        // Create stored value for replication
+        let stored_value = StoredValue {
+            data: value,
+            metadata: metadata.clone(),
+        };
+
+        if options.quorum_write {
+            let quorum_size = options
+                .quorum_size
+                .unwrap_or(self.replication_config.write_quorum);
+
+            let replicated = self.quorum_write(&key, &stored_value, quorum_size).await?;
+            debug!(
+                "DhtStorage::put_with_block key={} block_id={} replicated to {} nodes",
+                key, block_id, replicated
+            );
+        } else {
+            // Background replication (fire and forget)
+            let _replicated = self.quorum_write(&key, &stored_value, 1).await;
+        }
+
+        Ok(metadata)
+    }
 }
 
 /// Builder for DhtStorage

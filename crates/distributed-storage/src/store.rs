@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 use crate::error::StorageResult;
+use crate::query::{QueryBuilder, QueryResult};
 
 /// Key for distributed storage
 ///
@@ -288,6 +289,104 @@ pub trait DistributedStore: Send + Sync {
 
     /// Get statistics about the storage
     async fn stats(&self) -> StorageResult<StorageStats>;
+
+    /// List entries created before a specific block
+    ///
+    /// This uses a block-indexed secondary index for efficient range queries.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to query
+    /// * `block_id` - Return entries with block_id < this value
+    /// * `limit` - Maximum number of results to return
+    ///
+    /// # Returns
+    /// List of key-value pairs ordered by block_id (ascending)
+    async fn list_before_block(
+        &self,
+        namespace: &str,
+        block_id: u64,
+        limit: usize,
+    ) -> StorageResult<QueryResult>;
+
+    /// List entries created after a specific block
+    ///
+    /// This uses a block-indexed secondary index for efficient range queries.
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to query
+    /// * `block_id` - Return entries with block_id > this value
+    /// * `limit` - Maximum number of results to return
+    ///
+    /// # Returns
+    /// List of key-value pairs ordered by block_id (ascending)
+    async fn list_after_block(
+        &self,
+        namespace: &str,
+        block_id: u64,
+        limit: usize,
+    ) -> StorageResult<QueryResult>;
+
+    /// List entries within a block range
+    ///
+    /// Equivalent to: SELECT * FROM namespace WHERE block_id >= start AND block_id <= end
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to query
+    /// * `start_block` - Minimum block_id (inclusive)
+    /// * `end_block` - Maximum block_id (inclusive)
+    /// * `limit` - Maximum number of results to return
+    ///
+    /// # Returns
+    /// List of key-value pairs ordered by block_id (ascending)
+    async fn list_range(
+        &self,
+        namespace: &str,
+        start_block: u64,
+        end_block: u64,
+        limit: usize,
+    ) -> StorageResult<QueryResult>;
+
+    /// Count entries in a namespace
+    ///
+    /// # Arguments
+    /// * `namespace` - The namespace to count
+    ///
+    /// # Returns
+    /// Number of entries in the namespace
+    async fn count_by_namespace(&self, namespace: &str) -> StorageResult<u64>;
+
+    /// Execute a query built with QueryBuilder
+    ///
+    /// This is the most flexible query method, supporting complex filters
+    /// and pagination via cursors.
+    ///
+    /// # Arguments
+    /// * `query` - The query builder with filters configured
+    ///
+    /// # Returns
+    /// Query result with matching items and pagination info
+    async fn query(&self, query: QueryBuilder) -> StorageResult<QueryResult>;
+
+    /// Store a value with an associated block_id for indexing
+    ///
+    /// This creates both the primary entry and a secondary index entry
+    /// for efficient block-based queries.
+    ///
+    /// # Arguments
+    /// * `key` - The storage key
+    /// * `value` - The value to store
+    /// * `block_id` - The block number to associate with this entry
+    /// * `options` - Options for the put operation
+    ///
+    /// # Returns
+    /// The metadata of the stored value
+    async fn put_with_block(
+        &self,
+        key: StorageKey,
+        value: Vec<u8>,
+        block_id: u64,
+        options: PutOptions,
+    ) -> StorageResult<ValueMetadata>;
 }
 
 /// Storage statistics
