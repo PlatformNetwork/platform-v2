@@ -184,11 +184,10 @@ Challenge Repositories (separate)
 
 ## Links
 
-- [Platform Server](https://chain.platform.network) - Central coordination (centralized mode)
 - [Bittensor Docs](https://docs.bittensor.com) - Network documentation
 - [Validator Guide](docs/validator.md) - Running a validator
 
-**Note:** For P2P mode, validators communicate directly without the central server.
-See the main README for decentralized deployment instructions.
+**Note:** In P2P mode (recommended), validators communicate directly without a central server.
+See the main README for deployment instructions.
 
 For challenge-specific questions, please refer to the appropriate challenge repository.

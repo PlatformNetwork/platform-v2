@@ -63,7 +63,7 @@ The coordination between validators ensures that only verified, consensus-valida
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘         │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                 Platform Server (chain.platform.network)              │  │
+│  │                 Platform Server (self-hosted)                         │  │
 │  │          PostgreSQL Database • HTTP API • WebSocket Events            │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────┬───────────────────────────────────────────┘
@@ -243,7 +243,7 @@ $$\text{threshold} = 2f + 1 = \left\lfloor \frac{2n}{3} \right\rfloor + 1$$
 
 ### Centralized State Management
 
-Platform-server (run by subnet owner at `chain.platform.network`) maintains authoritative state:
+Platform-server (run by subnet owner on their own infrastructure) maintains authoritative state:
 
 - **PostgreSQL Database**: Stores all submissions, evaluations, and scores
 - **HTTP API (port 8080)**: Validators submit and retrieve data
@@ -358,24 +358,22 @@ At the end of each epoch, validators submit weights to Bittensor based on aggreg
 
 ---
 
-## Quick Start
+## Quick Start (P2P Mode - Recommended)
 
 ```bash
 git clone https://github.com/PlatformNetwork/platform.git
 cd platform
 cp .env.example .env
 # Edit .env: add your VALIDATOR_SECRET_KEY (BIP39 mnemonic)
-docker compose up -d
+docker compose -f docker-compose.decentralized.yml up -d
 ```
 
-The validator will auto-connect to platform-server at `chain.platform.network` and sync.
-
-## Decentralized P2P Mode (Recommended)
+## Decentralized P2P Mode
 
 Platform supports a fully decentralized architecture where validators communicate via P2P without requiring a central server.
 
 ### Benefits
-- **No single point of failure** - No dependency on chain.platform.network
+- **No single point of failure** - No central server dependency
 - **Fully trustless** - Validators reach consensus via PBFT
 - **Bittensor-linked state** - State changes are linked to Subtensor block numbers
 - **DHT storage** - Submissions and evaluations stored across the network
@@ -463,7 +461,7 @@ Standard REST endpoints for submissions, evaluations, and challenges.
 | `SUBTENSOR_ENDPOINT`   | Bittensor RPC endpoint               | `wss://entrypoint-finney.opentensor.ai:443` | No           |
 | `NETUID`               | Subnet UID                           | `100`                                       | No           |
 | `RUST_LOG`             | Log level                            | `info`                                      | No           |
-| `PLATFORM_SERVER_URL`  | Platform server URL                  | `https://chain.platform.network`            | No (centralized mode only) |
+| `PLATFORM_SERVER_URL`  | Platform server URL (self-hosted)    | -                                           | No (server mode only) |
 | `PLATFORM_PUBLIC_URL`  | Public URL for challenge containers  | -                                           | Yes          |
 | `DATABASE_URL`         | PostgreSQL connection (server only)  | -                                           | Yes (server) |
 | `OWNER_HOTKEY`         | Subnet owner hotkey                  | -                                           | Yes (server) |

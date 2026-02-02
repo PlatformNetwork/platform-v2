@@ -5,15 +5,14 @@
 //! validator-decentralized --data-dir /data --listen-addr /ip4/0.0.0.0/tcp/9000
 //! ```
 //!
-//! The decentralized validator operates in P2P mode without requiring
-//! chain.platform.network. It uses libp2p gossipsub for consensus and
-//! Kademlia DHT for peer discovery.
+//! The decentralized validator operates in P2P mode. It uses libp2p gossipsub
+//! for consensus and Kademlia DHT for peer discovery.
 //!
 //! ---
 //!
 //! # Validator Node - Centralized Architecture (Legacy)
 //!
-//! All communication via platform-server (chain.platform.network).
+//! All communication via platform-server.
 //! No P2P networking. Weights submitted via Subtensor (handles CRv4 automatically).
 
 use anyhow::Result;
@@ -403,11 +402,7 @@ struct Args {
     #[arg(long, env = "BROKER_JWT_SECRET")]
     broker_jwt_secret: Option<String>,
 
-    #[arg(
-        long,
-        env = "PLATFORM_SERVER_URL",
-        default_value = "https://chain.platform.network"
-    )]
+    #[arg(long, env = "PLATFORM_SERVER_URL")]
     platform_server: String,
 
     #[arg(long, env = "VERSION_KEY", default_value = "1")]

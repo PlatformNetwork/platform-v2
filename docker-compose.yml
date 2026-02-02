@@ -25,7 +25,6 @@ services:
       - DATA_DIR=/data
       - VALIDATOR_SECRET_KEY=${VALIDATOR_SECRET_KEY}
       - VALIDATOR_NAME=validator
-      - PLATFORM_SERVER_URL=https://chain.platform.network
     
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]

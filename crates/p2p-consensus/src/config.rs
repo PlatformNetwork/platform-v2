@@ -5,20 +5,15 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Well-known bootstrap nodes for the Platform P2P network.
-/// These are operated by the subnet team and always available.
+/// Bootstrap nodes for the Platform P2P network.
 ///
 /// Each entry should be a multiaddr in the format:
 /// `/ip4/<IP>/tcp/<PORT>/p2p/<PEER_ID>`
 ///
-/// Note: Real PeerIDs will be added when production nodes are deployed.
-/// For now, this is empty and operators should configure their own bootstrap peers
-/// or use the Platform-provided list once available.
+/// Configure your bootstrap peers via the BOOTSTRAP_PEERS environment variable
+/// or add them here for your deployment.
 pub const DEFAULT_BOOTSTRAP_NODES: &[&str] = &[
-    // Bootstrap node 1 (operated by Platform team)
-    // "/ip4/bootstrap1.platform.network/tcp/9000/p2p/PEER_ID",
-    // Bootstrap node 2 (operated by Platform team)
-    // "/ip4/bootstrap2.platform.network/tcp/9000/p2p/PEER_ID",
+    // Add your bootstrap peers here
 ];
 
 /// P2P network configuration

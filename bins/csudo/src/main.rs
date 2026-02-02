@@ -1,11 +1,11 @@
 //! Chain Sudo (csudo) - Administrative CLI for Platform Chain
 //!
-//! Interactive and non-interactive CLI for managing challenges on chain.platform.network
+//! Interactive and non-interactive CLI for managing challenges.
 //!
 //! Usage:
-//!   csudo                          # Interactive mode
-//!   csudo list challenges          # Non-interactive
-//!   csudo add challenge --name "Term Bench" --image "ghcr.io/..." --mechanism 1
+//!   csudo --server <URL>           # Interactive mode
+//!   csudo --server <URL> list challenges          # Non-interactive
+//!   csudo --server <URL> add challenge --name "Term Bench" --image "ghcr.io/..." --mechanism 1
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -17,10 +17,6 @@ use platform_core::Keypair;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-// Default server for centralized mode (optional in P2P mode)
-// In decentralized mode, sudo operations are broadcast via P2P consensus
-const DEFAULT_SERVER: &str = "https://chain.platform.network";
-
 #[derive(Parser, Debug)]
 #[command(name = "csudo")]
 #[command(about = "Platform Chain administrative CLI")]
@@ -30,14 +26,9 @@ struct Args {
     #[arg(short = 'k', long, env = "SUDO_SECRET_KEY", global = true)]
     secret_key: Option<String>,
 
-    /// Platform server URL
-    #[arg(
-        long,
-        default_value = DEFAULT_SERVER,
-        env = "PLATFORM_SERVER",
-        global = true
-    )]
-    server: String,
+    /// Platform server URL (required)
+    #[arg(long, env = "PLATFORM_SERVER", global = true)]
+    server: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -682,7 +673,7 @@ async fn main() -> Result<()> {
     // Default to interactive mode if no command given
     let command = args.command.unwrap_or(Commands::Interactive);
 
-    // Handle keygen (doesn't require secret key)
+    // Handle keygen (doesn't require secret key or server)
     if matches!(command, Commands::Keygen) {
         let keypair = Keypair::generate();
         println!("{}", "Generated new sr25519 keypair:".green().bold());
@@ -691,9 +682,14 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Server URL is required for all commands except keygen
+    let server = args.server.ok_or_else(|| {
+        anyhow::anyhow!("Server URL required. Use --server <URL> or set PLATFORM_SERVER env var")
+    })?;
+
     // Handle interactive mode
     if matches!(command, Commands::Interactive) {
-        return interactive_mode(&args.server).await;
+        return interactive_mode(&server).await;
     }
 
     // Load keypair (required for all other commands)
@@ -701,10 +697,10 @@ async fn main() -> Result<()> {
         anyhow::anyhow!("Secret key required. Use -k or set SUDO_SECRET_KEY env var")
     })?;
     let keypair = load_keypair(&secret_key)?;
-    let client = PlatformClient::new(&args.server, keypair);
+    let client = PlatformClient::new(&server, keypair);
 
     println!("{} {}", "Owner:".bright_white(), client.hotkey().cyan());
-    println!("{} {}", "Server:".bright_white(), args.server.cyan());
+    println!("{} {}", "Server:".bright_white(), server.cyan());
 
     match command {
         Commands::Keygen | Commands::Interactive => unreachable!(),

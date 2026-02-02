@@ -1,8 +1,8 @@
 # =============================================================================
-# Platform Network - Unified Docker Image (Centralized Mode)
+# Platform Network - Unified Docker Image
 # =============================================================================
-# NOTE: This Dockerfile builds the centralized validator which requires
-# chain.platform.network. For decentralized P2P mode, use:
+# This Dockerfile builds the validator which can connect to any platform-server
+# (self-hosted or remote). For decentralized P2P mode, use:
 #   validator-decentralized --data-dir /data --listen-addr /ip4/0.0.0.0/tcp/9000
 #
 # Single image that can run as either server or validator mode:

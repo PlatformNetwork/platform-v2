@@ -1,7 +1,7 @@
 # =============================================================================
 # Platform Network - Decentralized Validator Docker Image
 # =============================================================================
-# Fully P2P mode - no dependency on chain.platform.network
+# Fully P2P mode - no central server required
 #
 # Build:
 #   docker build -f Dockerfile.decentralized -t platform:decentralized .

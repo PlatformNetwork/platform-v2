@@ -8,7 +8,7 @@
 //!
 //! Usage:
 //!   platform server --port 8080
-//!   platform validator --secret-key <KEY> --platform-server https://chain.platform.network
+//!   platform validator --secret-key <KEY> --platform-server <URL>
 
 mod server;
 mod validator;

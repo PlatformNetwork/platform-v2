@@ -495,8 +495,7 @@ async fn proxy_to_challenge(
 /// In development mode (DEVELOPMENT_MODE env var set), allows any origin.
 /// In production, only whitelisted origins are allowed.
 fn build_cors_layer() -> CorsLayer {
-    let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "https://platform.network,https://chain.platform.network".to_string());
+    let allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS").unwrap_or_else(|_| String::new());
 
     if allowed_origins == "*" || std::env::var("DEVELOPMENT_MODE").is_ok() {
         tracing::warn!("CORS allowing all origins - this should only be used in development!");
