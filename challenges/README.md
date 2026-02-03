@@ -35,3 +35,7 @@ Challenge crates can also be external (like term-challenge). They should:
 ## Example
 
 See [term-challenge](https://github.com/PlatformNetwork/term-challenge) for a complete example.
+
+## Documentation
+
+For detailed integration instructions, see the [Challenge Integration Guide](../docs/challenge-integration.md).
