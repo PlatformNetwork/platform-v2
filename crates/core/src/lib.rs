@@ -9,6 +9,7 @@ pub mod constants;
 pub mod crypto;
 pub mod error;
 pub mod message;
+pub mod restoration;
 pub mod schema_guard;
 pub mod state;
 pub mod state_versioning;
@@ -23,6 +24,9 @@ pub use constants::*;
 pub use crypto::*;
 pub use error::*;
 pub use message::*;
+pub use restoration::{
+    CheckpointInfo, RestorationManager, RestorationOptions, RestorationResult, Restorable,
+};
 pub use schema_guard::{verify_schema_integrity, SchemaError};
 pub use state::*;
 pub use state_versioning::*;
