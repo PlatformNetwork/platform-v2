@@ -20,6 +20,10 @@ members = [
 # Note: WASM runtime removed - updates via git, version checked at handshake
 # Note: P2P-only architecture - no centralized platform-server
 
+# Challenge crates can be added here or as optional path/git dependencies
+# Example:
+# "challenges/example-challenge",
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
@@ -86,6 +90,9 @@ reqwest = { version = "0.12", features = ["json"] }
 [patch.crates-io]
 w3f-bls = { git = "https://github.com/opentensor/bls", branch = "fix-no-std" }
 
+# Challenge integration (optional - add to crates that need dynamic loading)
+libloading = "0.8"
+
 # Clippy lints configuration
 [workspace.lints.clippy]
 # Allow these patterns that are intentional in this codebase
@@ -95,3 +102,11 @@ type_complexity = "allow"
 await_holding_lock = "warn"  # TODO: Fix async lock issues properly
 collapsible_match = "allow"
 collapsible_if = "allow"
+
+# Workspace-level feature flags for challenge integration
+# Individual crates can enable these by adding features in their Cargo.toml:
+#   [features]
+#   dynamic-challenges = ["libloading"]
+[workspace.metadata.challenge-features]
+# Enable dynamic challenge loading (crates opt-in via features)
+dynamic-loading-available = true
