@@ -5,6 +5,7 @@ members = [
     "crates/storage",
     "crates/distributed-storage",
     "crates/challenge-sdk",
+    "crates/challenge-registry",
     "crates/epoch",
     "crates/bittensor-integration",
     "crates/subnet-manager",
@@ -89,9 +90,6 @@ reqwest = { version = "0.12", features = ["json"] }
 # Patch for TLE/CRv4 compatibility (w3f-bls version conflict)
 [patch.crates-io]
 w3f-bls = { git = "https://github.com/opentensor/bls", branch = "fix-no-std" }
-
-# Challenge integration (optional - add to crates that need dynamic loading)
-libloading = "0.8"
 
 # Clippy lints configuration
 [workspace.lints.clippy]
