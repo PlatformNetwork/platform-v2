@@ -178,20 +178,18 @@ impl MetadataRegistry {
     /// Returns an error if the database tree cannot be opened or if
     /// existing metadata cannot be deserialized.
     pub fn new(db: &Db) -> Result<Self> {
-        let tree = db.open_tree(METADATA_TREE_NAME).map_err(|e| {
-            MiniChainError::Storage(format!("Failed to open metadata tree: {}", e))
-        })?;
+        let tree = db
+            .open_tree(METADATA_TREE_NAME)
+            .map_err(|e| MiniChainError::Storage(format!("Failed to open metadata tree: {}", e)))?;
 
         // Try to load existing global metadata, or create new
         let global = match tree.get(GLOBAL_METADATA_KEY) {
-            Ok(Some(data)) => {
-                bincode::deserialize(&data).map_err(|e| {
-                    MiniChainError::Serialization(format!(
-                        "Failed to deserialize global metadata: {}",
-                        e
-                    ))
-                })?
-            }
+            Ok(Some(data)) => bincode::deserialize(&data).map_err(|e| {
+                MiniChainError::Serialization(format!(
+                    "Failed to deserialize global metadata: {}",
+                    e
+                ))
+            })?,
             Ok(None) => {
                 info!("Initializing new metadata registry");
                 let global = GlobalMetadata::new("1.0.0".to_string());
@@ -254,10 +252,7 @@ impl MetadataRegistry {
         // Persist challenge metadata
         let key = format!("{}{}", CHALLENGE_PREFIX, challenge_id);
         let data = bincode::serialize(&metadata).map_err(|e| {
-            MiniChainError::Serialization(format!(
-                "Failed to serialize challenge metadata: {}",
-                e
-            ))
+            MiniChainError::Serialization(format!("Failed to serialize challenge metadata: {}", e))
         })?;
         self.tree.insert(key.as_bytes(), data).map_err(|e| {
             MiniChainError::Storage(format!("Failed to persist challenge metadata: {}", e))
@@ -290,19 +285,20 @@ impl MetadataRegistry {
         challenge_id: &ChallengeId,
         state_root: [u8; 32],
     ) -> Result<()> {
-        let metadata = self.global.challenges.get_mut(challenge_id).ok_or_else(|| {
-            MiniChainError::NotFound(format!("Challenge {} not found", challenge_id))
-        })?;
+        let metadata = self
+            .global
+            .challenges
+            .get_mut(challenge_id)
+            .ok_or_else(|| {
+                MiniChainError::NotFound(format!("Challenge {} not found", challenge_id))
+            })?;
 
         metadata.update_state_root(state_root);
 
         // Persist challenge metadata
         let key = format!("{}{}", CHALLENGE_PREFIX, challenge_id);
         let data = bincode::serialize(metadata).map_err(|e| {
-            MiniChainError::Serialization(format!(
-                "Failed to serialize challenge metadata: {}",
-                e
-            ))
+            MiniChainError::Serialization(format!("Failed to serialize challenge metadata: {}", e))
         })?;
         self.tree.insert(key.as_bytes(), data).map_err(|e| {
             MiniChainError::Storage(format!("Failed to persist challenge metadata: {}", e))
@@ -314,11 +310,7 @@ impl MetadataRegistry {
 
         debug!(
             "Updated state root for challenge {}: {:02x}{:02x}{:02x}{:02x}...",
-            challenge_id,
-            state_root[0],
-            state_root[1],
-            state_root[2],
-            state_root[3]
+            challenge_id, state_root[0], state_root[1], state_root[2], state_root[3]
         );
         Ok(())
     }
@@ -435,19 +427,20 @@ impl MetadataRegistry {
         challenge_id: &ChallengeId,
         version: u64,
     ) -> Result<()> {
-        let metadata = self.global.challenges.get_mut(challenge_id).ok_or_else(|| {
-            MiniChainError::NotFound(format!("Challenge {} not found", challenge_id))
-        })?;
+        let metadata = self
+            .global
+            .challenges
+            .get_mut(challenge_id)
+            .ok_or_else(|| {
+                MiniChainError::NotFound(format!("Challenge {} not found", challenge_id))
+            })?;
 
         metadata.update_schema_version(version);
 
         // Persist challenge metadata
         let key = format!("{}{}", CHALLENGE_PREFIX, challenge_id);
         let data = bincode::serialize(metadata).map_err(|e| {
-            MiniChainError::Serialization(format!(
-                "Failed to serialize challenge metadata: {}",
-                e
-            ))
+            MiniChainError::Serialization(format!("Failed to serialize challenge metadata: {}", e))
         })?;
         self.tree.insert(key.as_bytes(), data).map_err(|e| {
             MiniChainError::Storage(format!("Failed to persist challenge metadata: {}", e))
@@ -503,11 +496,9 @@ impl MetadataRegistry {
         let data = bincode::serialize(&self.global).map_err(|e| {
             MiniChainError::Serialization(format!("Failed to serialize global metadata: {}", e))
         })?;
-        self.tree
-            .insert(GLOBAL_METADATA_KEY, data)
-            .map_err(|e| {
-                MiniChainError::Storage(format!("Failed to persist global metadata: {}", e))
-            })?;
+        self.tree.insert(GLOBAL_METADATA_KEY, data).map_err(|e| {
+            MiniChainError::Storage(format!("Failed to persist global metadata: {}", e))
+        })?;
         Ok(())
     }
 }
@@ -598,10 +589,7 @@ mod tests {
         // Try to register again
         let result = registry.register_challenge(challenge_id, serde_json::json!({}));
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            MiniChainError::Validation(_)
-        ));
+        assert!(matches!(result.unwrap_err(), MiniChainError::Validation(_)));
     }
 
     #[test]
@@ -619,7 +607,10 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify update
-        let metadata = registry.get_challenge_metadata(&challenge_id).unwrap().unwrap();
+        let metadata = registry
+            .get_challenge_metadata(&challenge_id)
+            .unwrap()
+            .unwrap();
         assert_eq!(metadata.merkle_root, state_root);
     }
 
@@ -803,7 +794,10 @@ mod tests {
         assert!(result.unwrap());
 
         assert!(registry.list_challenges().is_empty());
-        assert!(registry.get_challenge_metadata(&challenge_id).unwrap().is_none());
+        assert!(registry
+            .get_challenge_metadata(&challenge_id)
+            .unwrap()
+            .is_none());
     }
 
     #[test]

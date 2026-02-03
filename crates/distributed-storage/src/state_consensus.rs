@@ -380,7 +380,11 @@ impl GlobalStateLinker {
     pub fn add_challenge_root(&mut self, challenge_id: &str, root: [u8; 32]) {
         self.challenge_roots.insert(challenge_id.to_string(), root);
         self.cached_global_root = None; // Invalidate cache
-        debug!(challenge_id, root = hex::encode(root), "Added challenge root");
+        debug!(
+            challenge_id,
+            root = hex::encode(root),
+            "Added challenge root"
+        );
     }
 
     /// Remove a challenge root.
@@ -603,10 +607,9 @@ impl StateRootConsensus {
         &mut self,
         vote: StateRootVote,
     ) -> Result<Option<ConsensusResult>, StateRootConsensusError> {
-        let proposal = self
-            .current_proposal
-            .as_ref()
-            .ok_or_else(|| StateRootConsensusError::InternalError("No active proposal".to_string()))?;
+        let proposal = self.current_proposal.as_ref().ok_or_else(|| {
+            StateRootConsensusError::InternalError("No active proposal".to_string())
+        })?;
 
         // Verify vote is for current proposal
         if vote.block_number != proposal.block_number {
@@ -741,10 +744,7 @@ impl StateRootConsensus {
             }
         }
 
-        debug!(
-            accused = proof.accused.to_hex(),
-            "Fraud proof verified"
-        );
+        debug!(accused = proof.accused.to_hex(), "Fraud proof verified");
 
         true
     }
@@ -998,7 +998,9 @@ mod tests {
         linker.add_challenge_root("challenge-3", [3u8; 32]);
 
         // Build and verify inclusion proof
-        let proof = linker.build_inclusion_proof("challenge-2").expect("Should build proof");
+        let proof = linker
+            .build_inclusion_proof("challenge-2")
+            .expect("Should build proof");
 
         assert_eq!(proof.challenge_id, "challenge-2");
         assert_eq!(proof.challenge_root, [2u8; 32]);
@@ -1446,7 +1448,9 @@ mod tests {
         let mut linker = GlobalStateLinker::new();
         linker.add_challenge_root("challenge-1", [42u8; 32]);
 
-        let proof = linker.build_inclusion_proof("challenge-1").expect("Should build proof");
+        let proof = linker
+            .build_inclusion_proof("challenge-1")
+            .expect("Should build proof");
         assert!(proof.verify());
     }
 

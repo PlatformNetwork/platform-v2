@@ -415,9 +415,10 @@ impl BlockchainStorage {
     /// The block if found, None otherwise.
     pub fn get_block_by_hash(&self, hash: &[u8; 32]) -> Result<Option<Block>> {
         // Look up block number from hash index
-        let block_number_bytes = self.hash_index_tree.get(hash).map_err(|e| {
-            MiniChainError::Storage(format!("Failed to read hash index: {}", e))
-        })?;
+        let block_number_bytes = self
+            .hash_index_tree
+            .get(hash)
+            .map_err(|e| MiniChainError::Storage(format!("Failed to read hash index: {}", e)))?;
 
         match block_number_bytes {
             Some(bytes) => {
@@ -587,8 +588,7 @@ impl BlockchainStorage {
 
         debug!(
             block_number = block.header.block_number,
-            signature_count,
-            "Block signature verification passed"
+            signature_count, "Block signature verification passed"
         );
 
         Ok(true)
@@ -810,7 +810,8 @@ mod tests {
             .expect("Failed to append genesis");
 
         // Create and append block 1
-        let mut header1 = BlockHeader::new(1, genesis.block_hash, [1u8; 32], 2000, proposer.clone());
+        let mut header1 =
+            BlockHeader::new(1, genesis.block_hash, [1u8; 32], 2000, proposer.clone());
         header1.add_signature(create_test_signature(proposer.clone(), 2000));
         let block1 = Block::new(header1, vec![]);
         storage
@@ -836,9 +837,7 @@ mod tests {
         let genesis = Block::genesis(create_test_hotkey(1), 1000);
         storage.append_block(genesis).expect("Failed to append");
 
-        let block = storage
-            .get_block_by_number(0)
-            .expect("Failed to get block");
+        let block = storage.get_block_by_number(0).expect("Failed to get block");
         assert!(block.is_some());
         assert_eq!(block.unwrap().header.block_number, 0);
 
@@ -859,7 +858,9 @@ mod tests {
             .append_block(genesis)
             .expect("Failed to append genesis");
 
-        let block = storage.get_block_by_hash(&hash).expect("Failed to get block");
+        let block = storage
+            .get_block_by_hash(&hash)
+            .expect("Failed to get block");
         assert!(block.is_some());
         assert_eq!(block.unwrap().block_hash, hash);
 
@@ -900,8 +901,7 @@ mod tests {
         storage.append_block(genesis).expect("Failed to append");
 
         // Try to append a block with wrong block number
-        let bad_header =
-            BlockHeader::new(99, [0u8; 32], [1u8; 32], 2000, create_test_hotkey(1));
+        let bad_header = BlockHeader::new(99, [0u8; 32], [1u8; 32], 2000, create_test_hotkey(1));
         let bad_block = Block::new(bad_header, vec![]);
 
         let result = storage.append_block(bad_block);
@@ -927,7 +927,8 @@ mod tests {
             StateTransition::state_root_update(challenge_id, [0u8; 32], [1u8; 32]),
         ];
 
-        let mut header1 = BlockHeader::new(1, genesis.block_hash, [1u8; 32], 2000, proposer.clone());
+        let mut header1 =
+            BlockHeader::new(1, genesis.block_hash, [1u8; 32], 2000, proposer.clone());
         header1.add_signature(create_test_signature(proposer, 2000));
         let block1 = Block::new(header1, transitions);
 
@@ -1004,16 +1005,17 @@ mod tests {
                 1000 + (i * 1000) as i64,
                 proposer.clone(),
             );
-            header.add_signature(create_test_signature(proposer.clone(), 1000 + (i * 1000) as i64));
+            header.add_signature(create_test_signature(
+                proposer.clone(),
+                1000 + (i * 1000) as i64,
+            ));
             let block = Block::new(header, vec![]);
             prev_hash = block.block_hash;
             storage.append_block(block).expect("Failed");
         }
 
         // Get range 1..3
-        let blocks = storage
-            .list_blocks_in_range(1, 3)
-            .expect("Failed to list");
+        let blocks = storage.list_blocks_in_range(1, 3).expect("Failed to list");
         assert_eq!(blocks.len(), 3);
         assert_eq!(blocks[0].header.block_number, 1);
         assert_eq!(blocks[1].header.block_number, 2);
@@ -1140,10 +1142,17 @@ mod tests {
         assert!(matches!(update, StateTransition::StateRootUpdate { .. }));
 
         let migration = StateTransition::migration_applied(Some(challenge_id), 1);
-        assert!(matches!(migration, StateTransition::MigrationApplied { .. }));
+        assert!(matches!(
+            migration,
+            StateTransition::MigrationApplied { .. }
+        ));
 
         let global_migration = StateTransition::migration_applied(None, 2);
-        if let StateTransition::MigrationApplied { challenge_id, version } = global_migration {
+        if let StateTransition::MigrationApplied {
+            challenge_id,
+            version,
+        } = global_migration
+        {
             assert!(challenge_id.is_none());
             assert_eq!(version, 2);
         } else {

@@ -643,8 +643,8 @@ impl NetworkMigrationCoordinator {
 
     /// Save the network migration status
     fn save_network_status(&self, status: &NetworkMigrationStatus) -> Result<()> {
-        let data = bincode::serialize(status)
-            .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
+        let data =
+            bincode::serialize(status).map_err(|e| MiniChainError::Serialization(e.to_string()))?;
         self.network_tree
             .insert("status", data)
             .map_err(|e| MiniChainError::Storage(e.to_string()))?;
@@ -695,7 +695,11 @@ impl NetworkMigrationCoordinator {
     /// # Returns
     ///
     /// `true` if the validator can be accepted
-    pub fn can_accept_validator(&self, validator: &Hotkey, their_version: MigrationVersion) -> bool {
+    pub fn can_accept_validator(
+        &self,
+        validator: &Hotkey,
+        their_version: MigrationVersion,
+    ) -> bool {
         let status = match self.get_network_status() {
             Ok(s) => s,
             Err(e) => {
@@ -862,7 +866,10 @@ impl NetworkMigrationCoordinator {
 /// # Returns
 ///
 /// A 32-byte hash of the challenge's current state
-pub fn compute_migration_state_hash(ctx: &MigrationContext, challenge_id: &ChallengeId) -> [u8; 32] {
+pub fn compute_migration_state_hash(
+    ctx: &MigrationContext,
+    challenge_id: &ChallengeId,
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
 
     // Hash the challenge ID
@@ -1515,7 +1522,9 @@ mod tests {
         let mut coordinator = NetworkMigrationCoordinator::new(&db).unwrap();
         let validator = Hotkey([1u8; 32]);
 
-        coordinator.report_validator_version(validator.clone(), 3).unwrap();
+        coordinator
+            .report_validator_version(validator.clone(), 3)
+            .unwrap();
 
         let status = coordinator.get_network_status().unwrap();
         assert_eq!(*status.validator_versions.get(&validator).unwrap(), 3);
@@ -1633,7 +1642,11 @@ mod tests {
         assert_ne!(hash1, [0u8; 32]);
 
         // Adding data should change the hash
-        ctx.set(StorageKey::challenge(&challenge_id, "test"), StorageValue::U64(42)).unwrap();
+        ctx.set(
+            StorageKey::challenge(&challenge_id, "test"),
+            StorageValue::U64(42),
+        )
+        .unwrap();
         let hash2 = compute_migration_state_hash(&ctx, &challenge_id);
         assert_ne!(hash1, hash2);
     }
