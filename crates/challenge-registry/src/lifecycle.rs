@@ -137,7 +137,9 @@ mod tests {
     fn test_valid_transitions() {
         let lifecycle = ChallengeLifecycle::new();
 
-        assert!(lifecycle.is_valid_transition(&LifecycleState::Registered, &LifecycleState::Starting));
+        assert!(
+            lifecycle.is_valid_transition(&LifecycleState::Registered, &LifecycleState::Starting)
+        );
         assert!(lifecycle.is_valid_transition(&LifecycleState::Starting, &LifecycleState::Running));
         assert!(lifecycle.is_valid_transition(&LifecycleState::Running, &LifecycleState::Stopping));
         assert!(lifecycle.is_valid_transition(&LifecycleState::Stopping, &LifecycleState::Stopped));
@@ -147,14 +149,15 @@ mod tests {
     fn test_invalid_transitions() {
         let lifecycle = ChallengeLifecycle::new();
 
-        assert!(!lifecycle.is_valid_transition(&LifecycleState::Registered, &LifecycleState::Running));
+        assert!(
+            !lifecycle.is_valid_transition(&LifecycleState::Registered, &LifecycleState::Running)
+        );
         assert!(!lifecycle.is_valid_transition(&LifecycleState::Stopped, &LifecycleState::Running));
     }
 
     #[test]
     fn test_lifecycle_config() {
-        let lifecycle = ChallengeLifecycle::new()
-            .with_auto_restart(false, 5);
+        let lifecycle = ChallengeLifecycle::new().with_auto_restart(false, 5);
 
         assert!(!lifecycle.auto_restart_enabled());
         assert_eq!(lifecycle.max_restart_attempts(), 5);

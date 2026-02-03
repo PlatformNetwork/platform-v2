@@ -3,8 +3,8 @@
 //! Tests for verifying the checkpoint/restoration system works correctly end-to-end.
 
 use platform_core::{
-    CheckpointData, CheckpointManager, CompletedEvaluationState, PendingEvaluationState,
-    WeightVoteState, RestorationManager, RestorationOptions, ChallengeId, Hotkey,
+    ChallengeId, CheckpointData, CheckpointManager, CompletedEvaluationState, Hotkey,
+    PendingEvaluationState, RestorationManager, RestorationOptions, WeightVoteState,
 };
 use std::collections::HashMap;
 use tempfile::tempdir;
@@ -197,9 +197,7 @@ fn test_checkpoint_hash_verification() {
     let mut manager = CheckpointManager::new(dir.path(), 5).expect("Failed to create manager");
 
     let data = create_test_data();
-    let path = manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    let path = manager.create_checkpoint(&data).expect("Failed to create");
 
     // Corrupt the file
     let mut content = std::fs::read(&path).expect("Failed to read");
@@ -237,9 +235,7 @@ fn test_weight_votes_persistence() {
         final_weights: Some(vec![(0, 4500), (1, 6500), (2, 7000)]),
     });
 
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
     let (_, loaded) = manager
         .load_latest()
@@ -262,12 +258,9 @@ fn test_checkpoint_info() {
 
     let mut manager = CheckpointManager::new(dir.path(), 5).expect("Failed to create manager");
     let data = create_test_data();
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
-    let restoration =
-        RestorationManager::with_defaults(dir.path()).expect("Failed to create");
+    let restoration = RestorationManager::with_defaults(dir.path()).expect("Failed to create");
     let infos = restoration.list_available().expect("Failed to list");
 
     assert_eq!(infos.len(), 1);
@@ -304,9 +297,7 @@ fn test_pending_evaluation_scores_persistence() {
         finalizing: true,
     });
 
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
     let (_, loaded) = manager
         .load_latest()
@@ -331,13 +322,10 @@ fn test_checkpoint_sequence_resume() {
 
     // First manager creates checkpoints
     {
-        let mut manager =
-            CheckpointManager::new(dir.path(), 10).expect("Failed to create manager");
+        let mut manager = CheckpointManager::new(dir.path(), 10).expect("Failed to create manager");
         for i in 0..5 {
             let data = CheckpointData::new(i, i, 100);
-            manager
-                .create_checkpoint(&data)
-                .expect("Failed to create");
+            manager.create_checkpoint(&data).expect("Failed to create");
         }
         assert_eq!(manager.current_sequence(), 5);
     }
@@ -359,9 +347,7 @@ fn test_load_specific_checkpoint() {
         let mut data = CheckpointData::new(i, i * 10, 100);
         data.metadata
             .insert("marker".to_string(), format!("checkpoint_{}", i));
-        manager
-            .create_checkpoint(&data)
-            .expect("Failed to create");
+        manager.create_checkpoint(&data).expect("Failed to create");
     }
 
     // Load specific checkpoint (sequence 2)
@@ -371,7 +357,10 @@ fn test_load_specific_checkpoint() {
         .expect("Not found");
     assert_eq!(header.sequence, 2);
     assert_eq!(data.epoch, 10);
-    assert_eq!(data.metadata.get("marker"), Some(&"checkpoint_1".to_string()));
+    assert_eq!(
+        data.metadata.get("marker"),
+        Some(&"checkpoint_1".to_string())
+    );
 }
 
 // ============================================================================
@@ -384,13 +373,14 @@ fn test_checkpoint_metadata_persistence() {
     let mut manager = CheckpointManager::new(dir.path(), 5).expect("Failed to create manager");
 
     let mut data = CheckpointData::new(1, 5, 100);
-    data.metadata.insert("version".to_string(), "1.0.0".to_string());
-    data.metadata.insert("node_id".to_string(), "validator_1".to_string());
-    data.metadata.insert("custom_key".to_string(), "custom_value".to_string());
+    data.metadata
+        .insert("version".to_string(), "1.0.0".to_string());
+    data.metadata
+        .insert("node_id".to_string(), "validator_1".to_string());
+    data.metadata
+        .insert("custom_key".to_string(), "custom_value".to_string());
 
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
     let (_, loaded) = manager
         .load_latest()
@@ -399,8 +389,14 @@ fn test_checkpoint_metadata_persistence() {
 
     assert_eq!(loaded.metadata.len(), 3);
     assert_eq!(loaded.metadata.get("version"), Some(&"1.0.0".to_string()));
-    assert_eq!(loaded.metadata.get("node_id"), Some(&"validator_1".to_string()));
-    assert_eq!(loaded.metadata.get("custom_key"), Some(&"custom_value".to_string()));
+    assert_eq!(
+        loaded.metadata.get("node_id"),
+        Some(&"validator_1".to_string())
+    );
+    assert_eq!(
+        loaded.metadata.get("custom_key"),
+        Some(&"custom_value".to_string())
+    );
 }
 
 // ============================================================================
@@ -414,7 +410,7 @@ fn test_completed_evaluations_persistence() {
 
     let challenge_id = ChallengeId::new();
     let mut data = CheckpointData::new(1, 5, 100);
-    
+
     for i in 0..5 {
         data.completed_evaluations.push(CompletedEvaluationState {
             submission_id: format!("completed_{}", i),
@@ -425,9 +421,7 @@ fn test_completed_evaluations_persistence() {
         });
     }
 
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
     let (_, loaded) = manager
         .load_latest()
@@ -435,7 +429,7 @@ fn test_completed_evaluations_persistence() {
         .expect("No checkpoint");
 
     assert_eq!(loaded.completed_evaluations.len(), 5);
-    
+
     // Verify score ordering is preserved
     for (i, eval) in loaded.completed_evaluations.iter().enumerate() {
         let expected_score = 0.80 + (i as f64 * 0.04);
@@ -456,9 +450,7 @@ fn test_checkpoint_with_empty_state() {
     // Empty checkpoint data
     let data = CheckpointData::new(0, 0, 100);
 
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
     let (_, loaded) = manager
         .load_latest()
@@ -492,9 +484,7 @@ fn test_restoration_validates_epoch() {
         created_at: chrono::Utc::now().timestamp_millis(),
         finalizing: false,
     });
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
     // With validation enabled, this should fail
     let options = RestorationOptions::new()
@@ -521,9 +511,7 @@ fn test_restoration_validates_submission_id() {
         created_at: chrono::Utc::now().timestamp_millis(),
         finalizing: false,
     });
-    manager
-        .create_checkpoint(&data)
-        .expect("Failed to create");
+    manager.create_checkpoint(&data).expect("Failed to create");
 
     // With validation enabled, this should fail
     let options = RestorationOptions::new()

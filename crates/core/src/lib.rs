@@ -25,7 +25,7 @@ pub use crypto::*;
 pub use error::*;
 pub use message::*;
 pub use restoration::{
-    CheckpointInfo, RestorationManager, RestorationOptions, RestorationResult, Restorable,
+    CheckpointInfo, Restorable, RestorationManager, RestorationOptions, RestorationResult,
 };
 pub use schema_guard::{verify_schema_integrity, SchemaError};
 pub use state::*;

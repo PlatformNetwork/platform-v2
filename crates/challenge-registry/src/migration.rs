@@ -143,7 +143,10 @@ impl MigrationPlan {
 
     /// Check if migration is complete
     pub fn is_complete(&self) -> bool {
-        matches!(self.status, MigrationStatus::Completed | MigrationStatus::RolledBack)
+        matches!(
+            self.status,
+            MigrationStatus::Completed | MigrationStatus::RolledBack
+        )
     }
 
     /// Check if migration can be rolled back
@@ -229,7 +232,12 @@ impl ChallengeMigration {
             ));
         }
 
-        let mut plan = MigrationPlan::new(challenge_id, challenge_name, from_version.clone(), to_version.clone());
+        let mut plan = MigrationPlan::new(
+            challenge_id,
+            challenge_name,
+            from_version.clone(),
+            to_version.clone(),
+        );
 
         // Generate migration steps based on version difference
         // This is a simplified version - real implementation would analyze schemas
@@ -237,7 +245,10 @@ impl ChallengeMigration {
             plan.add_step(
                 MigrationStep::new(
                     "major_upgrade".to_string(),
-                    format!("Major version upgrade from {} to {}", from_version.major, to_version.major),
+                    format!(
+                        "Major version upgrade from {} to {}",
+                        from_version.major, to_version.major
+                    ),
                     from_version.clone(),
                     to_version.clone(),
                 )
@@ -248,7 +259,10 @@ impl ChallengeMigration {
             plan.add_step(
                 MigrationStep::new(
                     "minor_upgrade".to_string(),
-                    format!("Minor version upgrade from {} to {}", from_version, to_version),
+                    format!(
+                        "Minor version upgrade from {} to {}",
+                        from_version, to_version
+                    ),
                     from_version.clone(),
                     to_version.clone(),
                 )
@@ -258,7 +272,10 @@ impl ChallengeMigration {
             plan.add_step(
                 MigrationStep::new(
                     "patch_upgrade".to_string(),
-                    format!("Patch version upgrade from {} to {}", from_version, to_version),
+                    format!(
+                        "Patch version upgrade from {} to {}",
+                        from_version, to_version
+                    ),
                     from_version,
                     to_version,
                 )
@@ -419,7 +436,10 @@ mod tests {
 
         let active = migration.get_active_migration(&id);
         assert!(active.is_some());
-        assert!(matches!(active.unwrap().status, MigrationStatus::InProgress));
+        assert!(matches!(
+            active.unwrap().status,
+            MigrationStatus::InProgress
+        ));
 
         let complete = migration.complete_step(&id).unwrap();
         assert!(complete);

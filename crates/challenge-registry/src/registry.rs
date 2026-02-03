@@ -112,10 +112,7 @@ impl ChallengeRegistry {
         let name = entry.name.clone();
 
         let state_store = Arc::new(StateStore::new(id));
-        let registered = RegisteredChallenge {
-            entry,
-            state_store,
-        };
+        let registered = RegisteredChallenge { entry, state_store };
 
         challenges.insert(id, registered);
         name_index.insert(name.clone(), id);
@@ -178,11 +175,7 @@ impl ChallengeRegistry {
     }
 
     /// Update challenge lifecycle state
-    pub fn update_state(
-        &self,
-        id: &ChallengeId,
-        new_state: LifecycleState,
-    ) -> RegistryResult<()> {
+    pub fn update_state(&self, id: &ChallengeId, new_state: LifecycleState) -> RegistryResult<()> {
         let mut challenges = self.challenges.write();
         let registered = challenges
             .get_mut(id)
@@ -264,7 +257,10 @@ impl ChallengeRegistry {
 
     /// Get state store for a challenge
     pub fn state_store(&self, id: &ChallengeId) -> Option<Arc<StateStore>> {
-        self.challenges.read().get(id).map(|r| r.state_store.clone())
+        self.challenges
+            .read()
+            .get(id)
+            .map(|r| r.state_store.clone())
     }
 
     /// Add event listener
@@ -398,7 +394,9 @@ mod tests {
         );
 
         let id = registry.register(entry).unwrap();
-        let old = registry.update_version(&id, ChallengeVersion::new(1, 1, 0)).unwrap();
+        let old = registry
+            .update_version(&id, ChallengeVersion::new(1, 1, 0))
+            .unwrap();
 
         assert_eq!(old, ChallengeVersion::new(1, 0, 0));
 
@@ -426,7 +424,9 @@ mod tests {
         registry.register(entry2).unwrap();
 
         // Make first one active
-        registry.update_state(&id1, LifecycleState::Running).unwrap();
+        registry
+            .update_state(&id1, LifecycleState::Running)
+            .unwrap();
         registry.update_health(&id1, HealthStatus::Healthy).unwrap();
 
         let active = registry.list_active();

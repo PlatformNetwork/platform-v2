@@ -244,8 +244,8 @@ impl CheckpointManager {
 
         // Create header
         let header = CheckpointHeader::new(sequence, data_hash, data_bytes.len() as u64);
-        let header_bytes =
-            bincode::serialize(&header).map_err(|e| MiniChainError::Serialization(e.to_string()))?;
+        let header_bytes = bincode::serialize(&header)
+            .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
 
         // Write to file atomically (write to temp, then rename)
         let temp_filename = filename.with_extension("tmp");
@@ -320,9 +320,9 @@ impl CheckpointManager {
 
         // Read header length
         let mut header_len_bytes = [0u8; 4];
-        reader.read_exact(&mut header_len_bytes).map_err(|e| {
-            MiniChainError::Storage(format!("Failed to read header length: {}", e))
-        })?;
+        reader
+            .read_exact(&mut header_len_bytes)
+            .map_err(|e| MiniChainError::Storage(format!("Failed to read header length: {}", e)))?;
         let header_len = u32::from_le_bytes(header_len_bytes) as usize;
 
         // Read header
@@ -598,10 +598,7 @@ mod tests {
         let (header, data) = manager.load_checkpoint(2).unwrap().unwrap();
         assert_eq!(header.sequence, 2);
         assert_eq!(data.epoch, 10);
-        assert_eq!(
-            data.metadata.get("test_key"),
-            Some(&"value_1".to_string())
-        );
+        assert_eq!(data.metadata.get("test_key"), Some(&"value_1".to_string()));
     }
 
     #[test]

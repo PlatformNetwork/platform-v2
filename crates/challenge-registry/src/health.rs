@@ -5,11 +5,11 @@
 //! - Container status
 //! - Resource usage
 
+use parking_lot::RwLock;
 use platform_core::ChallengeId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use parking_lot::RwLock;
 
 /// Health status of a challenge
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,7 +67,10 @@ impl ChallengeHealth {
 
     /// Check if the challenge is operational (healthy or degraded)
     pub fn is_operational(&self) -> bool {
-        matches!(self.status, HealthStatus::Healthy | HealthStatus::Degraded(_))
+        matches!(
+            self.status,
+            HealthStatus::Healthy | HealthStatus::Degraded(_)
+        )
     }
 
     /// Record a successful health check

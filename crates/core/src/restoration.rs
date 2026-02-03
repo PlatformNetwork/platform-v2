@@ -507,7 +507,10 @@ mod tests {
         assert!(result.is_some());
         let (_res, restored_data) = result.unwrap();
         assert_eq!(restored_data.pending_evaluations.len(), 1);
-        assert_eq!(restored_data.pending_evaluations[0].challenge_id, challenge1);
+        assert_eq!(
+            restored_data.pending_evaluations[0].challenge_id,
+            challenge1
+        );
     }
 
     #[test]
