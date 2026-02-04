@@ -1,0 +1,24 @@
+[package]
+name = "platform-wasm-runtime"
+version.workspace = true
+edition.workspace = true
+description = "WASM runtime for executing challenge modules"
+
+[dependencies]
+platform-core = { path = "../core" }
+wasmtime = "27"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+rand_chacha = "0.3"
+
+[dev-dependencies]
+tempfile = { workspace = true }
