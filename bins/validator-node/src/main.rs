@@ -10,8 +10,9 @@ use clap::Parser;
 use parking_lot::RwLock;
 use platform_bittensor::{
     sync_metagraph, BittensorClient, BlockSync, BlockSyncConfig, BlockSyncEvent, Metagraph,
-    Subtensor, SubtensorClient,
+    StorageConfig, StorageReader, Subtensor, SubtensorClient,
 };
+use platform_challenge_loader::{ChallengeLoader, LoaderConfig};
 use platform_core::{
     checkpoint::{
         CheckpointData, CheckpointManager, CompletedEvaluationState, PendingEvaluationState,
@@ -23,6 +24,8 @@ use platform_distributed_storage::{
     DistributedStoreExt, LocalStorage, LocalStorageBuilder, StorageKey,
 };
 use platform_p2p_consensus::{
+    assignment::{AssignmentConfig, ValidatorAssignment},
+    fast_consensus::{FastConsensus, FastConsensusConfig},
     ChainState, ConsensusEngine, NetworkEvent, P2PConfig, P2PMessage, P2PNetwork, StateManager,
     ValidatorRecord, ValidatorSet,
 };
@@ -159,6 +162,14 @@ struct Args {
     /// Docker challenges support
     #[arg(long, default_value = "true")]
     docker_challenges: bool,
+
+    /// Challenge modules directory
+    #[arg(long, default_value = "./challenges")]
+    challenges_dir: PathBuf,
+
+    /// Enable WASM challenge loading
+    #[arg(long, default_value = "true")]
+    wasm_challenges: bool,
 }
 
 // ==================== Main ====================
@@ -182,6 +193,33 @@ async fn main() -> Result<()> {
     let keypair = load_keypair(&args)?;
     let validator_hotkey = keypair.ss58_address();
     info!("Validator hotkey: {}", validator_hotkey);
+
+    // Initialize challenge loader
+    let challenge_loader = if args.wasm_challenges {
+        let loader_config = LoaderConfig {
+            challenges_dir: Some(args.challenges_dir.clone()),
+            enable_p2p_discovery: true,
+            max_challenges: 100,
+            ..Default::default()
+        };
+
+        match ChallengeLoader::new(loader_config) {
+            Ok(loader) => {
+                info!("Challenge loader initialized");
+                Some(Arc::new(loader))
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to initialize challenge loader: {}. WASM challenges disabled.",
+                    e
+                );
+                None
+            }
+        }
+    } else {
+        info!("WASM challenges disabled");
+        None
+    };
 
     // Create data directory
     std::fs::create_dir_all(&args.data_dir)?;
@@ -209,6 +247,19 @@ async fn main() -> Result<()> {
     // Initialize validator set (ourselves first)
     let validator_set = Arc::new(ValidatorSet::new(keypair.clone(), p2p_config.min_stake));
     info!("P2P network config initialized");
+
+    // Initialize validator assignment
+    let assignment_config = AssignmentConfig {
+        min_validators: 3,
+        max_validators: 10,
+        stake_weighted: true,
+        epoch_seed: [0u8; 32], // Will be updated from Bittensor
+    };
+    let validator_assignment = Arc::new(RwLock::new(ValidatorAssignment::new(
+        validator_set.clone(),
+        assignment_config,
+    )));
+    info!("Validator assignment initialized");
 
     // Initialize state manager, loading persisted state if available
     let state_manager = Arc::new(
@@ -241,6 +292,19 @@ async fn main() -> Result<()> {
         validator_set.clone(),
         state_manager.clone(),
     )));
+
+    // Initialize fast validation consensus
+    let fast_consensus_config = FastConsensusConfig {
+        finality_threshold: 0.67,
+        vote_timeout: Duration::from_secs(5),
+        max_score_variance: 0.1,
+    };
+    let _fast_consensus = Arc::new(RwLock::new(FastConsensus::new(
+        keypair.clone(),
+        validator_set.clone(),
+        fast_consensus_config,
+    )));
+    info!("Fast validation consensus initialized");
 
     // Connect to Bittensor
     let subtensor: Option<Arc<Subtensor>>;
@@ -338,6 +402,29 @@ async fn main() -> Result<()> {
         bittensor_client_for_metagraph = None;
     }
 
+    // Initialize storage reader for direct metagraph access
+    let _storage_reader = if !args.no_bittensor {
+        let storage_config = StorageConfig {
+            endpoint: args.subtensor_endpoint.clone(),
+            netuid: args.netuid,
+            cache_duration_secs: 60,
+            max_retries: 3,
+        };
+        let mut reader = StorageReader::new(storage_config);
+        match reader.connect().await {
+            Ok(()) => {
+                info!("Bittensor storage reader connected");
+                Some(Arc::new(RwLock::new(reader)))
+            }
+            Err(e) => {
+                warn!("Storage reader connection failed: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Initialize shutdown handler for graceful checkpoint persistence
     let mut shutdown_handler =
         match ShutdownHandler::new(&data_dir, state_manager.clone(), args.netuid) {
@@ -363,6 +450,7 @@ async fn main() -> Result<()> {
     let mut stale_check_interval = tokio::time::interval(Duration::from_secs(60));
     let mut state_persist_interval = tokio::time::interval(Duration::from_secs(60));
     let mut checkpoint_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+    let mut challenge_discovery_interval = tokio::time::interval(Duration::from_secs(120));
 
     loop {
         tokio::select! {
@@ -389,6 +477,7 @@ async fn main() -> Result<()> {
                     &subtensor_signer,
                     &subtensor_client,
                     &state_manager,
+                    &validator_assignment,
                     netuid,
                     version_key,
                 ).await;
@@ -445,6 +534,21 @@ async fn main() -> Result<()> {
                         warn!("Failed to create periodic checkpoint: {}", e);
                     } else {
                         debug!("Periodic checkpoint created");
+                    }
+                }
+            }
+
+            // Challenge discovery check
+            _ = challenge_discovery_interval.tick() => {
+                if let Some(loader) = challenge_loader.as_ref() {
+                    let challenges = loader.list_challenges();
+                    if !challenges.is_empty() {
+                        debug!("Active challenges: {}", challenges.len());
+                        for challenge in challenges.iter().take(5) {
+                            debug!("  - {} (v{})", challenge.name, challenge.version);
+                        }
+                    } else {
+                        debug!("No challenges loaded");
                     }
                 }
             }
@@ -628,8 +732,16 @@ async fn handle_network_event(
                     debug!("Heartbeat update skipped: {}", e);
                 }
             }
+            P2PMessage::Evaluation(eval_msg) => {
+                // Handle evaluation messages which may contain validation results
+                // These are processed through the FastConsensus module for vote aggregation
+                debug!(
+                    "Received evaluation message for challenge {:?} from {:?}",
+                    eval_msg.challenge_id, source
+                );
+            }
             _ => {
-                debug!("Unhandled P2P message type");
+                debug!("Unhandled P2P message type from {:?}", source);
             }
         },
         NetworkEvent::PeerConnected(peer_id) => {
@@ -661,6 +773,7 @@ async fn handle_block_event(
     signer: &Option<Arc<BittensorSigner>>,
     _client: &Option<SubtensorClient>,
     state_manager: &Arc<StateManager>,
+    validator_assignment: &Arc<RwLock<ValidatorAssignment>>,
     netuid: u16,
     version_key: u64,
 ) {
@@ -681,6 +794,18 @@ async fn handle_block_event(
                 "Epoch transition: {} -> {} (block {})",
                 old_epoch, new_epoch, block
             );
+
+            // Update validator assignment epoch seed
+            {
+                let mut seed = [0u8; 32];
+                seed[..8].copy_from_slice(&new_epoch.to_le_bytes());
+                seed[8..16].copy_from_slice(&block.to_le_bytes());
+                validator_assignment.write().update_config(AssignmentConfig {
+                    epoch_seed: seed,
+                    ..Default::default()
+                });
+                debug!("Updated assignment epoch seed for epoch {}", new_epoch);
+            }
 
             // Transition state to next epoch
             state_manager.apply(|state| {
