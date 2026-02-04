@@ -408,8 +408,8 @@ mod tests {
 
     #[test]
     fn test_storage_value_as_f64() {
-        let v = StorageValue::F64(3.14);
-        assert_eq!(v.as_f64(), Some(3.14));
+        let v = StorageValue::F64(3.125);
+        assert_eq!(v.as_f64(), Some(3.125));
 
         let v = StorageValue::U64(42);
         assert_eq!(v.as_f64(), Some(42.0));
@@ -480,8 +480,8 @@ mod tests {
         let v: StorageValue = 456u128.into();
         assert_eq!(v.as_u128(), Some(456));
 
-        let v: StorageValue = 3.14f64.into();
-        assert_eq!(v.as_f64(), Some(3.14));
+        let v: StorageValue = 3.125f64.into();
+        assert_eq!(v.as_f64(), Some(3.125));
 
         let v: StorageValue = vec![1u8, 2, 3].into();
         assert!(v.as_bytes().is_some());
