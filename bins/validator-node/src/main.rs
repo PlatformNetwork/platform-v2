@@ -800,10 +800,12 @@ async fn handle_block_event(
                 let mut seed = [0u8; 32];
                 seed[..8].copy_from_slice(&new_epoch.to_le_bytes());
                 seed[8..16].copy_from_slice(&block.to_le_bytes());
-                validator_assignment.write().update_config(AssignmentConfig {
-                    epoch_seed: seed,
-                    ..Default::default()
-                });
+                validator_assignment
+                    .write()
+                    .update_config(AssignmentConfig {
+                        epoch_seed: seed,
+                        ..Default::default()
+                    });
                 debug!("Updated assignment epoch seed for epoch {}", new_epoch);
             }
 

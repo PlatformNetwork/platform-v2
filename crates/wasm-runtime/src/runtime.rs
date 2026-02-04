@@ -4,9 +4,7 @@
 //! WASM module compilation, instantiation, and execution.
 
 use crate::error::{Result, WasmError};
-use crate::host_functions::{
-    create_host_state, register_host_functions, write_bytes_to_memory,
-};
+use crate::host_functions::{create_host_state, register_host_functions, write_bytes_to_memory};
 use crate::module::WasmChallengeModule;
 use crate::sandbox::{ResourceUsage, SandboxConfig};
 use sha2::{Digest, Sha256};
@@ -121,8 +119,8 @@ impl WasmRuntime {
         debug!("Compiling WASM module ({} bytes)", bytecode.len());
         let start = Instant::now();
 
-        let module =
-            Module::new(&self.engine, bytecode).map_err(|e| WasmError::CompileError(e.to_string()))?;
+        let module = Module::new(&self.engine, bytecode)
+            .map_err(|e| WasmError::CompileError(e.to_string()))?;
 
         let elapsed = start.elapsed();
         info!(
@@ -216,11 +214,12 @@ impl WasmRuntime {
             .ok_or_else(|| WasmError::InvalidModule("module has no 'memory' export".to_string()))?;
 
         // Allocate memory for input
-        let alloc: TypedFunc<i32, i32> = instance
-            .get_typed_func(&mut store, "allocate")
-            .map_err(|e| {
-                WasmError::InvalidModule(format!("module has no 'allocate' function: {}", e))
-            })?;
+        let alloc: TypedFunc<i32, i32> =
+            instance
+                .get_typed_func(&mut store, "allocate")
+                .map_err(|e| {
+                    WasmError::InvalidModule(format!("module has no 'allocate' function: {}", e))
+                })?;
 
         let input_ptr = alloc
             .call(&mut store, input.len() as i32)
@@ -233,8 +232,8 @@ impl WasmRuntime {
         let func: TypedFunc<(i32, i32), i32> = instance
             .get_typed_func(&mut store, function_name)
             .map_err(|e| {
-                WasmError::InvalidModule(format!("module has no '{}' function: {}", function_name, e))
-            })?;
+            WasmError::InvalidModule(format!("module has no '{}' function: {}", function_name, e))
+        })?;
 
         // Call the function
         let result_ptr = func
@@ -253,7 +252,9 @@ impl WasmRuntime {
             let mut data = vec![0u8; result_len as usize];
             memory
                 .read(&store, (result_ptr + 4) as usize, &mut data)
-                .map_err(|e| WasmError::MemoryError(format!("failed to read result data: {}", e)))?;
+                .map_err(|e| {
+                    WasmError::MemoryError(format!("failed to read result data: {}", e))
+                })?;
             data
         } else {
             Vec::new()
@@ -343,9 +344,8 @@ impl ExecutionResult {
 
     /// Parse output as a specific type
     pub fn parse_output<T: serde::de::DeserializeOwned>(&self) -> Result<T> {
-        serde_json::from_slice(&self.output).map_err(|e| {
-            WasmError::SerializationError(format!("failed to parse output: {}", e))
-        })
+        serde_json::from_slice(&self.output)
+            .map_err(|e| WasmError::SerializationError(format!("failed to parse output: {}", e)))
     }
 }
 

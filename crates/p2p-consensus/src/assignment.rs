@@ -151,10 +151,8 @@ impl ValidatorAssignment {
             .collect();
 
         // Sort by weighted priority (descending), with hotkey as tiebreaker for determinism
-        scored_validators.sort_by(|a, b| {
-            b.1.cmp(&a.1)
-                .then_with(|| a.0.hotkey.0.cmp(&b.0.hotkey.0))
-        });
+        scored_validators
+            .sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.hotkey.0.cmp(&b.0.hotkey.0)));
 
         // Take up to max_validators
         let num_to_assign = self.config.max_validators.min(scored_validators.len());
@@ -198,10 +196,7 @@ impl ValidatorAssignment {
         epoch: u64,
     ) -> bool {
         match self.assign(challenge_id, *submission_hash, epoch) {
-            Ok(assignment) => assignment
-                .validators
-                .iter()
-                .any(|v| &v.hotkey == validator),
+            Ok(assignment) => assignment.validators.iter().any(|v| &v.hotkey == validator),
             Err(_) => false,
         }
     }
@@ -351,7 +346,11 @@ mod tests {
         assert_eq!(assignment1.primary, assignment2.primary);
         assert_eq!(assignment1.validators.len(), assignment2.validators.len());
 
-        for (v1, v2) in assignment1.validators.iter().zip(assignment2.validators.iter()) {
+        for (v1, v2) in assignment1
+            .validators
+            .iter()
+            .zip(assignment2.validators.iter())
+        {
             assert_eq!(v1.hotkey, v2.hotkey);
             assert_eq!(v1.priority, v2.priority);
             assert_eq!(v1.stake, v2.stake);
@@ -580,7 +579,10 @@ mod tests {
 
         let result = assignment_engine.assign(challenge_id, submission_hash, epoch);
 
-        assert!(matches!(result, Err(AssignmentError::NoValidatorsAvailable)));
+        assert!(matches!(
+            result,
+            Err(AssignmentError::NoValidatorsAvailable)
+        ));
     }
 
     #[test]
@@ -609,7 +611,12 @@ mod tests {
 
         // Non-existent validator should return false
         let non_existent = Hotkey([255u8; 32]);
-        assert!(!assignment_engine.is_assigned(&non_existent, challenge_id, &submission_hash, epoch));
+        assert!(!assignment_engine.is_assigned(
+            &non_existent,
+            challenge_id,
+            &submission_hash,
+            epoch
+        ));
     }
 
     #[test]

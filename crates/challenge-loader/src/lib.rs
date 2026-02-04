@@ -147,12 +147,7 @@ mod tests {
         let wasm = vec![0u8; 100]; // Minimal WASM
 
         loader
-            .load_challenge(
-                id,
-                "test".to_string(),
-                wasm,
-                ChallengeConfig::default(),
-            )
+            .load_challenge(id, "test".to_string(), wasm, ChallengeConfig::default())
             .await
             .expect("load");
 
@@ -204,11 +199,7 @@ mod tests {
         assert!(vm.latest_version(&id).is_none());
 
         // Register a version
-        let version = ChallengeVersion::new(
-            1,
-            "hash123".to_string(),
-            vec![0u8; 50],
-        );
+        let version = ChallengeVersion::new(1, "hash123".to_string(), vec![0u8; 50]);
         let v = vm.register_version(id, version).expect("register");
         assert_eq!(v, 1);
 

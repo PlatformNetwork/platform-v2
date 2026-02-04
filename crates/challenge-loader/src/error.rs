@@ -120,7 +120,10 @@ mod tests {
             expected: "abc123".to_string(),
             actual: "def456".to_string(),
         };
-        assert_eq!(err.to_string(), "Hash mismatch: expected abc123, got def456");
+        assert_eq!(
+            err.to_string(),
+            "Hash mismatch: expected abc123, got def456"
+        );
     }
 
     #[test]

@@ -44,8 +44,15 @@ pub mod state;
 pub mod validator;
 
 // Re-export main types
+pub use assignment::{
+    AssignedValidator, Assignment, AssignmentConfig, AssignmentError, ValidatorAssignment,
+};
 pub use config::{P2PConfig, DEFAULT_BOOTSTRAP_NODES};
 pub use consensus::{ConsensusDecision, ConsensusEngine, ConsensusError, ConsensusPhase};
+pub use fast_consensus::{
+    FastConsensus, FastConsensusConfig, FastConsensusError, FinalizedResult, RoundState,
+    ValidationResult, ValidationVote,
+};
 pub use messages::{
     CommitMessage, ConsensusProposal, EvaluationMessage, EvaluationMetrics, HeartbeatMessage,
     MerkleNode, MerkleProof, NewViewMessage, P2PMessage, PeerAnnounceMessage, PrePrepare,
@@ -63,13 +70,6 @@ pub use state::{
 };
 pub use validator::{
     LeaderElection, StakeWeightedVoting, ValidatorError, ValidatorRecord, ValidatorSet,
-};
-pub use assignment::{
-    Assignment, AssignedValidator, AssignmentConfig, AssignmentError, ValidatorAssignment,
-};
-pub use fast_consensus::{
-    FastConsensus, FastConsensusConfig, FastConsensusError, FinalizedResult, RoundState,
-    ValidationResult, ValidationVote,
 };
 
 /// Protocol version string

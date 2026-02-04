@@ -90,10 +90,7 @@ impl WasmChallengeModule {
         config: SandboxConfig,
     ) -> Result<Self> {
         let name = name.into();
-        info!(
-            "Loading WASM challenge module: {} v{}",
-            name, version
-        );
+        info!("Loading WASM challenge module: {} v{}", name, version);
 
         // Validate config
         config
@@ -111,8 +108,8 @@ impl WasmChallengeModule {
         let engine = Self::create_engine(&config)?;
 
         // Compile the module
-        let module = Module::new(&engine, bytecode)
-            .map_err(|e| WasmError::CompileError(e.to_string()))?;
+        let module =
+            Module::new(&engine, bytecode).map_err(|e| WasmError::CompileError(e.to_string()))?;
 
         info!(
             "Successfully compiled WASM module: {} ({} bytes)",
@@ -191,7 +188,11 @@ impl WasmChallengeModule {
     }
 
     /// Get the memory export from an instance
-    fn get_memory(&self, store: &mut Store<SharedHostState>, instance: &Instance) -> Result<Memory> {
+    fn get_memory(
+        &self,
+        store: &mut Store<SharedHostState>,
+        instance: &Instance,
+    ) -> Result<Memory> {
         instance
             .get_memory(&mut *store, "memory")
             .ok_or_else(|| WasmError::InvalidModule("module has no 'memory' export".to_string()))
@@ -206,11 +207,12 @@ impl WasmChallengeModule {
         instance: &Instance,
         size: i32,
     ) -> Result<i32> {
-        let alloc: TypedFunc<i32, i32> = instance
-            .get_typed_func(&mut *store, "allocate")
-            .map_err(|e| {
-                WasmError::InvalidModule(format!("module has no 'allocate' function: {}", e))
-            })?;
+        let alloc: TypedFunc<i32, i32> =
+            instance
+                .get_typed_func(&mut *store, "allocate")
+                .map_err(|e| {
+                    WasmError::InvalidModule(format!("module has no 'allocate' function: {}", e))
+                })?;
 
         alloc
             .call(&mut *store, size)
@@ -543,7 +545,10 @@ mod tests {
         assert_eq!(module.name(), "test-challenge");
         assert_eq!(module.version(), 1);
 
-        let valid = module.validate(b"test data").await.expect("validate failed");
+        let valid = module
+            .validate(b"test data")
+            .await
+            .expect("validate failed");
         assert!(valid);
 
         let score = module

@@ -402,7 +402,10 @@ impl FastConsensus {
     }
 
     /// Finalize a consensus round
-    fn finalize_round(&self, round: &ConsensusRound) -> Result<FinalizedResult, FastConsensusError> {
+    fn finalize_round(
+        &self,
+        round: &ConsensusRound,
+    ) -> Result<FinalizedResult, FastConsensusError> {
         if round.votes.is_empty() {
             return Err(FastConsensusError::NoVotes);
         }
@@ -649,8 +652,8 @@ mod tests {
         let (keypair, _validator_set) = create_test_validator_set();
         let result = create_test_validation_result();
 
-        let vote = ValidationVote::new(result.clone(), &keypair, 10_000)
-            .expect("Vote creation failed");
+        let vote =
+            ValidationVote::new(result.clone(), &keypair, 10_000).expect("Vote creation failed");
 
         assert_eq!(vote.voter, keypair.hotkey());
         assert_eq!(vote.stake, 10_000);
@@ -663,8 +666,7 @@ mod tests {
         let (keypair, validator_set) = create_test_validator_set();
         let result = create_test_validation_result();
 
-        let vote = ValidationVote::new(result, &keypair, 10_000)
-            .expect("Vote creation failed");
+        let vote = ValidationVote::new(result, &keypair, 10_000).expect("Vote creation failed");
 
         let verified = vote.verify(&validator_set).expect("Verification failed");
         assert!(verified);
@@ -677,8 +679,8 @@ mod tests {
         let result = create_test_validation_result();
 
         // Create vote with unregistered keypair
-        let vote = ValidationVote::new(result, &other_keypair, 10_000)
-            .expect("Vote creation failed");
+        let vote =
+            ValidationVote::new(result, &other_keypair, 10_000).expect("Vote creation failed");
 
         // Verification should fail because voter is not registered
         let verification_result = vote.verify(&validator_set);
@@ -719,9 +721,15 @@ mod tests {
         let record2 = ValidatorRecord::new(keypair2.hotkey(), 40);
         let record3 = ValidatorRecord::new(keypair3.hotkey(), 20);
 
-        validator_set.register_validator(record1).expect("register failed");
-        validator_set.register_validator(record2).expect("register failed");
-        validator_set.register_validator(record3).expect("register failed");
+        validator_set
+            .register_validator(record1)
+            .expect("register failed");
+        validator_set
+            .register_validator(record2)
+            .expect("register failed");
+        validator_set
+            .register_validator(record3)
+            .expect("register failed");
 
         let consensus = FastConsensus::new(
             keypair1.clone(),
@@ -738,11 +746,9 @@ mod tests {
         assert!(!consensus.is_finalized(&vote1.result_hash));
 
         // Add second vote (80% stake - enough for finality)
-        let vote2 = ValidationVote::new(result.clone(), &keypair2, 40)
-            .expect("Vote creation failed");
-        let finalized = consensus
-            .handle_vote(vote2)
-            .expect("Handle vote failed");
+        let vote2 =
+            ValidationVote::new(result.clone(), &keypair2, 40).expect("Vote creation failed");
+        let finalized = consensus.handle_vote(vote2).expect("Handle vote failed");
 
         assert!(finalized.is_some());
         assert!(consensus.is_finalized(&vote1.result_hash));
@@ -762,8 +768,12 @@ mod tests {
         let record1 = ValidatorRecord::new(keypair1.hotkey(), 70);
         let record2 = ValidatorRecord::new(keypair2.hotkey(), 30);
 
-        validator_set.register_validator(record1).expect("register failed");
-        validator_set.register_validator(record2).expect("register failed");
+        validator_set
+            .register_validator(record1)
+            .expect("register failed");
+        validator_set
+            .register_validator(record2)
+            .expect("register failed");
 
         let consensus = FastConsensus::new(
             keypair1.clone(),
@@ -778,21 +788,16 @@ mod tests {
         result2.score = 0.4;
 
         // Submit first result with high stake
-        let _vote1 = consensus
-            .submit_result(result1)
-            .expect("Submit failed");
+        let _vote1 = consensus.submit_result(result1).expect("Submit failed");
 
         // Add second vote with lower stake and different score
         // Note: We need to use the same result hash, so we create a vote manually
-        let vote2 = ValidationVote::new(result2, &keypair2, 30)
-            .expect("Vote creation failed");
+        let vote2 = ValidationVote::new(result2, &keypair2, 30).expect("Vote creation failed");
 
         // Since result hashes differ, this creates a new round
         // For proper test, both votes need same result_hash
         // This test demonstrates the weighted calculation in the finalize logic
-        let finalized = consensus
-            .handle_vote(vote2)
-            .expect("Handle vote failed");
+        let finalized = consensus.handle_vote(vote2).expect("Handle vote failed");
 
         // The second vote creates a separate round that also finalizes
         if let Some(f) = finalized {
@@ -849,9 +854,15 @@ mod tests {
         let record2 = ValidatorRecord::new(keypair2.hotkey(), 30);
         let record3 = ValidatorRecord::new(keypair3.hotkey(), 40);
 
-        validator_set.register_validator(record1).expect("register failed");
-        validator_set.register_validator(record2).expect("register failed");
-        validator_set.register_validator(record3).expect("register failed");
+        validator_set
+            .register_validator(record1)
+            .expect("register failed");
+        validator_set
+            .register_validator(record2)
+            .expect("register failed");
+        validator_set
+            .register_validator(record3)
+            .expect("register failed");
 
         let consensus = FastConsensus::new(
             keypair1.clone(),
@@ -862,9 +873,7 @@ mod tests {
         let result = create_test_validation_result();
 
         // Submit result (creates vote, but not finalized since 30% < 67%)
-        let vote = consensus
-            .submit_result(result)
-            .expect("Submit failed");
+        let vote = consensus.submit_result(result).expect("Submit failed");
 
         // Round should NOT be finalized (only 30% stake)
         assert!(!consensus.is_finalized(&vote.result_hash));
@@ -903,9 +912,7 @@ mod tests {
         let consensus = create_test_fast_consensus();
         let result = create_test_validation_result();
 
-        let vote = consensus
-            .submit_result(result)
-            .expect("Submit failed");
+        let vote = consensus.submit_result(result).expect("Submit failed");
 
         let state = consensus
             .get_round_state(&vote.result_hash)
@@ -938,17 +945,13 @@ mod tests {
         let consensus = create_test_fast_consensus();
         let result = create_test_validation_result();
 
-        let vote = consensus
-            .submit_result(result)
-            .expect("Submit failed");
+        let vote = consensus.submit_result(result).expect("Submit failed");
 
         let finalized = consensus
             .get_finalized(&vote.result_hash)
             .expect("Should have finalized result");
 
-        let computed_hash = finalized
-            .result_hash()
-            .expect("Hash computation failed");
+        let computed_hash = finalized.result_hash().expect("Hash computation failed");
         assert_eq!(computed_hash, vote.result_hash);
     }
 

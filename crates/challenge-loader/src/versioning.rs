@@ -141,21 +141,15 @@ impl VersionManager {
     ///
     /// Returns versions in chronological order (oldest first).
     pub fn version_history(&self, id: &ChallengeId) -> Vec<ChallengeVersion> {
-        self.versions
-            .read()
-            .get(id)
-            .cloned()
-            .unwrap_or_default()
+        self.versions.read().get(id).cloned().unwrap_or_default()
     }
 
     /// Get a specific version by version number
     pub fn get_version(&self, id: &ChallengeId, version: u32) -> Option<ChallengeVersion> {
-        self.versions.read().get(id).and_then(|versions| {
-            versions
-                .iter()
-                .find(|v| v.version == version)
-                .cloned()
-        })
+        self.versions
+            .read()
+            .get(id)
+            .and_then(|versions| versions.iter().find(|v| v.version == version).cloned())
     }
 
     /// Activate a specific version for a challenge
@@ -265,10 +259,7 @@ impl VersionManager {
             // Remove from highest index to lowest to preserve indices
             for i in to_remove.into_iter().rev() {
                 let removed = versions.remove(i);
-                debug!(
-                    version = removed.version,
-                    "Pruned old challenge version"
-                );
+                debug!(version = removed.version, "Pruned old challenge version");
             }
 
             // Re-sort chronologically (oldest first)

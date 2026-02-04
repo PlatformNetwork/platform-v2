@@ -195,9 +195,9 @@ impl ChallengeRegistry {
     /// Also removes version history.
     pub fn unregister(&self, id: &ChallengeId) -> LoaderResult<LoadedChallenge> {
         let mut challenges = self.challenges.write();
-        let challenge = challenges.remove(id).ok_or_else(|| {
-            LoaderError::ChallengeNotFound(format!("Challenge {} not found", id))
-        })?;
+        let challenge = challenges
+            .remove(id)
+            .ok_or_else(|| LoaderError::ChallengeNotFound(format!("Challenge {} not found", id)))?;
 
         self.versions.write().remove(id);
         self.active_versions.write().remove(id);
@@ -262,9 +262,9 @@ impl ChallengeRegistry {
         wasm_bytes: Vec<u8>,
     ) -> LoaderResult<u32> {
         let mut challenges = self.challenges.write();
-        let challenge = challenges.get_mut(id).ok_or_else(|| {
-            LoaderError::ChallengeNotFound(format!("Challenge {} not found", id))
-        })?;
+        let challenge = challenges
+            .get_mut(id)
+            .ok_or_else(|| LoaderError::ChallengeNotFound(format!("Challenge {} not found", id)))?;
 
         let old_version = challenge.version;
 
@@ -307,9 +307,9 @@ impl ChallengeRegistry {
     /// Set whether a challenge is active
     pub fn set_active(&self, id: &ChallengeId, is_active: bool) -> LoaderResult<()> {
         let mut challenges = self.challenges.write();
-        let challenge = challenges.get_mut(id).ok_or_else(|| {
-            LoaderError::ChallengeNotFound(format!("Challenge {} not found", id))
-        })?;
+        let challenge = challenges
+            .get_mut(id)
+            .ok_or_else(|| LoaderError::ChallengeNotFound(format!("Challenge {} not found", id)))?;
 
         challenge.is_active = is_active;
 
@@ -324,11 +324,7 @@ impl ChallengeRegistry {
 
     /// Get version history for a challenge
     pub fn get_version_history(&self, id: &ChallengeId) -> Vec<ChallengeVersion> {
-        self.versions
-            .read()
-            .get(id)
-            .cloned()
-            .unwrap_or_default()
+        self.versions.read().get(id).cloned().unwrap_or_default()
     }
 
     /// Get the active version for a challenge

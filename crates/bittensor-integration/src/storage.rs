@@ -158,10 +158,7 @@ impl StorageReader {
 
     /// Fetch metagraph from chain
     async fn fetch_metagraph(&self) -> Result<MetagraphSnapshot, StorageError> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(StorageError::NotConnected)?;
+        let client = self.client.as_ref().ok_or(StorageError::NotConnected)?;
 
         // Use existing sync_metagraph function from bittensor-rs
         let metagraph = crate::sync_metagraph(client, self.config.netuid)
@@ -275,10 +272,7 @@ impl StorageReader {
 
     /// Get current block number from chain
     pub async fn get_current_block(&self) -> Result<u64, StorageError> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or(StorageError::NotConnected)?;
+        let client = self.client.as_ref().ok_or(StorageError::NotConnected)?;
 
         let block = client
             .block_number()
@@ -372,7 +366,10 @@ mod tests {
 
     #[test]
     fn test_weight_entry() {
-        let entry = WeightEntry { uid: 5, weight: 100 };
+        let entry = WeightEntry {
+            uid: 5,
+            weight: 100,
+        };
         assert_eq!(entry.uid, 5);
         assert_eq!(entry.weight, 100);
     }

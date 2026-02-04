@@ -3,7 +3,10 @@
 //! The `ChallengeLoader` is the primary interface for loading, managing,
 //! and hot-reloading WASM challenge modules.
 
-use crate::discovery::{ChallengeDiscovery, ChallengeUpdate, CompositeDiscovery, DiscoveredChallenge, FilesystemDiscovery, FilesystemDiscoveryConfig, P2PDiscovery};
+use crate::discovery::{
+    ChallengeDiscovery, ChallengeUpdate, CompositeDiscovery, DiscoveredChallenge,
+    FilesystemDiscovery, FilesystemDiscoveryConfig, P2PDiscovery,
+};
 use crate::error::{LoaderError, LoaderResult};
 use crate::registry::{ChallengeInfo, ChallengeModule, ChallengeRegistry, LoadedChallenge};
 use crate::versioning::{ChallengeVersion, VersionManager};
@@ -242,14 +245,8 @@ impl ChallengeLoader {
         self.version_manager.activate_version(&id, version)?;
 
         // Register in registry
-        self.registry.register(
-            id,
-            name.clone(),
-            version,
-            code_hash.clone(),
-            module,
-            config,
-        )?;
+        self.registry
+            .register(id, name.clone(), version, code_hash.clone(), module, config)?;
 
         info!(
             challenge_id = %id,
@@ -320,9 +317,10 @@ impl ChallengeLoader {
         let new_code_hash = hex::encode(Sha256::digest(&new_wasm));
 
         // Get current challenge
-        let current = self.registry.get(id).ok_or_else(|| {
-            LoaderError::ChallengeNotFound(format!("Challenge {} not found", id))
-        })?;
+        let current = self
+            .registry
+            .get(id)
+            .ok_or_else(|| LoaderError::ChallengeNotFound(format!("Challenge {} not found", id)))?;
 
         // Check if code actually changed
         if current.code_hash == new_code_hash {
@@ -342,7 +340,8 @@ impl ChallengeLoader {
             .unwrap_or(1);
 
         // Compile new module
-        let new_module = self.compile_wasm(&current.name, new_version, &new_code_hash, &new_wasm)?;
+        let new_module =
+            self.compile_wasm(&current.name, new_version, &new_code_hash, &new_wasm)?;
 
         // Update registry (stores old version in history)
         let old_version = self.registry.update(
@@ -463,7 +462,12 @@ impl ChallengeLoader {
         *self.discovery_running.write() = true;
 
         info!(
-            sources = self.discovery.read().as_ref().map(|d| d.source_count()).unwrap_or(0),
+            sources = self
+                .discovery
+                .read()
+                .as_ref()
+                .map(|d| d.source_count())
+                .unwrap_or(0),
             "Challenge discovery started"
         );
 
@@ -701,12 +705,7 @@ mod tests {
         let id = ChallengeId::new();
 
         let result = loader
-            .load_challenge(
-                id,
-                "test".to_string(),
-                vec![],
-                ChallengeConfig::default(),
-            )
+            .load_challenge(id, "test".to_string(), vec![], ChallengeConfig::default())
             .await;
 
         assert!(matches!(result, Err(LoaderError::InvalidChallenge(_))));

@@ -746,11 +746,7 @@ mod tests {
 
         // Write WASM and config
         std::fs::write(&wasm_path, vec![1u8; 50]).expect("write wasm");
-        std::fs::write(
-            &config_path,
-            r#"{"id": "custom-id", "version": 5}"#,
-        )
-        .expect("write config");
+        std::fs::write(&config_path, r#"{"id": "custom-id", "version": 5}"#).expect("write config");
 
         let config = FilesystemDiscoveryConfig {
             watch_dir: temp_dir.path().to_path_buf(),
