@@ -634,7 +634,7 @@ mod tests {
         assert_eq!(canonicalize_json(&serde_json::json!(true)), "true");
         assert_eq!(canonicalize_json(&serde_json::json!(false)), "false");
         assert_eq!(canonicalize_json(&serde_json::json!(42)), "42");
-        assert_eq!(canonicalize_json(&serde_json::json!(3.14)), "3.14");
+        assert_eq!(canonicalize_json(&serde_json::json!(3.125)), "3.125");
         assert_eq!(canonicalize_json(&serde_json::json!("hello")), r#""hello""#);
         assert_eq!(canonicalize_json(&serde_json::json!([1, 2, 3])), "[1,2,3]");
     }
