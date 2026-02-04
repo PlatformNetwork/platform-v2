@@ -17,6 +17,7 @@ mod block_sync;
 mod challenge_weight_collector;
 mod client;
 mod config;
+pub mod storage;
 mod validator_sync;
 mod weights;
 
@@ -31,6 +32,10 @@ pub use block_sync::*;
 pub use challenge_weight_collector::*;
 pub use client::*;
 pub use config::*;
+pub use storage::{
+    MetagraphSnapshot, StakeInfo, StorageConfig, StorageError, StorageReader, ValidatorInfo,
+    WeightEntry,
+};
 pub use validator_sync::*;
 pub use weights::*;
 
