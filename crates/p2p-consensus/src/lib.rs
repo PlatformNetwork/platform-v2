@@ -34,8 +34,10 @@
 //!
 //! The network sudo key is hardcoded to: `5GziQCcRpN8NCJktX343brnfuVe3w6gUYieeStXPD1Dag2At`
 
+pub mod assignment;
 pub mod config;
 pub mod consensus;
+pub mod fast_consensus;
 pub mod messages;
 pub mod network;
 pub mod state;
@@ -61,6 +63,13 @@ pub use state::{
 };
 pub use validator::{
     LeaderElection, StakeWeightedVoting, ValidatorError, ValidatorRecord, ValidatorSet,
+};
+pub use assignment::{
+    Assignment, AssignedValidator, AssignmentConfig, AssignmentError, ValidatorAssignment,
+};
+pub use fast_consensus::{
+    FastConsensus, FastConsensusConfig, FastConsensusError, FinalizedResult, RoundState,
+    ValidationResult, ValidationVote,
 };
 
 /// Protocol version string
