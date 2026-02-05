@@ -18,6 +18,8 @@ platform-distributed-storage = { path = "../../crates/distributed-storage" }
 platform-challenge-sdk = { path = "../../crates/challenge-sdk" }
 challenge-orchestrator = { path = "../../crates/challenge-orchestrator" }
 secure-container-runtime = { path = "../../crates/secure-container-runtime" }
+platform-wasm-runtime = { path = "../../crates/wasm-runtime" }
+platform-challenge-loader = { path = "../../crates/challenge-loader" }
 
 # Bittensor
 bittensor-rs = { workspace = true }

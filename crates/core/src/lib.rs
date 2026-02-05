@@ -13,6 +13,7 @@ pub mod restoration;
 pub mod schema_guard;
 pub mod state;
 pub mod state_versioning;
+pub mod term_challenge;
 pub mod types;
 
 pub use challenge::*;
@@ -30,4 +31,9 @@ pub use restoration::{
 pub use schema_guard::{verify_schema_integrity, SchemaError};
 pub use state::*;
 pub use state_versioning::*;
+pub use term_challenge::{
+    Difficulty, DifficultyStats, TermAggregateScore, TermScoreCalculator, TermTaskConfig,
+    TermTaskResult, TerminalBenchChallenge, WasmChallengeInterface, WasmEvalRequest,
+    WasmEvalResponse,
+};
 pub use types::*;
