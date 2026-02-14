@@ -27,6 +27,7 @@
 
 pub mod backend;
 pub mod config;
+pub mod continuous;
 pub mod docker;
 pub mod evaluator;
 pub mod health;
@@ -37,11 +38,13 @@ pub use backend::{
     SecureBackend, DEFAULT_BROKER_SOCKET,
 };
 pub use config::*;
+pub use continuous::*;
 pub use docker::{ChallengeDocker, CleanupResult, DockerClient};
 pub use evaluator::*;
 pub use health::*;
 pub use lifecycle::*;
 use parking_lot::RwLock;
+pub use platform_core::ChallengeContainerConfig;
 use platform_core::ChallengeId;
 use std::collections::HashMap;
 use std::sync::Arc;
