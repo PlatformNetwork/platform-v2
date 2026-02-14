@@ -6,6 +6,12 @@ on:
     tags: ["v*"]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      run_nightly:
+        description: "Run optional nightly build/tests"
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -232,3 +238,27 @@ jobs:
         with:
           files: platform-${{ github.ref_name }}-linux-x86_64.tar.gz
           generate_release_notes: true
+
+  nightly:
+    name: Nightly Build & Test
+    runs-on: platform-runner
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_nightly == 'true'
+    env:
+      PLATFORM_NIGHTLY_RUSTFLAGS: "-Z threads=0"
+      PLATFORM_LINKER_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "platform-ci-nightly"
+          save-if: false
+      - name: Nightly build
+        run: cargo build --release
+      - name: Nightly tests
+        run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
