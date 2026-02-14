@@ -24,7 +24,27 @@ log_info "                    Platform Comprehensive Test Suite"
 log_info "============================================================================="
 log_info "Artifacts: ${PLATFORM_TEST_ARTIFACTS_DIR}"
 log_info "Run dir: ${PLATFORM_TEST_RUN_DIR}"
+log_info "Opt-in: PLATFORM_RUST_NIGHTLY=1 (nightly parallel rustc)"
+log_info "Opt-in: PLATFORM_FAST_LINKER=mold|lld"
 log_info ""
+
+if [ "${PLATFORM_RUST_NIGHTLY:-0}" = "1" ]; then
+    export RUSTUP_TOOLCHAIN="nightly"
+    export PLATFORM_NIGHTLY_RUSTFLAGS="${PLATFORM_NIGHTLY_RUSTFLAGS:--Z threads=0}"
+    log_info "Nightly Rust enabled (parallel rustc)"
+fi
+
+if [ -n "${PLATFORM_FAST_LINKER:-}" ]; then
+    case "${PLATFORM_FAST_LINKER}" in
+        mold|lld)
+            export PLATFORM_LINKER_RUSTFLAGS="${PLATFORM_LINKER_RUSTFLAGS:--C link-arg=-fuse-ld=${PLATFORM_FAST_LINKER}}"
+            log_info "Fast linker enabled: ${PLATFORM_FAST_LINKER}"
+            ;;
+        *)
+            log_warning "Unsupported PLATFORM_FAST_LINKER=${PLATFORM_FAST_LINKER} (expected mold or lld)"
+            ;;
+    esac
+fi
 
 log_info "============================================================================="
 log_info "Phase 1: Build (cargo build --release)"
