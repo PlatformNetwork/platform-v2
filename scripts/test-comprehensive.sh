@@ -18,7 +18,6 @@ SKIPPED=0
 
 platform_test_init
 trap platform_cleanup_run_dir EXIT
-platform_install_docker_if_needed
 
 log_info "============================================================================="
 log_info "                    Platform Comprehensive Test Suite"
@@ -48,6 +47,13 @@ else
     log_failure "Unit tests failed"
 fi
 
+log_info "============================================================================="
+log_info "Phase 3: Docker Integration Tests"
+log_info "============================================================================="
+if platform_should_run_docker; then
+    if platform_require_compose; then
+        platform_ensure_network
+platform_install_docker_if_needed
 log_info "============================================================================="
 log_info "Phase 3: Docker Integration Tests"
 log_info "============================================================================="
@@ -137,6 +143,13 @@ else
     log_failure "Distributed storage tests failed"
 fi
 
+log_info "============================================================================="
+log_info "Phase 8: Multi-validator Docker Compose"
+log_info "============================================================================="
+if platform_should_run_docker; then
+    if platform_require_compose; then
+        platform_ensure_network
+platform_install_docker_if_needed
 log_info "============================================================================="
 log_info "Phase 8: Multi-validator Docker Compose"
 log_info "============================================================================="

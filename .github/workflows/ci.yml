@@ -63,7 +63,45 @@ jobs:
           save-if: false
 
       - name: Run tests
-        run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/))'
+        run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
+
+  integration:
+    name: Integration
+    runs-on: platform-runner
+    needs: [build, clippy, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "platform-ci"
+          save-if: false
+      - name: Ensure Docker available for integration tests
+        run: scripts/install-docker.sh
+      - name: Run integration tests
+        run: cargo nextest run --workspace -E 'test(/integration/)'
+
+  e2e:
+    name: E2E
+    runs-on: platform-runner
+    needs: [build, clippy, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "platform-ci"
+          save-if: false
+      - name: Ensure Docker available for e2e tests
+        run: scripts/install-docker.sh
+      - name: Run e2e tests
+        run: cargo nextest run --workspace -E 'test(/e2e/)'
 
   # Coverage runs in a separate job with its own concurrency group
   # This prevents coverage deployment from being cancelled by new commits
@@ -91,7 +129,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          cargo llvm-cov nextest --workspace --json --output-path coverage.json -E 'not (test(/live/) | test(/integration/))'
+          cargo llvm-cov nextest --workspace --json --output-path coverage.json -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
           cargo llvm-cov report --html --output-dir coverage-html
 
       - name: Upload coverage HTML report
