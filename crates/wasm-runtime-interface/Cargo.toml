@@ -8,7 +8,3 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
-[dependencies]
-serde = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
