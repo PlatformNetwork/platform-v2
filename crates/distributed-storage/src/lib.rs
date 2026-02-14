@@ -38,7 +38,7 @@
 //!
 //! ## Local-only mode
 //!
-//! ```ignore
+//! ```text
 //! use platform_distributed_storage::{LocalStorage, LocalStorageBuilder, DistributedStore, StorageKey, PutOptions, GetOptions};
 //!
 //! // Create local storage
@@ -56,7 +56,7 @@
 //!
 //! ## DHT-backed mode
 //!
-//! ```ignore
+//! ```text
 //! use platform_distributed_storage::{DhtStorage, DhtStorageBuilder, LocalStorageBuilder, ReplicationConfig};
 //!
 //! // Create local storage first

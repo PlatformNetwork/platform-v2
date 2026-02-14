@@ -8,7 +8,7 @@
 //!
 //! Challenge runs as HTTP server, validators call `/evaluate`:
 //!
-//! ```rust,ignore
+//! ```text
 //! use platform_challenge_sdk::prelude::*;
 //!
 //! struct MyChallenge;
@@ -38,7 +38,7 @@
 //!
 //! # Quick Start - P2P Mode
 //!
-//! ```rust,ignore
+//! ```text
 //! use platform_challenge_sdk::prelude::*;
 //!
 //! #[tokio::main]

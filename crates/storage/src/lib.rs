@@ -12,7 +12,7 @@
 //!
 //! Dynamic storage allows challenges and validators to store their own data:
 //!
-//! ```ignore
+//! ```text
 //! // Challenge-level storage
 //! let cs = storage.dynamic().challenge_storage(challenge_id);
 //! cs.set("leaderboard_size", 100u64)?;
@@ -26,7 +26,7 @@
 //!
 //! Migrations run automatically when the blockchain version changes:
 //!
-//! ```ignore
+//! ```text
 //! let mut runner = storage.migration_runner()?;
 //! runner.register(Box::new(MyMigration));
 //! runner.run_pending(&storage_tree, &state_tree, block_height)?;
@@ -36,7 +36,7 @@
 //!
 //! Blockchain storage provides immutable, verifiable state tracking:
 //!
-//! ```ignore
+//! ```text
 //! use platform_storage::blockchain::BlockchainStorage;
 //!
 //! let db = sled::open("./blockchain")?;

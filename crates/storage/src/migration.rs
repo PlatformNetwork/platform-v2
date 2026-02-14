@@ -8,7 +8,7 @@
 //! For distributed validator networks, migrations must be coordinated across
 //! all validators to ensure consistent schema versions:
 //!
-//! ```ignore
+//! ```text
 //! use platform_storage::{NetworkMigrationCoordinator, NetworkMigrationStatus};
 //!
 //! let coordinator = NetworkMigrationCoordinator::new(&db)?;

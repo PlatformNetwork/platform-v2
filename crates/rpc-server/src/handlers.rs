@@ -484,9 +484,9 @@ pub async fn weight_reveal_handler(
 mod tests {
     use super::*;
     use platform_core::{
-        Challenge, ChallengeConfig, ChallengeId, Keypair, NetworkConfig, Stake, ValidatorInfo,
+        ChainState, Challenge, ChallengeConfig, ChallengeId, Hotkey, Job, Keypair, NetworkConfig,
+        Score, Stake, ValidatorInfo, WasmConfig, WasmModuleMetadata,
     };
-    use platform_subnet_manager::BanList;
 
     fn create_test_state() -> Arc<RpcState> {
         let kp = Keypair::generate();
@@ -569,6 +569,7 @@ mod tests {
             max_cpu_secs: 60,
             min_validators: 1,
             params_json: "{}".to_string(),
+            wasm: WasmConfig::default(),
         };
         let challenge = Challenge {
             id: challenge_id,
@@ -576,6 +577,7 @@ mod tests {
             description: "Test description".to_string(),
             code_hash: "abc123".to_string(),
             wasm_code: vec![],
+            wasm_metadata: WasmModuleMetadata::from_code_hash("abc123".to_string()),
             is_active: true,
             owner: kp.hotkey(),
             config,
@@ -608,6 +610,7 @@ mod tests {
             max_cpu_secs: 60,
             min_validators: 1,
             params_json: "{}".to_string(),
+            wasm: WasmConfig::default(),
         };
         let challenge = Challenge {
             id: challenge_id,
@@ -615,6 +618,7 @@ mod tests {
             description: "Test description".to_string(),
             code_hash: "abc123".to_string(),
             wasm_code: vec![],
+            wasm_metadata: WasmModuleMetadata::from_code_hash("abc123".to_string()),
             is_active: true,
             owner: kp.hotkey(),
             config,
@@ -656,6 +660,7 @@ mod tests {
             max_cpu_secs: 60,
             min_validators: 1,
             params_json: "{}".to_string(),
+            wasm: WasmConfig::default(),
         };
         let challenge = Challenge {
             id: challenge_id,
@@ -663,6 +668,7 @@ mod tests {
             description: "Test description".to_string(),
             code_hash: "abc123".to_string(),
             wasm_code: vec![],
+            wasm_metadata: WasmModuleMetadata::from_code_hash("abc123".to_string()),
             is_active: true,
             owner: kp.hotkey(),
             config,

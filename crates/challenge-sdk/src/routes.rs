@@ -5,7 +5,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```text
 //! use platform_challenge_sdk::routes::*;
 //!
 //! impl Challenge for MyChallenge {

@@ -16,7 +16,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```text
 //! use platform_challenge_sdk::p2p_client::{P2PChallengeClient, P2PChallengeConfig};
 //!
 //! let (tx, rx) = tokio::sync::mpsc::channel(100);

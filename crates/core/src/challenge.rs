@@ -1,7 +1,7 @@
 //! Challenge definition and management
-
 use crate::{hash, ChallengeId, Hotkey, Result};
 use serde::{Deserialize, Serialize};
+use wasm_runtime_interface::NetworkPolicy;
 
 /// Challenge definition
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,6 +20,10 @@ pub struct Challenge {
 
     /// Hash of the WASM code
     pub code_hash: String,
+
+    /// WASM module metadata
+    #[serde(default)]
+    pub wasm_metadata: WasmModuleMetadata,
 
     /// Challenge owner
     pub owner: Hotkey,
@@ -48,6 +52,7 @@ impl Challenge {
     ) -> Self {
         let code_hash = hex::encode(hash(&wasm_code));
         let now = chrono::Utc::now();
+        let wasm_metadata = WasmModuleMetadata::from_code_hash(code_hash.clone());
 
         Self {
             id: ChallengeId::new(),
@@ -55,6 +60,7 @@ impl Challenge {
             description,
             wasm_code,
             code_hash,
+            wasm_metadata,
             owner,
             config,
             created_at: now,
@@ -66,6 +72,7 @@ impl Challenge {
     /// Update the WASM code
     pub fn update_code(&mut self, wasm_code: Vec<u8>) {
         self.code_hash = hex::encode(hash(&wasm_code));
+        self.wasm_metadata.code_hash = self.code_hash.clone();
         self.wasm_code = wasm_code;
         self.updated_at = chrono::Utc::now();
     }
@@ -101,6 +108,10 @@ pub struct ChallengeConfig {
 
     /// Custom parameters (passed to WASM) - stored as JSON string
     pub params_json: String,
+
+    /// WASM module configuration
+    #[serde(default)]
+    pub wasm: WasmConfig,
 }
 
 impl Default for ChallengeConfig {
@@ -113,6 +124,7 @@ impl Default for ChallengeConfig {
             emission_weight: 1.0,
             min_validators: 1,
             params_json: "{}".to_string(),
+            wasm: WasmConfig::default(),
         }
     }
 }
@@ -127,6 +139,94 @@ impl ChallengeConfig {
     }
 }
 
+/// WASM module metadata stored alongside the challenge
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct WasmModuleMetadata {
+    /// Module path or URL
+    #[serde(default)]
+    pub module_path: String,
+    /// SHA-256 hash of the module
+    pub code_hash: String,
+    /// Version string for module
+    #[serde(default)]
+    pub version: String,
+    /// Entrypoint function name
+    #[serde(default = "default_entrypoint")]
+    pub entrypoint: String,
+}
+
+impl WasmModuleMetadata {
+    pub fn from_code_hash(code_hash: String) -> Self {
+        Self {
+            module_path: String::new(),
+            code_hash,
+            version: String::new(),
+            entrypoint: default_entrypoint(),
+        }
+    }
+}
+
+/// WASM execution configuration
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct WasmConfig {
+    /// Network policy for WASM host functions
+    #[serde(default)]
+    pub network_policy: NetworkPolicy,
+    /// Restartable configuration identifier
+    #[serde(default)]
+    pub restart_id: String,
+}
+
+/// WASM-only challenge configuration stored in chain state
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WasmChallengeConfig {
+    /// Challenge ID
+    pub challenge_id: ChallengeId,
+    /// Challenge name
+    pub name: String,
+    /// Challenge description
+    pub description: String,
+    /// Challenge owner
+    pub owner: Hotkey,
+    /// WASM module metadata
+    pub module: WasmModuleMetadata,
+    /// Challenge configuration
+    pub config: ChallengeConfig,
+    /// Whether challenge is active
+    pub is_active: bool,
+}
+
+impl Default for WasmChallengeConfig {
+    fn default() -> Self {
+        Self {
+            challenge_id: ChallengeId::new(),
+            name: String::new(),
+            description: String::new(),
+            owner: Hotkey([0u8; 32]),
+            module: WasmModuleMetadata::from_code_hash(String::new()),
+            config: ChallengeConfig::default(),
+            is_active: false,
+        }
+    }
+}
+
+impl From<&Challenge> for WasmChallengeConfig {
+    fn from(challenge: &Challenge) -> Self {
+        Self {
+            challenge_id: challenge.id,
+            name: challenge.name.clone(),
+            description: challenge.description.clone(),
+            owner: challenge.owner.clone(),
+            module: challenge.wasm_metadata.clone(),
+            config: challenge.config.clone(),
+            is_active: challenge.is_active,
+        }
+    }
+}
+fn default_entrypoint() -> String {
+    "evaluate".to_string()
+}
+
 /// Challenge metadata (without WASM code, for listing)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChallengeMeta {
@@ -134,6 +234,8 @@ pub struct ChallengeMeta {
     pub name: String,
     pub description: String,
     pub code_hash: String,
+    #[serde(default)]
+    pub wasm_metadata: WasmModuleMetadata,
     pub owner: Hotkey,
     pub config: ChallengeConfig,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -148,6 +250,7 @@ impl From<&Challenge> for ChallengeMeta {
             name: c.name.clone(),
             description: c.description.clone(),
             code_hash: c.code_hash.clone(),
+            wasm_metadata: c.wasm_metadata.clone(),
             owner: c.owner.clone(),
             config: c.config.clone(),
             created_at: c.created_at,
@@ -229,6 +332,7 @@ mod tests {
         let meta: ChallengeMeta = (&challenge).into();
         assert_eq!(meta.name, challenge.name);
         assert_eq!(meta.code_hash, challenge.code_hash);
+        assert_eq!(meta.wasm_metadata.code_hash, challenge.code_hash);
     }
 
     #[test]
@@ -250,6 +354,7 @@ mod tests {
         assert_eq!(config.emission_weight, 1.0);
         assert_eq!(config.min_validators, 1);
         assert_eq!(config.params_json, "{}");
+        assert!(config.wasm.restart_id.is_empty());
     }
 
     #[test]
@@ -390,6 +495,7 @@ mod tests {
         assert_eq!(meta.created_at, challenge.created_at);
         assert_eq!(meta.updated_at, challenge.updated_at);
         assert_eq!(meta.is_active, challenge.is_active);
+        assert_eq!(meta.wasm_metadata.entrypoint, "evaluate");
     }
 
     #[test]

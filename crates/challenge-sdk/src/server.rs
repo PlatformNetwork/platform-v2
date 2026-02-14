@@ -5,7 +5,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,ignore
+//! ```text
 //! use platform_challenge_sdk::server::{ChallengeServer, ServerConfig};
 //!
 //! let server = ChallengeServer::new(my_challenge)

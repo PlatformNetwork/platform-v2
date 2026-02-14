@@ -11,7 +11,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! use platform_storage::blockchain::BlockchainStorage;
 //!
 //! let db = sled::open("./blockchain")?;

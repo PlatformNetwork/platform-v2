@@ -3,7 +3,7 @@
 use crate::{
     hash_data, BlockHeight, Challenge, ChallengeContainerConfig, ChallengeId,
     ChallengeWeightAllocation, Hotkey, Job, MechanismWeightConfig, NetworkConfig, Result, Stake,
-    ValidatorInfo,
+    ValidatorInfo, WasmChallengeConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -50,6 +50,10 @@ pub struct ChainState {
     #[serde(default)]
     pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
 
+    /// WASM challenge configurations (metadata only)
+    #[serde(default)]
+    pub wasm_challenge_configs: HashMap<ChallengeId, WasmChallengeConfig>,
+
     /// Mechanism weight configurations (mechanism_id -> config)
     #[serde(default)]
     pub mechanism_configs: HashMap<u8, MechanismWeightConfig>,
@@ -95,6 +99,7 @@ impl Default for ChainState {
             validators: HashMap::new(),
             challenges: HashMap::new(),
             challenge_configs: HashMap::new(),
+            wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
             required_version: None,
@@ -117,6 +122,7 @@ impl ChainState {
             validators: HashMap::new(),
             challenges: HashMap::new(),
             challenge_configs: HashMap::new(),
+            wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
             required_version: None,

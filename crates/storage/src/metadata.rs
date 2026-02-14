@@ -142,7 +142,7 @@ const CHALLENGE_PREFIX: &str = "challenge:";
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let registry = MetadataRegistry::new(&db)?;
 /// registry.register_challenge(challenge_id, serde_json::json!({}))?;
 /// registry.update_challenge_state_root(&challenge_id, state_root)?;

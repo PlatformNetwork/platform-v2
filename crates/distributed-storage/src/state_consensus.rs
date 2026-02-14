@@ -42,7 +42,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```text
 //! use platform_distributed_storage::state_consensus::{
 //!     StateRootConsensus, GlobalStateLinker, StateRootProposal,
 //! };

@@ -19,7 +19,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```text
 //! use platform_p2p_consensus::{P2PConfig, P2PNetwork, ConsensusEngine, StateManager};
 //!
 //! // Create configuration

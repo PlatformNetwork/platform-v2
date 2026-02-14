@@ -17,7 +17,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```text
 //! use platform_challenge_sdk::decentralized::run_decentralized;
 //! use platform_challenge_sdk::server::ServerChallenge;
 //!
@@ -57,7 +57,7 @@ use tracing::{debug, error, info, warn};
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```text
 /// use platform_challenge_sdk::decentralized::run_decentralized;
 ///
 /// let (tx, rx) = tokio::sync::mpsc::channel(100);

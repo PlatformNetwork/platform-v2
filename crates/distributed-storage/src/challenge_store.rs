@@ -13,7 +13,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```text
 //! use platform_distributed_storage::{ChallengeStore, LocalStorageBuilder};
 //!
 //! let storage = LocalStorageBuilder::new("node-1")

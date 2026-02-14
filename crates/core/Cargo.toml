@@ -16,6 +16,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 bs58 = "0.5"
+wasm-runtime-interface = { path = "../wasm-runtime-interface" }
 
 # Sr25519 crypto (Substrate standard)
 sp-core = { version = "31.0", default-features = false, features = ["std"] }

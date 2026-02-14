@@ -21,6 +21,7 @@
 use crate::{
     BlockHeight, Challenge, ChallengeContainerConfig, ChallengeId, ChallengeWeightAllocation,
     Hotkey, Job, MechanismWeightConfig, NetworkConfig, Result, Stake, ValidatorInfo,
+    WasmChallengeConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -30,7 +31,8 @@ use tracing::{info, warn};
 /// V1: Original format (no registered_hotkeys)
 /// V2: Added registered_hotkeys
 /// V3: Added x25519_pubkey to ValidatorInfo
-pub const CURRENT_STATE_VERSION: u32 = 3;
+/// V4: Added wasm_challenge_configs
+pub const CURRENT_STATE_VERSION: u32 = 4;
 
 /// Minimum supported version for migration
 pub const MIN_SUPPORTED_VERSION: u32 = 1;
@@ -123,6 +125,8 @@ pub struct ChainStateV1 {
     pub validators: HashMap<Hotkey, ValidatorInfoLegacy>,
     pub challenges: HashMap<ChallengeId, Challenge>,
     pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
+    #[serde(default)]
+    pub wasm_challenge_configs: HashMap<ChallengeId, WasmChallengeConfig>,
     pub mechanism_configs: HashMap<u8, MechanismWeightConfig>,
     pub challenge_weights: HashMap<ChallengeId, ChallengeWeightAllocation>,
     pub required_version: Option<crate::RequiredVersion>,
@@ -147,6 +151,7 @@ impl ChainStateV1 {
                 .collect(),
             challenges: self.challenges,
             challenge_configs: self.challenge_configs,
+            wasm_challenge_configs: self.wasm_challenge_configs,
             mechanism_configs: self.mechanism_configs,
             challenge_weights: self.challenge_weights,
             required_version: self.required_version,
@@ -172,6 +177,8 @@ pub struct ChainStateV2 {
     pub validators: HashMap<Hotkey, ValidatorInfoLegacy>,
     pub challenges: HashMap<ChallengeId, Challenge>,
     pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
+    #[serde(default)]
+    pub wasm_challenge_configs: HashMap<ChallengeId, WasmChallengeConfig>,
     pub mechanism_configs: HashMap<u8, MechanismWeightConfig>,
     pub challenge_weights: HashMap<ChallengeId, ChallengeWeightAllocation>,
     pub required_version: Option<crate::RequiredVersion>,
@@ -196,6 +203,7 @@ impl ChainStateV2 {
                 .collect(),
             challenges: self.challenges,
             challenge_configs: self.challenge_configs,
+            wasm_challenge_configs: self.wasm_challenge_configs,
             mechanism_configs: self.mechanism_configs,
             challenge_weights: self.challenge_weights,
             required_version: self.required_version,
@@ -215,28 +223,41 @@ impl ChainStateV2 {
 fn migrate_state(version: u32, data: &[u8]) -> Result<crate::ChainState> {
     match version {
         1 => {
-            // V1 -> V3: Add registered_hotkeys and x25519_pubkey
+            // V1 -> V4: Add registered_hotkeys, x25519_pubkey, wasm_challenge_configs
             let v1: ChainStateV1 = bincode::deserialize(data).map_err(|e| {
                 crate::MiniChainError::Serialization(format!("V1 migration failed: {}", e))
             })?;
             info!(
-                "Migrated state V1->V3: block_height={}, validators={}",
+                "Migrated state V1->V4: block_height={}, validators={}",
                 v1.block_height,
                 v1.validators.len()
             );
             Ok(v1.migrate())
         }
         2 => {
-            // V2 -> V3: Add x25519_pubkey to ValidatorInfo
+            // V2 -> V4: Add x25519_pubkey to ValidatorInfo and wasm_challenge_configs
             let v2: ChainStateV2 = bincode::deserialize(data).map_err(|e| {
                 crate::MiniChainError::Serialization(format!("V2 migration failed: {}", e))
             })?;
             info!(
-                "Migrated state V2->V3: block_height={}, validators={}",
+                "Migrated state V2->V4: block_height={}, validators={}",
                 v2.block_height,
                 v2.validators.len()
             );
             Ok(v2.migrate())
+        }
+        3 => {
+            // V3 -> V4: Add wasm_challenge_configs
+            let mut v3: crate::ChainState = bincode::deserialize(data).map_err(|e| {
+                crate::MiniChainError::Serialization(format!("V3 migration failed: {}", e))
+            })?;
+            v3.wasm_challenge_configs = HashMap::new();
+            info!(
+                "Migrated state V3->V4: block_height={}, validators={}",
+                v3.block_height,
+                v3.validators.len()
+            );
+            Ok(v3)
         }
         _ => Err(crate::MiniChainError::Serialization(format!(
             "Unknown state version: {}",
@@ -375,6 +396,7 @@ mod tests {
             validators: HashMap::new(),
             challenges: HashMap::new(),
             challenge_configs: HashMap::new(),
+            wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
             required_version: None,
@@ -413,6 +435,7 @@ mod tests {
             validators: HashMap::new(),
             challenges: HashMap::new(),
             challenge_configs: HashMap::new(),
+            wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
             required_version: None,
@@ -433,7 +456,7 @@ mod tests {
     #[test]
     fn test_version_constants() {
         const _: () = assert!(CURRENT_STATE_VERSION >= MIN_SUPPORTED_VERSION);
-        assert_eq!(CURRENT_STATE_VERSION, 3);
+        assert_eq!(CURRENT_STATE_VERSION, 4);
     }
 
     #[test]
@@ -467,6 +490,7 @@ mod tests {
             validators: HashMap::new(),
             challenges: HashMap::new(),
             challenge_configs: HashMap::new(),
+            wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
             required_version: None,
@@ -493,6 +517,7 @@ mod tests {
             validators: HashMap::new(),
             challenges: HashMap::new(),
             challenge_configs: HashMap::new(),
+            wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
             required_version: None,
