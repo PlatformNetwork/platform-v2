@@ -9,12 +9,16 @@
 
 # Build stage
 FROM rust:1.92-bookworm AS builder
+ARG RUSTUP_TOOLCHAIN=stable
+ENV RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN}
 
 ARG PLATFORM_NIGHTLY_RUSTFLAGS=""
 ARG PLATFORM_LINKER_RUSTFLAGS=""
+ARG PLATFORM_FAST_LINKER_RUSTFLAGS=""
 ARG INSTALL_FAST_LINKER=auto
 ENV PLATFORM_NIGHTLY_RUSTFLAGS=${PLATFORM_NIGHTLY_RUSTFLAGS}
 ENV PLATFORM_LINKER_RUSTFLAGS=${PLATFORM_LINKER_RUSTFLAGS}
+ENV PLATFORM_FAST_LINKER_RUSTFLAGS=${PLATFORM_FAST_LINKER_RUSTFLAGS}
 ENV INSTALL_FAST_LINKER=${INSTALL_FAST_LINKER}
 
 # Install dependencies
@@ -30,6 +34,9 @@ RUN apt-get update \
     && if [ "$INSTALL_FAST_LINKER" = "mold" ]; then \
         apt-get install -y mold; \
     fi \
+    && if [ "$RUSTUP_TOOLCHAIN" = "nightly" ]; then \
+        rustup toolchain install nightly; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up cargo-chef for caching
@@ -39,16 +46,20 @@ WORKDIR /app
 
 # Prepare recipe for caching dependencies
 COPY . .
-RUN cargo chef prepare --recipe-path recipe.json
+RUN cargo +${RUSTUP_TOOLCHAIN} chef prepare --recipe-path recipe.json
 
 # Cache dependencies
 FROM rust:1.92-bookworm AS cacher
+ARG RUSTUP_TOOLCHAIN=stable
+ENV RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN}
 
 ARG PLATFORM_NIGHTLY_RUSTFLAGS=""
 ARG PLATFORM_LINKER_RUSTFLAGS=""
+ARG PLATFORM_FAST_LINKER_RUSTFLAGS=""
 ARG INSTALL_FAST_LINKER=auto
 ENV PLATFORM_NIGHTLY_RUSTFLAGS=${PLATFORM_NIGHTLY_RUSTFLAGS}
 ENV PLATFORM_LINKER_RUSTFLAGS=${PLATFORM_LINKER_RUSTFLAGS}
+ENV PLATFORM_FAST_LINKER_RUSTFLAGS=${PLATFORM_FAST_LINKER_RUSTFLAGS}
 ENV INSTALL_FAST_LINKER=${INSTALL_FAST_LINKER}
 RUN apt-get update \
     && apt-get install -y \
@@ -66,16 +77,20 @@ RUN apt-get update \
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 COPY --from=builder /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo +${RUSTUP_TOOLCHAIN} chef cook --release --recipe-path recipe.json
 
 # Build stage
 FROM rust:1.92-bookworm AS final-builder
+ARG RUSTUP_TOOLCHAIN=stable
+ENV RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN}
 
 ARG PLATFORM_NIGHTLY_RUSTFLAGS=""
 ARG PLATFORM_LINKER_RUSTFLAGS=""
+ARG PLATFORM_FAST_LINKER_RUSTFLAGS=""
 ARG INSTALL_FAST_LINKER=auto
 ENV PLATFORM_NIGHTLY_RUSTFLAGS=${PLATFORM_NIGHTLY_RUSTFLAGS}
 ENV PLATFORM_LINKER_RUSTFLAGS=${PLATFORM_LINKER_RUSTFLAGS}
+ENV PLATFORM_FAST_LINKER_RUSTFLAGS=${PLATFORM_FAST_LINKER_RUSTFLAGS}
 ENV INSTALL_FAST_LINKER=${INSTALL_FAST_LINKER}
 RUN apt-get update \
     && apt-get install -y \
@@ -97,7 +112,7 @@ COPY --from=cacher /usr/local/cargo /usr/local/cargo
 COPY . .
 
 # Build the validator
-RUN cargo build --release -p validator-node
+RUN cargo +${RUSTUP_TOOLCHAIN} build --release -p validator-node
 
 # Runtime stage (Ubuntu 24.04 for glibc 2.39 compatibility)
 FROM ubuntu:24.04

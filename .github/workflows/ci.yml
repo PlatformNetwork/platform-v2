@@ -205,10 +205,13 @@ jobs:
             type=semver,pattern={{version}}
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
-
       - uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            RUSTUP_TOOLCHAIN=stable
+            INSTALL_FAST_LINKER=mold
+            PLATFORM_FAST_LINKER_RUSTFLAGS=-C link-arg=-fuse-ld=mold
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -262,9 +265,29 @@ jobs:
         with:
           shared-key: "platform-ci-nightly"
           save-if: false
+
+  docker-nightly:
+    name: Docker Nightly Build
+    runs-on: platform-runner
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_nightly == 'true'
+    needs: [nightly]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Docker available
+        run: scripts/install-docker.sh
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: |
+            RUSTUP_TOOLCHAIN=nightly
+            INSTALL_FAST_LINKER=mold
+            PLATFORM_FAST_LINKER_RUSTFLAGS=-C link-arg=-fuse-ld=mold
+            PLATFORM_NIGHTLY_RUSTFLAGS=-Z threads=0
+          cache-from: type=gha
       - name: Nightly build
         run: cargo build --release
       - name: Nightly tests
         run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
-      - name: Nightly tests
-        run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
+

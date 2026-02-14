@@ -3,12 +3,16 @@
 
 # ===== Build Stage =====
 FROM rust:1.92-bookworm as builder
+ARG RUSTUP_TOOLCHAIN=stable
+ENV RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN}
 
 ARG PLATFORM_NIGHTLY_RUSTFLAGS=""
 ARG PLATFORM_LINKER_RUSTFLAGS=""
+ARG PLATFORM_FAST_LINKER_RUSTFLAGS=""
 ARG INSTALL_FAST_LINKER=auto
 ENV PLATFORM_NIGHTLY_RUSTFLAGS=${PLATFORM_NIGHTLY_RUSTFLAGS}
 ENV PLATFORM_LINKER_RUSTFLAGS=${PLATFORM_LINKER_RUSTFLAGS}
+ENV PLATFORM_FAST_LINKER_RUSTFLAGS=${PLATFORM_FAST_LINKER_RUSTFLAGS}
 ENV INSTALL_FAST_LINKER=${INSTALL_FAST_LINKER}
 
 WORKDIR /app
@@ -23,6 +27,9 @@ RUN apt-get update \
     && if [ "$INSTALL_FAST_LINKER" = "mold" ]; then \
         apt-get install -y mold; \
     fi \
+    && if [ "$RUSTUP_TOOLCHAIN" = "nightly" ]; then \
+        rustup toolchain install nightly; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace files
@@ -32,7 +39,7 @@ COPY bins ./bins
 COPY tests ./tests
 
 # Build release binary
-RUN cargo build --release --bin validator-node
+RUN cargo +${RUSTUP_TOOLCHAIN} build --release --bin validator-node
 
 # ===== Runtime Stage =====
 FROM debian:bookworm-slim
