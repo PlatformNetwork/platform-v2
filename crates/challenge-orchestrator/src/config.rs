@@ -114,6 +114,7 @@ mod tests {
         #[derive(Debug, Deserialize)]
         struct DurationWrapper {
             #[serde(with = "super::humantime_serde")]
+            #[allow(dead_code)]
             value: Duration,
         }
 

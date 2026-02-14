@@ -12,7 +12,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 /// Health status of a challenge
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    #[default]
 pub enum HealthStatus {
     /// Health status is unknown (not yet checked)
     Unknown,
@@ -22,12 +23,6 @@ pub enum HealthStatus {
     Degraded(String),
     /// Challenge is unhealthy
     Unhealthy(String),
-}
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 /// Detailed health information for a challenge

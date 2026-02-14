@@ -316,7 +316,7 @@ mod tests {
             .any(|op| op == &format!("remove:{unhealthy_container_id}")));
         assert!(ops
             .iter()
-            .any(|op| op == &format!("start:{}", unhealthy_id.to_string())));
+            .any(|op| op == &format!("start:{unhealthy_id}")));
         assert!(!ops
             .iter()
             .any(|op| op == &format!("stop:{healthy_container_id}")));
@@ -385,10 +385,10 @@ mod tests {
         assert!(ops.iter().any(|op| op == "pull:ghcr.io/org/new:v1"));
         assert!(ops
             .iter()
-            .any(|op| op == &format!("start:{}", update_id.to_string())));
+            .any(|op| op == &format!("start:{update_id}")));
         assert!(ops
             .iter()
-            .any(|op| op == &format!("start:{}", new_id.to_string())));
+            .any(|op| op == &format!("start:{new_id}")));
         assert!(ops.iter().any(|op| op == "stop:container-update-old"));
         assert!(ops.iter().any(|op| op == "remove:container-update-old"));
         assert!(ops.iter().any(|op| op == "stop:container-remove-old"));

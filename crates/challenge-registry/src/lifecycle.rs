@@ -8,7 +8,8 @@ use platform_core::ChallengeId;
 use serde::{Deserialize, Serialize};
 
 /// State of a challenge in its lifecycle
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    #[default]
 pub enum LifecycleState {
     /// Challenge is registered but not started
     Registered,
@@ -24,12 +25,6 @@ pub enum LifecycleState {
     Failed(String),
     /// Challenge is being migrated to a new version
     Migrating,
-}
-
-impl Default for LifecycleState {
-    fn default() -> Self {
-        Self::Registered
-    }
 }
 
 /// Events emitted during lifecycle transitions
@@ -257,7 +252,7 @@ mod tests {
 
         // Test Registered event
         let registered_event = LifecycleEvent::Registered {
-            challenge_id: challenge_id.clone(),
+            challenge_id,
         };
         match registered_event {
             LifecycleEvent::Registered { challenge_id: id } => {
@@ -268,7 +263,7 @@ mod tests {
 
         // Test Unregistered event
         let unregistered_event = LifecycleEvent::Unregistered {
-            challenge_id: challenge_id.clone(),
+            challenge_id,
         };
         match unregistered_event {
             LifecycleEvent::Unregistered { challenge_id: id } => {
@@ -279,7 +274,7 @@ mod tests {
 
         // Test StateChanged event
         let state_changed_event = LifecycleEvent::StateChanged {
-            challenge_id: challenge_id.clone(),
+            challenge_id,
             old_state: LifecycleState::Registered,
             new_state: LifecycleState::Starting,
         };
@@ -300,7 +295,7 @@ mod tests {
         let old_version = ChallengeVersion::new(1, 0, 0);
         let new_version = ChallengeVersion::new(1, 1, 0);
         let version_changed_event = LifecycleEvent::VersionChanged {
-            challenge_id: challenge_id.clone(),
+            challenge_id,
             old_version: old_version.clone(),
             new_version: new_version.clone(),
         };

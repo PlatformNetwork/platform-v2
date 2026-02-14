@@ -155,7 +155,7 @@ impl StateRootProposal {
         let mut hasher = Sha256::new();
         hasher.update(self.block_number.to_le_bytes());
         hasher.update(self.proposer.as_bytes());
-        hasher.update(&self.global_state_root);
+        hasher.update(self.global_state_root);
 
         // Sort challenge roots for deterministic hashing
         let mut sorted_roots: Vec<_> = self.challenge_roots.iter().collect();
@@ -207,8 +207,8 @@ impl StateRootVote {
         let mut hasher = Sha256::new();
         hasher.update(self.block_number.to_le_bytes());
         hasher.update(self.voter.as_bytes());
-        hasher.update(&self.state_root);
-        hasher.update(&[self.agrees_with_proposal as u8]);
+        hasher.update(self.state_root);
+        hasher.update([self.agrees_with_proposal as u8]);
         hasher.update(self.timestamp.to_le_bytes());
         hasher.finalize().into()
     }
@@ -252,8 +252,8 @@ impl FraudProof {
         hasher.update(self.accuser.as_bytes());
         hasher.update(self.accused.as_bytes());
         hasher.update(self.block_number.to_le_bytes());
-        hasher.update(&self.claimed_root);
-        hasher.update(&self.actual_root);
+        hasher.update(self.claimed_root);
+        hasher.update(self.actual_root);
         hasher.update(self.timestamp.to_le_bytes());
         hasher.finalize().into()
     }
@@ -330,7 +330,7 @@ impl InclusionProof {
         // Start with the leaf hash (challenge_id + challenge_root)
         let mut hasher = Sha256::new();
         hasher.update(self.challenge_id.as_bytes());
-        hasher.update(&self.challenge_root);
+        hasher.update(self.challenge_root);
         let mut current: [u8; 32] = hasher.finalize().into();
 
         // Walk up the proof path
