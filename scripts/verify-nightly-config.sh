@@ -16,10 +16,10 @@ platform_test_init
 trap platform_cleanup_run_dir EXIT
 
 log_info "Nightly config verification"
-log_info "Defaults: nightly toolchain uses parallel rustc"
+log_info "Defaults: nightly toolchain uses -Z threads=0"
+log_info "Defaults: fast linker flags from config when set"
 log_info "Opt-out: PLATFORM_DISABLE_NIGHTLY=1"
 log_info "Override: PLATFORM_RUST_NIGHTLY=1"
-log_info "Defaults: fast linker flags from config"
 log_info "Opt-out: PLATFORM_DISABLE_FAST_LINKER=1"
 log_info "Override: PLATFORM_FAST_LINKER_RUSTFLAGS/PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN"
 log_info "Override: PLATFORM_LINKER_RUSTFLAGS/PLATFORM_LINKER_RUSTFLAGS_DARWIN"
@@ -37,6 +37,7 @@ run_check() {
     PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN="${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN:-}"
     PLATFORM_LINKER_RUSTFLAGS="${PLATFORM_LINKER_RUSTFLAGS:-}"
     PLATFORM_LINKER_RUSTFLAGS_DARWIN="${PLATFORM_LINKER_RUSTFLAGS_DARWIN:-}"
+    PLATFORM_DISABLE_FAST_LINKER="${PLATFORM_DISABLE_FAST_LINKER:-0}"
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -86,6 +87,7 @@ run_check() {
     export PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN
     export PLATFORM_LINKER_RUSTFLAGS
     export PLATFORM_LINKER_RUSTFLAGS_DARWIN
+    export PLATFORM_DISABLE_FAST_LINKER
 
     log_info "${label}: Running cargo check (dry-run build)"
     if cargo check --workspace 2>&1 | tee "${log_file}"; then

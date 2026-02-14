@@ -24,18 +24,16 @@ log_info "                    Platform Comprehensive Test Suite"
 log_info "============================================================================="
 log_info "Artifacts: ${PLATFORM_TEST_ARTIFACTS_DIR}"
 log_info "Run dir: ${PLATFORM_TEST_RUN_DIR}"
-log_info "Defaults: nightly toolchain uses parallel rustc"
+log_info "Defaults: nightly toolchain uses -Z threads=0"
+log_info "Defaults: fast linker flags from config when set"
 log_info "Opt-out: PLATFORM_DISABLE_NIGHTLY=1"
 log_info "Override: PLATFORM_RUST_NIGHTLY=1"
-log_info "Defaults: fast linker flags from config"
 log_info "Opt-out: PLATFORM_DISABLE_FAST_LINKER=1"
 log_info "Override: PLATFORM_FAST_LINKER_RUSTFLAGS/PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN"
 log_info "Override: PLATFORM_LINKER_RUSTFLAGS/PLATFORM_LINKER_RUSTFLAGS_DARWIN"
 log_info ""
 
-    if [ -z "${PLATFORM_NIGHTLY_RUSTFLAGS+x}" ]; then
-        export PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
-    fi
+if [ "${PLATFORM_DISABLE_NIGHTLY:-0}" = "1" ]; then
     export PLATFORM_NIGHTLY_RUSTFLAGS=""
     log_info "Nightly Rust disabled via opt-out"
 elif [ "${PLATFORM_RUST_NIGHTLY:-0}" = "1" ] || [ "${RUSTUP_TOOLCHAIN:-}" = "nightly" ]; then
