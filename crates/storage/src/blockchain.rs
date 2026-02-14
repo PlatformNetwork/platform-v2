@@ -504,7 +504,7 @@ impl BlockchainStorage {
 
         // Update hash index
         self.hash_index_tree
-            .insert(block.block_hash, block_number_key)
+            .insert(block.block_hash, &block_number_key)
             .map_err(|e| MiniChainError::Storage(format!("Failed to update hash index: {}", e)))?;
 
         // Update latest block number

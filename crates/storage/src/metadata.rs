@@ -10,6 +10,13 @@
 //! The metadata system enables blockchain-like properties for tracking
 //! storage schemas and ensuring state consistency across the validator network.
 
+}
+
+impl Default for StorageFormat {
+    fn default() -> Self {
+        StorageFormat::V1
+    }
+}
 use platform_core::{ChallengeId, MiniChainError, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -19,8 +26,7 @@ use std::time::SystemTime;
 use tracing::{debug, info, warn};
 
 /// Storage format version for challenge data
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-    #[default]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StorageFormat {
     /// Original storage format
     V1,

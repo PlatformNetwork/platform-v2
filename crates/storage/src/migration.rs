@@ -9,6 +9,19 @@
 //! all validators to ensure consistent schema versions:
 //!
 //! ```ignore
+}
+
+impl Default for NetworkMigrationStatus {
+    fn default() -> Self {
+        Self {
+            network_version: 0,
+            validator_versions: HashMap::new(),
+            migration_in_progress: false,
+            target_version: None,
+            started_at: None,
+        }
+    }
+}
 //! use platform_storage::{NetworkMigrationCoordinator, NetworkMigrationStatus};
 //!
 //! let coordinator = NetworkMigrationCoordinator::new(&db)?;
@@ -193,7 +206,7 @@ pub struct MigrationChange {
 }
 
 /// Record of an applied migration
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MigrationRecord {
     pub version: MigrationVersion,
     pub name: String,
@@ -531,7 +544,7 @@ impl Migration for AddChallengeMetricsMigration {
 /// Tracks the migration state across the distributed validator network,
 /// ensuring all validators are synchronized before accepting new ones.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NetworkMigrationStatus {
+#[derive(Clone, Debug, Serialize, Deserialize)]
     /// Current network-wide schema version
     pub network_version: MigrationVersion,
     /// Validators that have reported their version (hotkey -> version)
