@@ -21,7 +21,6 @@ use tracing::{debug, info, warn};
 /// Storage format version for challenge data
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StorageFormat {
-pub enum StorageFormat {
     /// Original storage format
     V1,
     /// Updated storage format with improved serialization
@@ -34,8 +33,6 @@ impl Default for StorageFormat {
     fn default() -> Self {
         StorageFormat::V1
     }
-}
-    Custom,
 }
 
 /// Metadata for a single challenge
