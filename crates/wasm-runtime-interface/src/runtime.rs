@@ -1,4 +1,4 @@
-use crate::NetworkPolicy;
+use crate::{NetworkPolicy, NetworkState};
 use std::sync::Arc;
 use thiserror::Error;
 use wasmtime::{
@@ -65,6 +65,8 @@ impl Default for RuntimeConfig {
 pub struct InstanceConfig {
     pub network_policy: NetworkPolicy,
     pub memory_export: String,
+    pub challenge_id: String,
+    pub validator_id: String,
 }
 
 impl Default for InstanceConfig {
@@ -72,19 +74,30 @@ impl Default for InstanceConfig {
         Self {
             network_policy: NetworkPolicy::default(),
             memory_export: DEFAULT_WASM_MEMORY_NAME.to_string(),
+            challenge_id: "unknown".to_string(),
+            validator_id: "unknown".to_string(),
         }
     }
 }
 
 pub struct RuntimeState {
     pub network_policy: NetworkPolicy,
+    pub network_state: NetworkState,
+    pub memory_export: String,
     limits: StoreLimits,
 }
 
 impl RuntimeState {
-    pub fn new(network_policy: NetworkPolicy, limits: StoreLimits) -> Self {
+    pub fn new(
+        network_policy: NetworkPolicy,
+        network_state: NetworkState,
+        memory_export: String,
+        limits: StoreLimits,
+    ) -> Self {
         Self {
             network_policy,
+            network_state,
+            memory_export,
             limits,
         }
     }
@@ -145,8 +158,19 @@ impl WasmRuntime {
         let mut limits = StoreLimitsBuilder::new();
         limits = limits.memory_size(self.config.max_memory_bytes as usize);
         limits = limits.instances(self.config.max_instances as usize);
-        let runtime_state =
-            RuntimeState::new(instance_config.network_policy.clone(), limits.build());
+        let network_state = NetworkState::new(
+            instance_config.network_policy.clone(),
+            None,
+            instance_config.challenge_id.clone(),
+            instance_config.validator_id.clone(),
+        )
+        .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+        let runtime_state = RuntimeState::new(
+            instance_config.network_policy.clone(),
+            network_state,
+            instance_config.memory_export.clone(),
+            limits.build(),
+        );
         let mut store = Store::new(&self.engine, runtime_state);
 
         if self.config.allow_fuel {

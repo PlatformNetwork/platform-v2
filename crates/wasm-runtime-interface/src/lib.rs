@@ -9,14 +9,22 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
+pub mod network;
 pub mod runtime;
+pub use network::{NetworkHostFunctions, NetworkState, NetworkStateError};
+
+pub const HOST_FUNCTION_NAMESPACE: &str = "platform_network";
+pub const HOST_HTTP_REQUEST: &str = "http_request";
+pub const HOST_HTTP_GET: &str = "http_get";
+pub const HOST_HTTP_POST: &str = "http_post";
+pub const HOST_DNS_RESOLVE: &str = "dns_resolve";
 pub use runtime::{
     ChallengeInstance, HostFunctionRegistrar, InstanceConfig, RuntimeConfig, RuntimeState,
     WasmModule, WasmRuntime, WasmRuntimeError,
 };
 
 /// Host functions that may be exposed to WASM challenges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HostFunction {
     HttpRequest,
@@ -128,7 +136,7 @@ impl HttpPolicy {
 }
 
 /// Supported HTTP schemes for outbound requests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HttpScheme {
     Http,
@@ -192,7 +200,7 @@ impl DnsPolicy {
 }
 
 /// DNS record types permitted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DnsRecordType {
     A,
@@ -522,6 +530,21 @@ fn normalize_host_string<T: AsRef<str>>(host: &url::Host<T>) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpRequest {
     pub method: HttpMethod,
+    pub url: String,
+    pub headers: HashMap<String, String>,
+    pub body: Vec<u8>,
+}
+
+/// HTTP GET request payload for host calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpGetRequest {
+    pub url: String,
+    pub headers: HashMap<String, String>,
+}
+
+/// HTTP POST request payload for host calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpPostRequest {
     pub url: String,
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
