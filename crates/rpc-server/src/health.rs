@@ -14,7 +14,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 /// Health status of a component
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum HealthStatus {
     /// Component is healthy
@@ -26,15 +26,11 @@ pub enum HealthStatus {
     /// Component status is unknown
     Unknown,
 }
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        Self::Unknown
-    }
-}
+    #[default]
 
 /// Readiness status for traffic handling
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    #[default]
 #[serde(rename_all = "lowercase")]
 pub enum ReadinessStatus {
     /// Ready to accept traffic
@@ -43,12 +39,6 @@ pub enum ReadinessStatus {
     NotReady,
     /// Draining - finishing current work, not accepting new
     Draining,
-}
-
-impl Default for ReadinessStatus {
-    fn default() -> Self {
-        Self::NotReady
-    }
 }
 
 /// Health check response

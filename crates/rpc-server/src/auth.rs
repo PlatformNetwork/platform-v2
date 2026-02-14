@@ -163,12 +163,12 @@ mod tests {
         let message = "test:1234567890:nonce";
 
         // Test with signature that's too short (not 64 bytes)
-        let short_sig = hex::encode(&[0u8; 32]); // Only 32 bytes
+        let short_sig = hex::encode([0u8; 32]); // Only 32 bytes
         let result = verify_validator_signature(&kp.hotkey().to_hex(), message, &short_sig);
         assert!(result.is_err());
 
         // Test with signature that's too long
-        let long_sig = hex::encode(&[0u8; 128]); // 128 bytes
+        let long_sig = hex::encode([0u8; 128]); // 128 bytes
         let result = verify_validator_signature(&kp.hotkey().to_hex(), message, &long_sig);
         assert!(result.is_err());
     }

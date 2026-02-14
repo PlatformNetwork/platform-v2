@@ -846,20 +846,21 @@ mod tests {
         let state = create_test_state();
 
         // Add some jobs
-        let mut chain = state.chain_state.write();
-        for i in 0..5 {
-            let job = platform_core::Job {
-                id: uuid::Uuid::new_v4(),
-                challenge_id: ChallengeId::new(),
-                agent_hash: format!("hash{}", i),
-                status: platform_core::JobStatus::Pending,
-                created_at: chrono::Utc::now(),
-                assigned_validator: None,
-                result: None,
-            };
-            chain.pending_jobs.push(job);
+        {
+            let mut chain = state.chain_state.write();
+            for i in 0..5 {
+                let job = platform_core::Job {
+                    id: uuid::Uuid::new_v4(),
+                    challenge_id: ChallengeId::new(),
+                    agent_hash: format!("hash{}", i),
+                    status: platform_core::JobStatus::Pending,
+                    created_at: chrono::Utc::now(),
+                    assigned_validator: None,
+                    result: None,
+                };
+                chain.pending_jobs.push(job);
+            }
         }
-        drop(chain);
 
         let params = PaginationParams {
             offset: Some(1),
@@ -1032,13 +1033,14 @@ mod tests {
         let kp = Keypair::generate();
 
         // Fill validators to max capacity to trigger error
-        let mut chain = state.chain_state.write();
-        for i in 0..chain.config.max_validators {
-            let temp_kp = Keypair::generate();
-            let info = ValidatorInfo::new(temp_kp.hotkey(), Stake::new(5_000_000_000_000));
-            chain.validators.insert(temp_kp.hotkey(), info);
+        {
+            let mut chain = state.chain_state.write();
+            for i in 0..chain.config.max_validators {
+                let temp_kp = Keypair::generate();
+                let info = ValidatorInfo::new(temp_kp.hotkey(), Stake::new(5_000_000_000_000));
+                chain.validators.insert(temp_kp.hotkey(), info);
+            }
         }
-        drop(chain);
 
         let message = "register:1234567890:nonce";
         let signed = kp.sign(message.as_bytes());
