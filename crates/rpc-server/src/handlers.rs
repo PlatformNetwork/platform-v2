@@ -1035,7 +1035,7 @@ mod tests {
         // Fill validators to max capacity to trigger error
         {
             let mut chain = state.chain_state.write();
-            for i in 0..chain.config.max_validators {
+            for _ in 0..chain.config.max_validators {
                 let temp_kp = Keypair::generate();
                 let info = ValidatorInfo::new(temp_kp.hotkey(), Stake::new(5_000_000_000_000));
                 chain.validators.insert(temp_kp.hotkey(), info);

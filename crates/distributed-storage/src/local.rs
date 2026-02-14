@@ -1037,9 +1037,9 @@ mod tests {
 
         // Should fail with wrong version
         let options = PutOptions {
-            expected_version: Some(1), // Still expecting 1, but it's now 2
+            expected_version: Some(1),
             ..Default::default()
-        };
+        }; // Still expecting 1, but it's now 2
 
         let result = storage.put(key.clone(), b"v3".to_vec(), options).await;
         assert!(matches!(result, Err(StorageError::Conflict(_))));

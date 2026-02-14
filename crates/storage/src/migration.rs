@@ -202,6 +202,18 @@ pub struct MigrationRecord {
     pub checksum: [u8; 32],
 }
 
+impl Default for MigrationRecord {
+    fn default() -> Self {
+        Self {
+            version: 0,
+            name: String::new(),
+            applied_at: SystemTime::UNIX_EPOCH,
+            block_height: 0,
+            checksum: [0u8; 32],
+        }
+    }
+}
+
 /// Migration runner - manages and executes migrations
 pub struct MigrationRunner {
     migrations: BTreeMap<MigrationVersion, Box<dyn Migration>>,
@@ -889,7 +901,7 @@ pub trait ChallengeMigrationHandler: Send + Sync {
     fn source_version(&self) -> u64;
 
     /// Target schema version
-    fn to_version(&self) -> u64;
+    fn target_version(&self) -> u64;
 
     /// Run the migration
     fn migrate(&self, ctx: &mut MigrationContext) -> Result<()>;

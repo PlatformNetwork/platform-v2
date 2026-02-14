@@ -111,6 +111,7 @@ mod tests {
 
     #[test]
     fn test_humantime_deserialize_rejects_negative_values() {
+        #[allow(dead_code)]
         #[derive(Debug, Deserialize)]
         struct DurationWrapper {
             #[serde(with = "super::humantime_serde")]

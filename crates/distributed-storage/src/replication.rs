@@ -453,9 +453,9 @@ mod tests {
     #[test]
     fn test_replication_config_validation() {
         let mut config = ReplicationConfig {
-            write_quorum: 10, // Exceeds replication factor
+            write_quorum: 10,
             ..Default::default()
-        };
+        }; // Exceeds replication factor
         assert!(config.validate().is_err());
 
         config.write_quorum = 0;
