@@ -26,6 +26,10 @@ Validators evaluate challenges locally and publish weight commitments over the P
 
 These aggregated weights are submitted to Bittensor as the subnet’s consensus output.
 
+### Weight Aggregation at Epoch Boundaries
+
+At the epoch boundary, validators aggregate the revealed weights with a stake-weighted sum to produce the canonical weight matrix and a deterministic state hash. Validators reject late or mismatched reveals to keep the final aggregation deterministic. The finalized aggregation is the only weight matrix submitted back to Bittensor for the epoch.
+
 ## Architecture
 
 ```text
