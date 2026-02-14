@@ -985,8 +985,10 @@ mod tests {
         let (executor, dir) = create_test_executor();
         let config_path = dir.path().join("subnet_config.json");
 
-        let mut config = SubnetConfig::default();
-        config.epoch_length = 500;
+        let config = SubnetConfig {
+            epoch_length: 500,
+            ..Default::default()
+        };
         config.save(&config_path).unwrap();
 
         let new_length = 4321u64;
@@ -1015,8 +1017,10 @@ mod tests {
         let (executor, dir) = create_test_executor();
         let config_path = dir.path().join("subnet_config.json");
 
-        let mut config = SubnetConfig::default();
-        config.min_stake = 5_000;
+        let config = SubnetConfig {
+            min_stake: 5_000,
+            ..Default::default()
+        };
         config.save(&config_path).unwrap();
 
         let new_amount = 42_000u64;
@@ -1664,8 +1668,10 @@ mod tests {
         let (executor, dir) = create_test_executor();
 
         let config_path = dir.path().join("subnet_config.json");
-        let mut config = SubnetConfig::default();
-        config.epoch_length = 42;
+        let config = SubnetConfig {
+            epoch_length: 42,
+            ..Default::default()
+        };
         config.save(&config_path).unwrap();
 
         let result = executor
@@ -1682,8 +1688,10 @@ mod tests {
         let (executor, dir) = create_test_executor();
 
         let config_path = dir.path().join("subnet_config.json");
-        let mut config = SubnetConfig::default();
-        config.min_stake = 123;
+        let config = SubnetConfig {
+            min_stake: 123,
+            ..Default::default()
+        };
         config.save(&config_path).unwrap();
 
         let result = executor

@@ -360,9 +360,8 @@ fn test_sudo_action_invalid_signature_rejected() {
     // Verification should fail
     let result = signed.verify();
     // After tampering, verify should return false or error
-    match result {
-        Ok(valid) => assert!(!valid, "Tampered signature should not verify"),
-        Err(_) => {} // Errors are also acceptable for invalid signatures
+    if let Ok(valid) = result {
+        assert!(!valid, "Tampered signature should not verify");
     }
 }
 
@@ -489,9 +488,9 @@ fn test_challenge_config_validate_emission_weight_bounds() {
             ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 0, weight);
         let result = config.validate();
         assert!(result.is_err(), "Weight {} should be invalid", weight);
-        if result.is_err() {
+        if let Err(err) = result {
             assert!(
-                result.unwrap_err().contains("Emission weight"),
+                err.contains("Emission weight"),
                 "Error should mention emission weight"
             );
         }
@@ -916,9 +915,11 @@ fn test_refresh_challenges_specific() {
 
 #[test]
 fn test_sudo_update_config_action() {
-    let mut config = NetworkConfig::default();
-    config.max_validators = 64;
-    config.consensus_threshold = 0.67;
+    let config = NetworkConfig {
+        max_validators: 64,
+        consensus_threshold: 0.67,
+        ..Default::default()
+    };
 
     let action = SudoAction::UpdateConfig {
         config: config.clone(),

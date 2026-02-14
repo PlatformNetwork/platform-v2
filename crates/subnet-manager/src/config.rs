@@ -376,9 +376,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("subnet_config.json");
 
-        let mut config = SubnetConfig::default();
-        config.name = "Load Test".into();
-        config.max_validators = 42;
+        let config = SubnetConfig {
+            name: "Load Test".into(),
+            max_validators: 42,
+            ..Default::default()
+        };
         config.save(&path).unwrap();
 
         let loaded = SubnetConfig::load(&path).unwrap();
@@ -389,18 +391,24 @@ mod tests {
 
     #[test]
     fn test_subnet_config_validate_errors() {
-        let mut config = SubnetConfig::default();
-        config.epoch_length = 0;
+        let config = SubnetConfig {
+            epoch_length: 0,
+            ..Default::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::InvalidValue(msg) if msg.contains("epoch_length")));
 
-        let mut config = SubnetConfig::default();
-        config.max_validators = 0;
+        let config = SubnetConfig {
+            max_validators: 0,
+            ..Default::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::InvalidValue(msg) if msg.contains("max_validators")));
 
-        let mut config = SubnetConfig::default();
-        config.weight_interval = 0;
+        let config = SubnetConfig {
+            weight_interval: 0,
+            ..Default::default()
+        };
         let err = config.validate().unwrap_err();
         assert!(matches!(err, ConfigError::InvalidValue(msg) if msg.contains("weight_interval")));
     }

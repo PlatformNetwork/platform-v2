@@ -347,9 +347,10 @@ mod tests {
     }
 
     fn base_metrics() -> HealthMetrics {
-        let mut metrics = HealthMetrics::default();
-        metrics.connected_peers = 5;
-        metrics
+        HealthMetrics {
+            connected_peers: 5,
+            ..Default::default()
+        }
     }
 
     #[test]

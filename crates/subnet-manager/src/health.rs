@@ -829,7 +829,7 @@ mod tests {
         let status = monitor.check_job_queue(&metrics);
         assert_eq!(status.status, HealthStatus::Degraded);
         assert!(status.details.contains("75 pending"));
-        assert!(matches!(status.last_success, Some(_)));
+        assert!(status.last_success.is_some());
     }
 
     #[test]
@@ -847,7 +847,7 @@ mod tests {
         let result = monitor.check_evaluations(&metrics);
         assert_eq!(result.status, HealthStatus::Healthy);
         assert!(result.details.contains("0/hr"));
-        assert!(matches!(result.last_success, Some(_)));
+        assert!(result.last_success.is_some());
         assert!(monitor.active_alerts().is_empty());
     }
 
@@ -869,7 +869,7 @@ mod tests {
         let result = monitor.check_evaluations(&metrics);
         assert_eq!(result.status, HealthStatus::Degraded);
         assert!(result.details.contains("5000ms"));
-        assert!(matches!(result.last_success, Some(_)));
+        assert!(result.last_success.is_some());
         assert!(!monitor.active_alerts().is_empty());
     }
 

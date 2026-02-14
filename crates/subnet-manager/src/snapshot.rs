@@ -645,8 +645,8 @@ mod tests {
         assert_eq!(snapshots.len(), 5);
 
         // Verify they're tracked
-        for i in 0..5 {
-            assert_eq!(snapshots[i].block_height, (i * 100) as u64);
+        for (i, snapshot) in snapshots.iter().enumerate().take(5) {
+            assert_eq!(snapshot.block_height, (i * 100) as u64);
         }
     }
 
