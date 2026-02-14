@@ -1,5 +1,6 @@
 [build]
 # Use all available CPU cores for compilation.
+# Override with CARGO_BUILD_JOBS if needed.
 jobs = "default"
 
 [env]
