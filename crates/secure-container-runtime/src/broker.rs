@@ -1,7 +1,9 @@
-//! Container broker - manages Docker containers securely
+//! Container broker — manages Docker deployment containers securely.
 //!
-//! This is the only component that has access to the Docker socket.
-//! It enforces security policies and provides a controlled interface.
+//! This is the only component that has access to the Docker socket.  It
+//! enforces security policies and provides a controlled interface for
+//! **validator deployment infrastructure**.  Challenge execution is handled
+//! by the WASM sandbox (`wasm-runtime`) and never touches Docker.
 
 use crate::policy::SecurityPolicy;
 use crate::protocol::{Request, Response};
@@ -961,9 +963,7 @@ impl ContainerBroker {
         // but typically expects the file inside the tar.
         // For this implementation, we'll assume:
         // - If context is None: create tar with Dockerfile content named "Dockerfile"
-        // - If context is Some: use it as is, ignore dockerfile_content (or expect client to have put it in context)
-        // BUT the API has `dockerfile` param. Let's support the simple case first (no context).
-
+        // - If context is Some: use it as is, ignore dockerfile_content
         let options = BuildImageOptions {
             t: tag,
             dockerfile: "Dockerfile",

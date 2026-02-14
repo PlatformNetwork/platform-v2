@@ -1,18 +1,27 @@
-//! Core types for secure container runtime
+//! Core types for the secure container runtime.
+//!
+//! These types define the configuration, status, and error structures used by
+//! the container broker for **validator deployment infrastructure**.  Challenge
+//! execution is handled by the WASM sandbox (`wasm-runtime`) and does not use
+//! these types.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Container creation configuration
+/// Container creation configuration for deployment services.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ContainerConfig {
-    /// Docker image to use (must be whitelisted)
+    /// Docker image to use (must be whitelisted by policy)
     pub image: String,
 
-    /// Challenge ID that owns this container
+    /// Service / deployment group identifier.
+    ///
+    /// Historically called `challenge_id` for backwards compatibility with
+    /// the orchestrator layer.  In the deployment-only context this identifies
+    /// the logical service group (e.g. "validator-node", "monitoring").
     pub challenge_id: String,
 
-    /// Owner identifier (validator hotkey, miner ID, etc.)
+    /// Owner identifier (validator hotkey)
     pub owner_id: String,
 
     /// Container name (optional, will be auto-generated if not provided)
@@ -36,7 +45,7 @@ pub struct ContainerConfig {
     /// Volume mounts (host:container, read-only enforced for security)
     pub mounts: Vec<MountConfig>,
 
-    /// Labels for container (challenge metadata)
+    /// Labels for container (deployment metadata)
     pub labels: HashMap<String, String>,
 
     /// User to run container as (e.g., "root", "1000:1000")
@@ -44,7 +53,7 @@ pub struct ContainerConfig {
     pub user: Option<String>,
 }
 
-/// Resource limits for containers
+/// Resource limits for deployment containers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceLimits {
     /// Memory limit in bytes
@@ -71,7 +80,7 @@ impl Default for ResourceLimits {
     }
 }
 
-/// Network configuration
+/// Network configuration for deployment containers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkConfig {
     /// Network mode: "none", "bridge", "isolated"
@@ -94,7 +103,7 @@ impl Default for NetworkConfig {
     }
 }
 
-/// Network mode for containers
+/// Network mode for deployment containers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NetworkMode {
@@ -102,14 +111,14 @@ pub enum NetworkMode {
     None,
     /// Bridge network (isolated from host)
     Bridge,
-    /// Isolated network (only challenge containers)
+    /// Isolated network (only deployment containers on the platform network)
     Isolated,
 }
 
-/// Mount configuration
+/// Mount configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MountConfig {
-    /// Source path on host (will be validated)
+    /// Source path on host (will be validated against policy)
     pub source: String,
 
     /// Target path in container
@@ -119,7 +128,7 @@ pub struct MountConfig {
     pub read_only: bool,
 }
 
-/// Container status
+/// Container status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerState {
@@ -132,7 +141,7 @@ pub enum ContainerState {
     Unknown,
 }
 
-/// Information about a running container
+/// Information about a managed deployment container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerInfo {
     /// Container ID (short form)
@@ -141,10 +150,10 @@ pub struct ContainerInfo {
     /// Container name
     pub name: String,
 
-    /// Challenge ID
+    /// Service group / deployment identifier
     pub challenge_id: String,
 
-    /// Owner ID
+    /// Owner ID (validator hotkey)
     pub owner_id: String,
 
     /// Image used
@@ -166,7 +175,7 @@ pub struct ContainerInfo {
     pub labels: HashMap<String, String>,
 }
 
-/// Result of command execution in container
+/// Result of command execution in a deployment container.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecResult {
     /// Standard output
@@ -185,7 +194,7 @@ pub struct ExecResult {
     pub timed_out: bool,
 }
 
-/// Audit log entry
+/// Audit log entry for deployment operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEntry {
     /// Timestamp
@@ -194,7 +203,7 @@ pub struct AuditEntry {
     /// Action performed
     pub action: AuditAction,
 
-    /// Challenge ID
+    /// Service group identifier
     pub challenge_id: String,
 
     /// Owner ID
@@ -213,7 +222,7 @@ pub struct AuditEntry {
     pub details: HashMap<String, String>,
 }
 
-/// Audit action types
+/// Audit action types for deployment operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditAction {
@@ -227,7 +236,7 @@ pub enum AuditAction {
     PolicyViolation,
 }
 
-/// Error types for container operations
+/// Error types for container operations.
 #[derive(Debug, Clone, thiserror::Error, Serialize, Deserialize)]
 pub enum ContainerError {
     #[error("Image not whitelisted: {0}")]
@@ -261,12 +270,17 @@ pub enum ContainerError {
     InvalidRequest(String),
 }
 
-/// Standard labels applied to all containers
+/// Standard labels applied to all managed deployment containers.
 pub mod labels {
+    /// Service group / deployment identifier label.
     pub const CHALLENGE_ID: &str = "platform.challenge.id";
+    /// Owner (validator) identifier label.
     pub const OWNER_ID: &str = "platform.owner.id";
+    /// Creator label.
     pub const CREATED_BY: &str = "platform.created-by";
+    /// Broker version label.
     pub const BROKER_VERSION: &str = "platform.broker.version";
+    /// Indicates the container is managed by the broker.
     pub const MANAGED: &str = "platform.managed";
 }
 

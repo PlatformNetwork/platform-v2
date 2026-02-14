@@ -1,4 +1,8 @@
-//! Protocol for broker-client communication over Unix socket
+//! Protocol for broker-client communication over Unix socket.
+//!
+//! Defines the request/response types exchanged between the deployment broker
+//! and its clients.  Only used for validator infrastructure — challenge
+//! execution runs in the WASM sandbox.
 
 use crate::types::*;
 use serde::{Deserialize, Serialize};

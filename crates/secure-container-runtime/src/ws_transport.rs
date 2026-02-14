@@ -1,7 +1,7 @@
-//! WebSocket transport for container broker
+//! WebSocket transport for the deployment container broker.
 //!
-//! Allows challenges to connect via WebSocket instead of Unix socket.
-//! Supports JWT authentication for secure remote access.
+//! Allows validator deployment services to connect via WebSocket instead of
+//! Unix socket.  Supports JWT authentication for secure remote access.
 
 use crate::protocol::{decode_request, encode_response, Response};
 use crate::types::ContainerError;

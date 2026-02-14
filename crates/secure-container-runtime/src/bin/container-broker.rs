@@ -1,7 +1,9 @@
-//! Container Broker Daemon
+//! Container Broker Daemon — Validator Deployment Infrastructure
 //!
-//! This is the ONLY process that should have access to the Docker socket.
-//! It listens on a Unix socket AND/OR WebSocket and manages containers securely.
+//! This is the ONLY process that should have access to the Docker socket.  It
+//! listens on a Unix socket AND/OR WebSocket and manages deployment containers
+//! securely.  Challenge execution is handled by the WASM sandbox and does not
+//! use Docker.
 //!
 //! Usage:
 //!   container-broker [OPTIONS]

@@ -2,7 +2,7 @@
 name = "secure-container-runtime"
 version = "0.1.0"
 edition = "2021"
-description = "Secure container runtime broker - isolates Docker socket access"
+description = "Secure container runtime broker for validator deployment infrastructure - isolates Docker socket access"
 license = "MIT"
 
 [dependencies]

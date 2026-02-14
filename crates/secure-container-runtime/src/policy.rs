@@ -1,13 +1,23 @@
-//! Security policy enforcement for container operations
+//! Security policy enforcement for validator deployment containers.
+//!
+//! These policies govern Docker containers used for **validator infrastructure
+//! deployment only**.  Challenge execution is handled by the WASM sandbox
+//! (`wasm-runtime` crate) and does not pass through this policy layer.
 
 use crate::types::*;
 use std::collections::HashSet;
 use tracing::{info, warn};
 
-/// Security policy configuration
+/// Security policy configuration for deployment containers.
+///
+/// Controls which images may be pulled, what resource limits are enforced, which
+/// host paths may be mounted, and how networking is configured.  All validation
+/// applies to validator deployment infrastructure — challenge workloads never
+/// reach this layer.
 #[derive(Debug, Clone)]
 pub struct SecurityPolicy {
-    /// Allowed image prefixes (e.g., "ghcr.io/platformnetwork/")
+    /// Allowed image prefixes (e.g., "ghcr.io/platformnetwork/").
+    /// An empty list means all images are allowed (use with caution).
     pub allowed_image_prefixes: Vec<String>,
 
     /// Maximum memory per container (bytes)
@@ -19,10 +29,10 @@ pub struct SecurityPolicy {
     /// Maximum PIDs per container
     pub max_pids: i64,
 
-    /// Maximum containers per challenge
+    /// Maximum containers per service group
     pub max_containers_per_challenge: usize,
 
-    /// Maximum containers per owner
+    /// Maximum containers per owner (validator)
     pub max_containers_per_owner: usize,
 
     /// Allowed mount source prefixes
@@ -31,7 +41,7 @@ pub struct SecurityPolicy {
     /// Forbidden mount paths (never allow mounting these)
     pub forbidden_mount_paths: HashSet<String>,
 
-    /// Allow privileged containers (should always be false)
+    /// Allow privileged containers (should always be false in production)
     pub allow_privileged: bool,
 
     /// Allow host network mode
@@ -56,11 +66,9 @@ impl Default for SecurityPolicy {
         forbidden.insert("/dev".to_string());
 
         Self {
-            // SECURITY: Default to Platform images only to prevent supply chain attacks
-            // Use permissive() for development/testing if all images need to be allowed
             allowed_image_prefixes: vec![
                 "ghcr.io/platformnetwork/".to_string(),
-                "platform-".to_string(), // Local builds
+                "platform-".to_string(),
             ],
             max_memory_bytes: 8 * 1024 * 1024 * 1024, // 8GB
             max_cpu_cores: 4.0,
@@ -81,64 +89,52 @@ impl Default for SecurityPolicy {
 }
 
 impl SecurityPolicy {
-    /// Create a strict policy for production with image whitelist
+    /// Create a strict policy for production with image whitelist.
     pub fn strict() -> Self {
         Self {
-            // Only allow platform images in strict mode
             allowed_image_prefixes: vec!["ghcr.io/platformnetwork/".to_string()],
             ..Default::default()
         }
     }
 
-    /// Create a permissive policy that allows all images (USE WITH CAUTION)
-    /// This should only be used in development/testing environments.
-    /// In production, use default() or strict() with explicit image whitelisting.
+    /// Create a permissive policy that allows all images (**development only**).
     pub fn permissive() -> Self {
         let mut policy = Self::default();
         policy.allowed_image_prefixes.clear();
         policy
     }
 
-    /// Create a more permissive policy for development
+    /// Create a more permissive policy for local development.
     pub fn development() -> Self {
         let mut policy = Self::default();
         policy
             .allowed_mount_prefixes
             .push("/workspace/".to_string());
-        // Allow Docker volume paths for Docker-in-Docker scenarios
         policy
             .allowed_mount_prefixes
             .push("/var/lib/docker/volumes/".to_string());
         policy
     }
 
-    /// Allow all images (no whitelist check)
+    /// Remove the image whitelist so all images are accepted.
     pub fn allow_all_images(mut self) -> Self {
         self.allowed_image_prefixes.clear();
         self
     }
 
-    /// Add allowed image prefix
+    /// Add an allowed image prefix.
     pub fn with_image_prefix(mut self, prefix: &str) -> Self {
         self.allowed_image_prefixes.push(prefix.to_string());
         self
     }
 
-    /// Validate a container configuration against policy
+    /// Validate a container configuration against the policy.
     pub fn validate(&self, config: &ContainerConfig) -> Result<(), ContainerError> {
-        // Check image is whitelisted
         self.validate_image(&config.image)?;
-
-        // Check resource limits
         self.validate_resources(&config.resources)?;
-
-        // Check mounts
         self.validate_mounts(&config.mounts)?;
-
-        // Check network config
         self.validate_network(&config.network)?;
 
-        // Validate required fields
         if config.challenge_id.is_empty() {
             return Err(ContainerError::InvalidConfig(
                 "challenge_id is required".to_string(),
@@ -154,10 +150,9 @@ impl SecurityPolicy {
         Ok(())
     }
 
-    /// Validate image is from allowed registry
-    /// If allowed_image_prefixes is empty, all images are allowed
+    /// Validate image is from an allowed registry.
+    /// If `allowed_image_prefixes` is empty, all images are allowed.
     pub fn validate_image(&self, image: &str) -> Result<(), ContainerError> {
-        // Empty whitelist = allow all images
         if self.allowed_image_prefixes.is_empty() {
             return Ok(());
         }
@@ -178,7 +173,7 @@ impl SecurityPolicy {
         Err(ContainerError::ImageNotWhitelisted(image.to_string()))
     }
 
-    /// Validate resource limits
+    /// Validate resource limits.
     pub fn validate_resources(&self, resources: &ResourceLimits) -> Result<(), ContainerError> {
         if resources.memory_bytes > self.max_memory_bytes {
             return Err(ContainerError::ResourceLimitExceeded(format!(
@@ -204,10 +199,9 @@ impl SecurityPolicy {
         Ok(())
     }
 
-    /// Validate mount configurations
+    /// Validate mount configurations.
     pub fn validate_mounts(&self, mounts: &[MountConfig]) -> Result<(), ContainerError> {
         for mount in mounts {
-            // SECURITY: Check for path traversal attempts (../)
             if mount.source.contains("..") {
                 warn!(source = %mount.source, "SECURITY: Blocked path traversal attempt");
                 return Err(ContainerError::PolicyViolation(format!(
@@ -216,7 +210,6 @@ impl SecurityPolicy {
                 )));
             }
 
-            // Normalize the path for security checks to prevent bypass attacks
             let source_path = std::path::Path::new(&mount.source);
             let normalized =
                 source_path
@@ -234,7 +227,6 @@ impl SecurityPolicy {
                     });
             let normalized_str = normalized.to_string_lossy();
 
-            // Check for forbidden paths using normalized path
             for forbidden in &self.forbidden_mount_paths {
                 if normalized_str.starts_with(forbidden) || normalized_str == *forbidden {
                     warn!(
@@ -249,7 +241,6 @@ impl SecurityPolicy {
                 }
             }
 
-            // Special check for Docker socket (check both original and normalized)
             if (mount.source.contains("docker.sock") || normalized_str.contains("docker.sock"))
                 && !self.allow_docker_socket
             {
@@ -259,7 +250,6 @@ impl SecurityPolicy {
                 ));
             }
 
-            // Check source is in allowed prefixes using normalized path
             let allowed = self
                 .allowed_mount_prefixes
                 .iter()
@@ -272,7 +262,6 @@ impl SecurityPolicy {
                 )));
             }
 
-            // Enforce read-only for most mounts
             if !mount.read_only {
                 info!(
                     source = %mount.source,
@@ -284,14 +273,12 @@ impl SecurityPolicy {
         Ok(())
     }
 
-    /// Validate network configuration
+    /// Validate network configuration.
     pub fn validate_network(&self, network: &NetworkConfig) -> Result<(), ContainerError> {
-        // Host network is never allowed for challenge containers
         if !self.allow_host_network {
             // NetworkMode doesn't have Host variant, so we're safe
         }
 
-        // Internet access should be explicitly approved
         if network.allow_internet {
             info!("Container requests internet access - ensure this is intended");
         }
@@ -299,7 +286,7 @@ impl SecurityPolicy {
         Ok(())
     }
 
-    /// Check if challenge can create more containers
+    /// Check if a service group can create more containers.
     pub fn check_container_limit(
         &self,
         challenge_id: &str,
@@ -314,7 +301,7 @@ impl SecurityPolicy {
         Ok(())
     }
 
-    /// Check if owner can create more containers
+    /// Check if an owner can create more containers.
     pub fn check_owner_limit(
         &self,
         owner_id: &str,
@@ -341,7 +328,6 @@ mod tests {
         assert!(!policy.allow_privileged);
         assert!(!policy.allow_docker_socket);
         assert!(!policy.allow_host_network);
-        // SECURITY: Default policy should have image whitelisting enabled
         assert!(!policy.allowed_image_prefixes.is_empty());
         assert!(policy
             .allowed_image_prefixes
@@ -357,13 +343,11 @@ mod tests {
         assert!(policy
             .validate_image("ghcr.io/platformnetwork/term-challenge:latest")
             .is_ok());
-        // Local platform builds should also be allowed
         assert!(policy.validate_image("platform-challenge:latest").is_ok());
     }
 
     #[test]
     fn test_validate_image_blocked() {
-        // Default policy now has whitelist enabled
         let policy = SecurityPolicy::default();
         assert!(policy
             .validate_image("docker.io/malicious/image:latest")
@@ -373,7 +357,6 @@ mod tests {
 
     #[test]
     fn test_permissive_allows_all_images() {
-        // Permissive policy has no whitelist, allows all images
         let policy = SecurityPolicy::permissive();
         assert!(policy.allowed_image_prefixes.is_empty());
         assert!(policy.validate_image("docker.io/any/image:latest").is_ok());
@@ -398,7 +381,6 @@ mod tests {
     fn test_validate_resources() {
         let policy = SecurityPolicy::default();
 
-        // Valid resources
         let resources = ResourceLimits {
             memory_bytes: 2 * 1024 * 1024 * 1024,
             cpu_cores: 2.0,
@@ -407,9 +389,8 @@ mod tests {
         };
         assert!(policy.validate_resources(&resources).is_ok());
 
-        // Excessive memory
         let resources = ResourceLimits {
-            memory_bytes: 100 * 1024 * 1024 * 1024, // 100GB
+            memory_bytes: 100 * 1024 * 1024 * 1024,
             ..Default::default()
         };
         assert!(policy.validate_resources(&resources).is_err());
@@ -499,7 +480,7 @@ mod tests {
         let policy = SecurityPolicy::default();
         let resources = ResourceLimits {
             memory_bytes: 1024 * 1024 * 1024,
-            cpu_cores: 10.0, // Exceeds max_cpu_cores (4.0)
+            cpu_cores: 10.0,
             pids_limit: 100,
             disk_quota_bytes: 0,
         };
@@ -513,7 +494,7 @@ mod tests {
         let resources = ResourceLimits {
             memory_bytes: 1024 * 1024 * 1024,
             cpu_cores: 1.0,
-            pids_limit: 10000, // Exceeds max_pids (512)
+            pids_limit: 10000,
             disk_quota_bytes: 0,
         };
 
@@ -594,7 +575,6 @@ mod tests {
             read_only: true,
         }];
 
-        // Should be blocked due to containing "docker.sock"
         assert!(policy.validate_mounts(&mounts).is_err());
     }
 
@@ -608,7 +588,6 @@ mod tests {
     fn test_validate_mounts_path_traversal() {
         let policy = SecurityPolicy::default();
 
-        // Test various path traversal attempts
         let traversal_attempts = vec![
             "/tmp/../etc/passwd",
             "/tmp/data/../../../etc/shadow",
@@ -633,7 +612,6 @@ mod tests {
     #[test]
     fn test_permissive_policy() {
         let policy = SecurityPolicy::permissive();
-        // Permissive policy should allow any image
         assert!(policy.allowed_image_prefixes.is_empty());
         assert!(policy.validate_image("any/random:image").is_ok());
     }

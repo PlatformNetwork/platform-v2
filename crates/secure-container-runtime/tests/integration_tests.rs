@@ -1,11 +1,8 @@
-//! Integration tests for secure container runtime
+//! Integration tests for secure container runtime (deployment infrastructure).
 //!
-//! These tests verify:
-//! 1. Security policy enforcement
-//! 2. Container lifecycle management
-//! 3. Resource limits
-//! 4. Network isolation
-//! 5. Audit logging
+//! These tests verify the security policies and container lifecycle used for
+//! **validator deployment** only.  Challenge execution is handled by the WASM
+//! sandbox and is tested separately.
 //!
 //! Run with: cargo test --test integration_tests -- --ignored
 

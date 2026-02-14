@@ -1,21 +1,33 @@
-//! Secure Container Runtime
+//! Secure Container Runtime — Validator Deployment Infrastructure
 //!
-//! This crate provides a secure broker for container management that:
-//! - Isolates Docker socket access to a single broker process
-//! - Enforces security policies (whitelisted images, non-privileged)
-//! - Tags all containers with challenge/owner metadata
-//! - Provides audit logging for all container operations
-//! - Exposes a Unix socket API for unprivileged clients
+//! This crate provides a secure Docker container broker used **exclusively** for
+//! validator deployment infrastructure.  It is **not** used for challenge
+//! execution — all challenge workloads run inside the deterministic WASM
+//! sandbox provided by `wasm-runtime`.
+//!
+//! ## Scope
+//!
+//! | Concern                | Handled here? | Where instead?         |
+//! |------------------------|:-------------:|------------------------|
+//! | Validator node deploy  | ✅            | —                      |
+//! | Service containers     | ✅            | —                      |
+//! | Challenge execution    | ❌            | `wasm-runtime` crate   |
+//! | Challenge sandboxing   | ❌            | `wasm-runtime` crate   |
 //!
 //! ## Architecture
 //!
 //! ```text
 //! ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-//! │ Challenge/      │    │ Container       │    │ Docker Daemon   │
-//! │ Validator       │───▶│ Broker          │───▶│ (only broker    │
-//! │ (no socket)     │    │ (Unix Socket)   │    │  has access)    │
+//! │ Validator        │    │ Container       │    │ Docker Daemon   │
+//! │ Deployment       │───▶│ Broker          │───▶│ (only broker    │
+//! │ (no socket)      │    │ (Unix Socket)   │    │  has access)    │
 //! └─────────────────┘    └─────────────────┘    └─────────────────┘
 //! ```
+//!
+//! The broker is the **only** process with Docker socket access.  Validator
+//! components communicate with it over a Unix socket or authenticated
+//! WebSocket.  Security policies enforce image whitelisting, resource limits,
+//! network isolation, and mount restrictions.
 //!
 //! ## Usage
 //!
@@ -26,13 +38,11 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     // Connect to broker
 //!     let client = SecureContainerClient::new("/var/run/platform/broker.sock");
-//!     
-//!     // Create container config
+//!
 //!     let config = ContainerConfigBuilder::new(
-//!         "ghcr.io/platformnetwork/term-challenge:latest",
-//!         "my-challenge",
+//!         "ghcr.io/platformnetwork/validator-service:latest",
+//!         "validator-deploy",
 //!         "owner-123",
 //!     )
 //!     .memory_gb(2.0)
@@ -40,14 +50,12 @@
 //!     .expose(8080)
 //!     .network_mode(NetworkMode::Isolated)
 //!     .build();
-//!     
-//!     // Create and start container
+//!
 //!     let (container_id, name) = client.create_container(config).await?;
 //!     client.start_container(&container_id).await?;
-//!     
-//!     // Cleanup all containers for a challenge
-//!     client.cleanup_challenge("my-challenge").await?;
-//!     
+//!
+//!     client.cleanup_challenge("validator-deploy").await?;
+//!
 //!     Ok(())
 //! }
 //! ```

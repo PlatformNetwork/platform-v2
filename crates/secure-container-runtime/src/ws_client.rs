@@ -1,7 +1,9 @@
-//! WebSocket client for communicating with the container broker
+//! WebSocket client for communicating with the deployment container broker.
 //!
 //! This client connects to the broker via WebSocket with JWT authentication.
-//! Use this for challenges running in containers without Unix socket access.
+//! Used by validator deployment services that cannot access the Unix socket.
+//! Challenge execution is handled by the WASM sandbox and does not use this
+//! client.
 
 use crate::protocol::{Request, Response};
 use crate::types::*;

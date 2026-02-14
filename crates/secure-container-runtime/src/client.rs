@@ -1,7 +1,9 @@
-//! Client for communicating with the container broker
+//! Client for communicating with the deployment container broker.
 //!
-//! This client connects to the broker via Unix socket.
-//! It does NOT have direct Docker socket access.
+//! This client connects to the broker via Unix socket and is used for
+//! **validator deployment infrastructure only**.  It does NOT have direct
+//! Docker socket access.  Challenge workloads are executed in the WASM
+//! sandbox and do not use this client.
 
 use crate::protocol::{Request, Response};
 use crate::types::*;
