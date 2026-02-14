@@ -72,8 +72,9 @@ pub struct RegisteredChallenge {
     pub state_store: Arc<StateStore>,
 }
 
+type EventListeners = Vec<Box<dyn Fn(LifecycleEvent) + Send + Sync>>;
+
 /// Main challenge registry
-pub struct ChallengeRegistry {
 pub struct ChallengeRegistry {
     /// Registered challenges by ID
     challenges: RwLock<HashMap<ChallengeId, RegisteredChallenge>>,
@@ -85,8 +86,6 @@ pub struct ChallengeRegistry {
     health_monitor: Arc<HealthMonitor>,
     /// Event listeners
     event_listeners: RwLock<EventListeners>,
-
-type EventListeners = Vec<Box<dyn Fn(LifecycleEvent) + Send + Sync>>;
 }
 
 impl ChallengeRegistry {
