@@ -44,10 +44,12 @@ verify_config_composition() {
     local nightly_config="${PLATFORM_TEST_ROOT}/rust-toolchain-nightly.toml"
 
     log_info "Verifying config composition"
-    assert_config_contains "${cargo_config}" 'PLATFORM_LINKER_RUSTFLAGS = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS}", force = false }'
-    assert_config_contains "${cargo_config}" 'PLATFORM_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN}", force = false }'
-    assert_config_contains "${cargo_config}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
-    assert_config_contains "${cargo_config}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
+    assert_config_contains "${cargo_config}" 'PLATFORM_FAST_LINKER_RUSTFLAGS = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS}", force = false }'
+    assert_config_contains "${cargo_config}" 'PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN}", force = false }'
+    assert_config_contains "${cargo_config}" 'PLATFORM_LINKER_RUSTFLAGS = { value = "${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
+    assert_config_contains "${cargo_config}" 'PLATFORM_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
+    assert_config_contains "${cargo_config}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
+    assert_config_contains "${cargo_config}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
     assert_config_contains "${nightly_config}" 'PLATFORM_NIGHTLY_RUSTFLAGS = "-Z threads=0"'
 }
 

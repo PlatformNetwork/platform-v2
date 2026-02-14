@@ -14,23 +14,26 @@ jobs = "default"
 # PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN: fast linker defaults for macOS (lld or zld).
 #   Example: PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN="-C link-arg=-fuse-ld=lld"
 #   Example: PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN="-C link-arg=-fuse-ld=zld"
-# PLATFORM_LINKER_RUSTFLAGS: explicit fast linker flags (overrides defaults).
+# PLATFORM_LINKER_RUSTFLAGS: explicit fast linker flags (appended after defaults).
 #   Example: PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 #   Example: PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=lld"
-# PLATFORM_LINKER_RUSTFLAGS_DARWIN: explicit fast linker flags for macOS.
+# PLATFORM_LINKER_RUSTFLAGS_DARWIN: explicit fast linker flags for macOS (appended after defaults).
 #   Example: PLATFORM_LINKER_RUSTFLAGS_DARWIN="-C link-arg=-fuse-ld=lld"
 #   Example: PLATFORM_LINKER_RUSTFLAGS_DARWIN="-C link-arg=-fuse-ld=zld"
 # PLATFORM_DISABLE_NIGHTLY: set to 1 to disable nightly flags.
 # PLATFORM_RUST_NIGHTLY: set to 1 to force nightly flags.
-# Fast-linker defaults are opt-in: set PLATFORM_FAST_LINKER_RUSTFLAGS
-# or PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN to enable on a system
-# with the desired linker installed.
-# RUSTFLAGS is composed from the env-gated values above.
 PLATFORM_DISABLE_NIGHTLY = { value = "${PLATFORM_DISABLE_NIGHTLY}", force = false }
 PLATFORM_RUST_NIGHTLY = { value = "${PLATFORM_RUST_NIGHTLY}", force = false }
-PLATFORM_LINKER_RUSTFLAGS = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS}", force = false }
-PLATFORM_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN}", force = false }
-RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }
+# Fast-linker defaults are opt-in: set PLATFORM_FAST_LINKER_RUSTFLAGS
+# or PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN to enable on a system
+# with the desired linker installed. Set PLATFORM_DISABLE_FAST_LINKER=1
+# to ignore fast-linker settings (scripts clear the env values).
+PLATFORM_DISABLE_FAST_LINKER = { value = "${PLATFORM_DISABLE_FAST_LINKER}", force = false }
+PLATFORM_FAST_LINKER_RUSTFLAGS = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS}", force = false }
+PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN}", force = false }
+PLATFORM_LINKER_RUSTFLAGS = { value = "${PLATFORM_LINKER_RUSTFLAGS}", force = false }
+PLATFORM_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }
+RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }
 
 [target.'cfg(target_os = "macos")'.env]
-RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }
+RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }
