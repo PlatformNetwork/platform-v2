@@ -601,7 +601,7 @@ mod tests {
     #[test]
     fn test_validate_mounts_empty_list() {
         let policy = SecurityPolicy::default();
-        assert!(policy.validate_mounts(&vec![]).is_ok());
+        assert!(policy.validate_mounts(&[]).is_ok());
     }
 
     #[test]

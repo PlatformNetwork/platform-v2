@@ -714,10 +714,10 @@ mod tests {
         assert_eq!(config.resources.pids_limit, 128);
         assert_eq!(config.network.mode, NetworkMode::Bridge);
         assert_eq!(config.network.ports.get(&8080), Some(&8080));
-        assert_eq!(config.network.allow_internet, true);
+        assert!(config.network.allow_internet);
         assert_eq!(config.mounts.len(), 2);
-        assert_eq!(config.mounts[0].read_only, false);
-        assert_eq!(config.mounts[1].read_only, true);
+        assert!(!config.mounts[0].read_only);
+        assert!(config.mounts[1].read_only);
         assert_eq!(config.labels.get("version"), Some(&"1.0".into()));
     }
 
