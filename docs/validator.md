@@ -228,6 +228,38 @@ Expected response:
 
 ## Testing and Validation
 
+### Faster Local Builds (Optional)
+
+The workspace defaults to using all CPU cores for builds (`build.jobs = "default"`). To override the
+default, set `CARGO_BUILD_JOBS=8` (or any integer) before running `cargo build`.
+
+To opt into nightly-only parallel rustc and a faster linker, set:
+
+```bash
+export RUSTUP_TOOLCHAIN=nightly
+export PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
+export PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+```
+
+Install a fast linker (Ubuntu/Debian):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mold
+# or
+sudo apt-get install -y lld
+```
+
+Docker-based builds accept `INSTALL_FAST_LINKER`, `PLATFORM_LINKER_RUSTFLAGS`, and
+`PLATFORM_NIGHTLY_RUSTFLAGS` build args (see `Dockerfile`). Example:
+
+```bash
+docker build \
+  --build-arg INSTALL_FAST_LINKER=mold \
+  --build-arg PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold" \
+  --build-arg PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0" \
+  -t platform:nightly .
+```
 Validator deployment tests rely on Docker and Docker Compose. The test harness automatically invokes `scripts/install-docker.sh` when Docker is missing (unless `PLATFORM_TEST_DOCKER_MODE=skip`).
 
 - Run `./scripts/test-comprehensive.sh` to execute Docker-backed integration and multi-validator tests.

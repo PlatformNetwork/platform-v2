@@ -48,6 +48,62 @@ To opt into nightly (for parallel rustc or other nightly-only features), use one
 If you prefer explicit file selection, temporarily copy or symlink `rust-toolchain-nightly.toml` to
 `rust-toolchain.toml`. Stable builds do not enable nightly-only flags globally.
 
+### Faster Builds (Parallel rustc + Fast Linker)
+
+The repository ships with `.cargo/config.toml` configured to use all available CPU cores for compilation
+(`build.jobs = "default"`). You can override this locally with `CARGO_BUILD_JOBS=8` (or any integer) when
+you want a smaller build footprint.
+
+To enable nightly-only parallel rustc and a faster linker, set the environment variables below:
+
+```bash
+# Nightly parallel rustc (requires nightly toolchain)
+export RUSTUP_TOOLCHAIN=nightly
+export PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
+
+# Fast linker (install one of mold or lld, then select it)
+export PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+# export PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=lld"
+
+cargo build
+```
+
+Fast linker prerequisites (Ubuntu/Debian):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mold
+# or
+sudo apt-get install -y lld
+```
+
+### CI Nightly Opt-In
+
+CI runs stable by default. To run nightly builds/tests, trigger the workflow manually and set
+`run_nightly=true` in the GitHub Actions workflow dispatch input. The nightly job sets
+`PLATFORM_NIGHTLY_RUSTFLAGS` and `PLATFORM_LINKER_RUSTFLAGS` automatically.
+
+Example for a custom CI step:
+
+```bash
+export RUSTUP_TOOLCHAIN=nightly
+export PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
+export PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+cargo test
+```
+
+### Docker Builds
+
+Dockerfiles accept build args for fast-linker installation and nightly flags:
+
+```bash
+docker build \
+  --build-arg INSTALL_FAST_LINKER=mold \
+  --build-arg PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold" \
+  --build-arg PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0" \
+  -t platform:nightly .
+```
+
 ---
 
 ## System Overview
