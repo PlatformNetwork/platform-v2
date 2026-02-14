@@ -6,8 +6,7 @@ This guide explains how to run a Platform validator node on the Bittensor networ
 
 - **No GPU required** - Validators run on standard CPU servers
 - **No third-party APIs** - No OpenAI, Anthropic, or other API keys needed
-- **One command setup** - Just run `docker compose up -d`
-- **Auto-updates** - Watchtower keeps your validator in sync automatically
+- **One command setup** - Run `validator-node` directly
 - **Minimal maintenance** - Set it and forget it
 
 ---
@@ -52,14 +51,13 @@ cd platform
 cp .env.example .env
 # Edit .env: add your VALIDATOR_SECRET_KEY (BIP39 mnemonic)
 
-# Optional: install Docker + Compose (used by test scripts)
+# Start the validator directly (recommended)
+mkdir -p data
+cargo build --release --bin validator-node
+./target/release/validator-node --data-dir ./data --secret-key "${VALIDATOR_SECRET_KEY}"
+
+# Optional: install Docker + Compose for test harnesses only
 ./scripts/install-docker.sh
-
-# Create the Docker network (required, one-time setup)
-docker network create platform-network
-
-# Start the validator
-docker compose up -d
 ```
 
 The validator will auto-connect to the network and sync. No GPUs, no third-party API keys, nothing else required.
@@ -85,10 +83,7 @@ The validator will auto-connect to the network and sync. No GPUs, no third-party
 
 ### Software
 
-- Docker 24.0+
-- Docker Compose v2
 - Linux (Ubuntu 22.04+ recommended)
-- `scripts/install-docker.sh` (automated installer used by test scripts)
 
 ### Bittensor
 
@@ -118,79 +113,13 @@ The validator will auto-connect to the network and sync. No GPUs, no third-party
 
 ---
 
-## Docker Compose Configuration
-
-The default `docker-compose.yml`:
-
-```yaml
-services:
-  validator:
-    image: ghcr.io/platformnetwork/validator:latest
-    restart: unless-stopped
-    ports:
-      - "9000:9000"
-      - "8545:8545"
-    volumes:
-      - ./data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - VALIDATOR_SECRET_KEY=${VALIDATOR_SECRET_KEY}
-      - SUBTENSOR_ENDPOINT=${SUBTENSOR_ENDPOINT:-wss://entrypoint-finney.opentensor.ai:443}
-      - NETUID=${NETUID:-100}
-      - RUST_LOG=${RUST_LOG:-info}
-
-  watchtower:
-    image: containrrr/watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 300 --cleanup validator
-```
-
----
-
-## Auto-Update (Critical)
-
-**All validators MUST use Watchtower for auto-updates.**
-
-Watchtower automatically pulls new validator images and restarts the container. This ensures all validators run the same version, which is critical for consensus.
-
-### Why Auto-Update is Required
-
-- **Consensus**: All validators must run identical code
-- **State Hash**: Different versions produce different state hashes
-- **Network Forks**: Version mismatch causes network splits
-- **Weight Rejection**: Outdated validators may have weights rejected
-
-### Watchtower Configuration
-
-The default configuration checks for updates every 5 minutes:
-
-```yaml
-watchtower:
-  image: containrrr/watchtower
-  volumes:
-    - /var/run/docker.sock:/var/run/docker.sock
-  command: --interval 300 --cleanup validator
-```
-
-**Do not disable Watchtower.**
-
----
-
 ## Monitoring
 
 ### Check Validator Status
 
 ```bash
-# View logs
-docker compose logs -f validator
-
-# Check container status
-docker compose ps
-
-# View resource usage
-docker stats validator
+# View logs (if running directly)
+tail -f ./data/validator.log
 ```
 
 ### JSON-RPC Health Check
@@ -250,17 +179,7 @@ sudo apt-get install -y mold
 sudo apt-get install -y lld
 ```
 
-Docker-based builds accept `INSTALL_FAST_LINKER`, `PLATFORM_LINKER_RUSTFLAGS`, and
-`PLATFORM_NIGHTLY_RUSTFLAGS` build args (see `Dockerfile`). Example:
-
-```bash
-docker build \
-  --build-arg INSTALL_FAST_LINKER=mold \
-  --build-arg PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold" \
-  --build-arg PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0" \
-  -t platform:nightly .
-```
-Validator deployment tests rely on Docker and Docker Compose. The test harness automatically invokes `scripts/install-docker.sh` when Docker is missing (unless `PLATFORM_TEST_DOCKER_MODE=skip`).
+Validator test harnesses rely on Docker and Docker Compose. Docker is not required to run a production validator. The test harness automatically invokes `scripts/install-docker.sh` when Docker is missing (unless `PLATFORM_TEST_DOCKER_MODE=skip`).
 
 - Run `./scripts/test-comprehensive.sh` to execute Docker-backed integration and multi-validator tests.
 - Run `./scripts/test-all.sh` for build/unit-only runs (Docker not required).
@@ -299,7 +218,7 @@ sudo ufw status
 - Check you're using the correct mnemonic/key
 - Ensure hotkey is registered on the correct subnet
 
-### Docker Issues
+### Docker Issues (tests only)
 
 **Problem**: `Cannot connect to Docker daemon`
 
@@ -311,16 +230,6 @@ sudo usermod -aG docker $USER
 sudo systemctl restart docker
 ```
 
-**Problem**: Challenge containers not starting
-
-```bash
-# Verify docker.sock is mounted
-docker compose exec validator ls -la /var/run/docker.sock
-
-# Check Docker permissions
-docker ps
-```
-
 ### State Divergence
 
 **Problem**: `DB DIVERGENCE detected`
@@ -330,13 +239,12 @@ This means your state differs from the majority. Usually resolves automatically:
 1. Wait for automatic sync (up to 2 minutes)
 2. If persistent, restart the validator:
    ```bash
-   docker compose restart validator
+   # Restart your validator process
    ```
 3. If still diverged, reset state:
    ```bash
-   docker compose down
    rm -rf ./data/distributed-db
-   docker compose up -d
+   ./target/release/validator-node --data-dir ./data --secret-key "${VALIDATOR_SECRET_KEY}"
    ```
 
 ---
@@ -368,29 +276,21 @@ This means your state differs from the majority. Usually resolves automatically:
 
 ## Upgrading
 
-Watchtower handles automatic upgrades. For manual upgrades:
+Rebuild and restart the validator:
 
 ```bash
-# Pull latest images
-docker compose pull
-
-# Restart with new images
-docker compose up -d
-
-# Verify version
-docker compose logs validator | grep "version"
+cargo build --release --bin validator-node
+./target/release/validator-node --data-dir ./data --secret-key "${VALIDATOR_SECRET_KEY}"
 ```
 
 ---
 
 ## Stopping the Validator
 
-```bash
-# Graceful stop
-docker compose down
+Stop the validator process (CTRL+C or service manager). Remove data manually if needed:
 
-# Stop and remove volumes (warning: deletes data)
-docker compose down -v
+```bash
+rm -rf ./data/distributed-db
 ```
 
 ---

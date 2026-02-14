@@ -5,7 +5,7 @@ This guide explains how to integrate challenge crates with the Platform validato
 ## Overview
 
 Platform uses a modular challenge architecture where each challenge:
-- Runs as a separate Docker container
+- Runs in its own sandboxed runtime (WASM in production)
 - Communicates via HTTP/WebSocket with validators
 - Has its own state persistence
 - Supports hot-reload without losing evaluation progress
@@ -49,13 +49,13 @@ At the epoch boundary, validators aggregate the revealed weights with a stake-we
               ▼               ▼               ▼
     ┌─────────────┐   ┌─────────────┐  ┌─────────────┐
     │ Challenge A │   │ Challenge B │  │ Challenge N │
-    │  (Docker)   │   │  (Docker)   │  │  (Docker)   │
+    │  (WASM)     │   │  (WASM)     │  │  (WASM)     │
     └─────────────┘   └─────────────┘  └─────────────┘
 ```
 
 ## Testing With Docker
 
-Challenge containers are exercised by the validator test harness. Use `./scripts/test-comprehensive.sh` to run Docker-backed integration tests; it will call `scripts/install-docker.sh` if Docker or Compose are missing (unless `PLATFORM_TEST_DOCKER_MODE=skip`).
+Docker is used only for validator test harnesses. Use `./scripts/test-comprehensive.sh` to run Docker-backed integration tests; it will call `scripts/install-docker.sh` if Docker or Compose are missing (unless `PLATFORM_TEST_DOCKER_MODE=skip`).
 
 ---
 
@@ -72,7 +72,7 @@ my-challenge/
 │   ├── lib.rs           # Challenge implementation
 │   ├── evaluation.rs    # Evaluation logic
 │   └── scoring.rs       # Scoring algorithm
-├── Dockerfile           # Container build
+├── Dockerfile           # Test harness container build (optional)
 └── README.md           # Documentation
 ```
 
@@ -124,9 +124,9 @@ impl ServerChallenge for MyChallenge {
 }
 ```
 
-### 4. Docker Container
+### 4. Test Harness Docker Container (Optional)
 
-Create a `Dockerfile`:
+If you want to exercise your challenge in the Docker-based test harness, create a `Dockerfile`:
 
 ```dockerfile
 FROM rust:1.90 as builder
@@ -241,9 +241,9 @@ members = [
 
 ### Production Deployment
 
-1. Build and push Docker image
+1. Build the WASM challenge artifact
 2. Register via sudo action (network operator only)
-3. Validators automatically pull the image
+3. Validators load the WASM runtime without Docker
 
 ## Best Practices
 
@@ -262,7 +262,7 @@ members = [
 
 ### Common Issues
 
-1. **Challenge not starting**: Check Docker logs
+1. **Challenge not starting**: Check runtime logs (Docker logs only apply to test harness runs)
 2. **Evaluation timeout**: Increase timeout or optimize
 3. **State loss after update**: Verify checkpoint creation
 4. **Version mismatch**: Check compatibility constraints

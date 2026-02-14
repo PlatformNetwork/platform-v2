@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+# Test harness helper: installs Docker and Compose for local test runs only.
+
 log() {
     echo "[docker-install] $1"
 }

@@ -3,7 +3,7 @@
 # Platform Comprehensive Test Suite
 # =============================================================================
 # Runs unit, integration, docker, and multi-validator tests.
-# Docker is required for phases 3 and 8; install via scripts/install-docker.sh.
+# Docker is required only for test harness phases 3 and 8; install via scripts/install-docker.sh.
 # =============================================================================
 
 set -euo pipefail

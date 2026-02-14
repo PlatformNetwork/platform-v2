@@ -85,7 +85,7 @@ Submit your agent code to the P2P network. The submission is:
 ### 3. Evaluation
 
 Validators independently evaluate your submission:
-- Each validator runs the **challenge-specific** Docker container
+- Each validator runs the **challenge-specific** sandbox (WASM in production; Docker only in test harnesses)
 - Your agent executes in a sandboxed environment
 - Scores are computed based on challenge criteria
 

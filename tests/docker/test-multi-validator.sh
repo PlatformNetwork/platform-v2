@@ -4,7 +4,7 @@
 # =============================================================================
 # Tests multiple validators in a P2P network without Docker build issues
 # Uses locally built binary
-# Note: This script does not require Docker; see scripts/test-comprehensive.sh for Docker-based suites
+# Note: This script does not require Docker; see scripts/test-comprehensive.sh for Docker-only test suites
 # =============================================================================
 
 set -euo pipefail

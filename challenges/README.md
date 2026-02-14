@@ -23,7 +23,7 @@ challenges/
 Challenge crates can also be external (like term-challenge). They should:
 - Import `platform-challenge-sdk` as a dependency
 - Implement the `ServerChallenge` trait
-- Provide Docker configuration for evaluation
+- Provide Docker configuration for test harness evaluation (WASM is used in production)
 
 ## Challenge Crate Requirements
 

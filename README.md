@@ -28,7 +28,7 @@
 
 - **Fully Decentralized**: P2P architecture using libp2p gossipsub and DHT
 - **Decentralized Evaluation**: Multiple validators independently evaluate submissions
-- **Challenge-Based Architecture**: Modular Docker containers define custom evaluation logic
+- **Challenge-Based Architecture**: Modular sandboxed runtimes define custom evaluation logic
 - **Byzantine Fault Tolerance**: PBFT consensus with $2f+1$ threshold ensures correctness
 - **Secure Weight Submission**: Weights submitted to Bittensor at epoch boundaries
 - **Multi-Mechanism Support**: Each challenge maps to a Bittensor mechanism for independent weight setting
@@ -92,9 +92,9 @@ export PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 cargo test
 ```
 
-### Docker Builds
+### Test Harness Docker Builds
 
-Dockerfiles accept build args for fast-linker installation and nightly flags:
+Dockerfiles are only used for Docker-backed test harnesses. The validator runs directly without Docker in production. Test images accept build args for fast-linker installation and nightly flags:
 
 ```bash
 docker build \
@@ -129,7 +129,7 @@ The coordination between validators ensures that only verified, consensus-valida
 │                         P2P NETWORK (libp2p)                                │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
 │  │ Challenge A │  │ Challenge B │  │ Challenge C │  │     ...     │         │
-│  │ (Docker)    │  │ (Docker)    │  │ (Docker)    │  │             │         │
+│  │ (Sandbox)   │  │ (Sandbox)   │  │ (Sandbox)   │  │             │         │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘         │
 │                                                                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
@@ -185,7 +185,7 @@ The coordination between validators ensures that only verified, consensus-valida
 3. **Evaluation**:
 
    - All validators independently evaluate the submission
-   - Evaluation runs in isolated Docker containers (challenge-specific logic)
+    - Evaluation runs in isolated sandboxed runtimes (challenge-specific logic)
    - Results are shared via gossipsub and stored in DHT
 
 4. **Weight Distribution**:
@@ -206,14 +206,14 @@ The coordination between validators ensures that only verified, consensus-valida
 
 1. **Challenge Synchronization**:
 
-   - Pull challenge Docker images configured by Sudo owner
-   - All validators run identical challenge containers
+    - Pull challenge artifacts configured by Sudo owner
+    - All validators run identical challenge runtimes
    - Health monitoring ensures container availability
 
 2. **Submission Evaluation**:
 
    - Receive submissions via P2P gossipsub
-   - Execute evaluation in sandboxed Docker environment
+    - Execute evaluation in sandboxed runtime environment
    - Compute score $s \in [0, 1]$ based on challenge criteria
 
 3. **Result Sharing**:
@@ -363,7 +363,7 @@ Low confidence (high variance) may exclude submission from weights.
 
 ### Evaluation Isolation
 
-- **Docker Sandboxing**: Agents run in isolated containers
+- **Sandboxed Execution**: Agents run in isolated runtimes
 - **Resource Limits**: Memory, CPU, and time constraints
 - **Deterministic Execution**: All validators run identical containers
 
@@ -394,7 +394,7 @@ Subject to:
 
 2. **Evaluation Fairness**:
 
-   - Deterministic Docker execution
+   - Deterministic sandboxed execution
    - Outlier detection excludes manipulators
    - Stake weighting resists Sybil attacks
 
@@ -411,7 +411,7 @@ Each Bittensor epoch (~360 blocks, ~72 minutes):
 **Evaluation runs continuously** throughout the entire epoch. Validators constantly:
 
 - Receive and process submissions from challenges via P2P
-- Execute evaluations in Docker containers
+- Execute evaluations in sandboxed runtimes
 - Broadcast results via gossipsub
 - Aggregate scores from all validators
 
@@ -428,7 +428,12 @@ git clone https://github.com/PlatformNetwork/platform.git
 cd platform
 cp .env.example .env
 # Edit .env: add your VALIDATOR_SECRET_KEY (BIP39 mnemonic)
-docker compose up -d
+mkdir -p data
+cargo build --release --bin validator-node
+./target/release/validator-node --data-dir ./data --secret-key "${VALIDATOR_SECRET_KEY}"
+
+# Optional: install Docker + Compose for test harnesses only
+./scripts/install-docker.sh
 ```
 
 ## P2P Architecture
@@ -466,7 +471,7 @@ Platform uses a fully decentralized architecture where validators communicate vi
 | **Storage** | 250 GB SSD | 500 GB NVMe |
 | **Network** | 100 Mbps   | 100 Mbps    |
 
-> **Note**: Hardware requirements may increase over time as more challenges are added to the network. Each challenge runs in its own Docker container and may have specific resource needs. Monitor your validator's resource usage and scale accordingly.
+> **Note**: Hardware requirements may increase over time as more challenges are added to the network. Each challenge runs in its own sandboxed runtime and may have specific resource needs. Monitor your validator's resource usage and scale accordingly.
 
 ## Network Requirements
 
@@ -521,7 +526,7 @@ Platform creates a trustless, decentralized framework for evaluating miner submi
 
 - **PBFT Consensus** for Byzantine fault tolerance
 - **Stake-Weighted Aggregation** for Sybil resistance
-- **Docker Isolation** for deterministic evaluation (challenge-specific logic)
+- **Sandboxed Isolation** for deterministic evaluation (challenge-specific logic)
 - **P2P Architecture** using libp2p gossipsub and DHT for fully decentralized state
 
 The system ensures that only genuine, high-performing submissions receive rewards, while making manipulation economically infeasible. Validators are incentivized to provide accurate evaluations through reputation mechanics, and miners are incentivized to submit quality solutions through the weight distribution mechanism.
