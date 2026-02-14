@@ -19,7 +19,8 @@ use std::time::SystemTime;
 use tracing::{debug, info, warn};
 
 /// Storage format version for challenge data
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+    #[default]
 pub enum StorageFormat {
     /// Original storage format
     V1,
@@ -27,12 +28,6 @@ pub enum StorageFormat {
     V2,
     /// Challenge-specific custom format
     Custom,
-}
-
-impl Default for StorageFormat {
-    fn default() -> Self {
-        StorageFormat::V1
-    }
 }
 
 /// Metadata for a single challenge
@@ -352,7 +347,7 @@ impl MetadataRegistry {
                 // Include challenge ID in hash
                 hasher.update(challenge_id.0.as_bytes());
                 // Include challenge merkle root
-                hasher.update(&metadata.merkle_root);
+                hasher.update(metadata.merkle_root);
             }
         }
 

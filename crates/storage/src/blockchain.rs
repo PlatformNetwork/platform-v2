@@ -348,11 +348,11 @@ impl BlockchainStorage {
         let mut hasher = Sha256::new();
 
         // Hash the core header fields deterministically
-        hasher.update(&header.block_number.to_le_bytes());
-        hasher.update(&header.parent_hash);
-        hasher.update(&header.state_root);
-        hasher.update(&header.timestamp.to_le_bytes());
-        hasher.update(&header.proposer.0);
+        hasher.update(header.block_number.to_le_bytes());
+        hasher.update(header.parent_hash);
+        hasher.update(header.state_root);
+        hasher.update(header.timestamp.to_le_bytes());
+        hasher.update(header.proposer.0);
 
         // Hash challenge roots in deterministic order
         let mut sorted_challenges: Vec<_> = header.challenge_roots.iter().collect();
@@ -499,12 +499,12 @@ impl BlockchainStorage {
         let block_number_key = block.header.block_number.to_be_bytes();
 
         self.blocks_tree
-            .insert(&block_number_key, block_bytes)
+            .insert(block_number_key, block_bytes)
             .map_err(|e| MiniChainError::Storage(format!("Failed to store block: {}", e)))?;
 
         // Update hash index
         self.hash_index_tree
-            .insert(&block.block_hash, &block_number_key)
+            .insert(block.block_hash, block_number_key)
             .map_err(|e| MiniChainError::Storage(format!("Failed to update hash index: {}", e)))?;
 
         // Update latest block number
@@ -617,7 +617,7 @@ impl BlockchainStorage {
             total_validators
         } else {
             // ceiling((2 * n + 2) / 3)
-            (2 * total_validators + 2) / 3
+            (2 * total_validators).div_ceil(3)
         };
 
         let signature_count = block.header.validator_signatures.len();

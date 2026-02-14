@@ -193,7 +193,7 @@ pub struct MigrationChange {
 }
 
 /// Record of an applied migration
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct MigrationRecord {
     pub version: MigrationVersion,
     pub name: String,
@@ -544,18 +544,6 @@ pub struct NetworkMigrationStatus {
     pub started_at: Option<SystemTime>,
 }
 
-impl Default for NetworkMigrationStatus {
-    fn default() -> Self {
-        Self {
-            network_version: 0,
-            validator_versions: HashMap::new(),
-            migration_in_progress: false,
-            target_version: None,
-            started_at: None,
-        }
-    }
-}
-
 /// Challenge-specific migration record
 ///
 /// Tracks migrations for individual challenges, allowing challenges
@@ -898,7 +886,7 @@ pub trait ChallengeMigrationHandler: Send + Sync {
     fn challenge_id(&self) -> &ChallengeId;
 
     /// Source schema version
-    fn from_version(&self) -> u64;
+    fn source_version(&self) -> u64;
 
     /// Target schema version
     fn to_version(&self) -> u64;
