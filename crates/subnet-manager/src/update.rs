@@ -710,7 +710,12 @@ mod tests {
         };
 
         // Verify they all serialize/deserialize
-        for payload in [wasm_payload, config_payload, validators_payload, reset_payload] {
+        for payload in [
+            wasm_payload,
+            config_payload,
+            validators_payload,
+            reset_payload,
+        ] {
             let json = serde_json::to_string(&payload).unwrap();
             let _decoded: UpdatePayload = serde_json::from_str(&json).unwrap();
         }
