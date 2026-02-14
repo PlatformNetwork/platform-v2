@@ -1,0 +1,13 @@
+[build]
+# Use all available CPU cores for compilation.
+jobs = "default"
+
+[env]
+# Optional flags gated by environment variables.
+# PLATFORM_NIGHTLY_RUSTFLAGS: nightly-only parallel rustc flags (2023-11-09 blog).
+#   Example: PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
+# PLATFORM_LINKER_RUSTFLAGS: fast linker selection (mold or lld) when installed.
+#   Example: PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+#   Example: PLATFORM_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=lld"
+# RUSTFLAGS is composed from the env-gated values above.
+RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }
