@@ -24,26 +24,34 @@ log_info "                    Platform Comprehensive Test Suite"
 log_info "============================================================================="
 log_info "Artifacts: ${PLATFORM_TEST_ARTIFACTS_DIR}"
 log_info "Run dir: ${PLATFORM_TEST_RUN_DIR}"
-log_info "Opt-in: PLATFORM_RUST_NIGHTLY=1 (nightly parallel rustc)"
-log_info "Opt-in: PLATFORM_FAST_LINKER=mold|lld"
+log_info "Defaults: nightly toolchain uses parallel rustc"
+log_info "Opt-out: PLATFORM_DISABLE_NIGHTLY=1"
+log_info "Override: PLATFORM_RUST_NIGHTLY=1"
+log_info "Defaults: fast linker flags from config"
+log_info "Opt-out: PLATFORM_DISABLE_FAST_LINKER=1"
+log_info "Override: PLATFORM_FAST_LINKER_RUSTFLAGS/PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN"
+log_info "Override: PLATFORM_LINKER_RUSTFLAGS/PLATFORM_LINKER_RUSTFLAGS_DARWIN"
 log_info ""
 
-if [ "${PLATFORM_RUST_NIGHTLY:-0}" = "1" ]; then
+    if [ -z "${PLATFORM_NIGHTLY_RUSTFLAGS+x}" ]; then
+        export PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
+    fi
+    export PLATFORM_NIGHTLY_RUSTFLAGS=""
+    log_info "Nightly Rust disabled via opt-out"
+elif [ "${PLATFORM_RUST_NIGHTLY:-0}" = "1" ] || [ "${RUSTUP_TOOLCHAIN:-}" = "nightly" ]; then
     export RUSTUP_TOOLCHAIN="nightly"
     export PLATFORM_NIGHTLY_RUSTFLAGS="${PLATFORM_NIGHTLY_RUSTFLAGS:--Z threads=0}"
     log_info "Nightly Rust enabled (parallel rustc)"
+else
+    log_info "Nightly Rust not requested; using default toolchain"
 fi
 
-if [ -n "${PLATFORM_FAST_LINKER:-}" ]; then
-    case "${PLATFORM_FAST_LINKER}" in
-        mold|lld)
-            export PLATFORM_LINKER_RUSTFLAGS="${PLATFORM_LINKER_RUSTFLAGS:--C link-arg=-fuse-ld=${PLATFORM_FAST_LINKER}}"
-            log_info "Fast linker enabled: ${PLATFORM_FAST_LINKER}"
-            ;;
-        *)
-            log_warning "Unsupported PLATFORM_FAST_LINKER=${PLATFORM_FAST_LINKER} (expected mold or lld)"
-            ;;
-    esac
+if [ "${PLATFORM_DISABLE_FAST_LINKER:-0}" = "1" ]; then
+    export PLATFORM_FAST_LINKER_RUSTFLAGS=""
+    export PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN=""
+    export PLATFORM_LINKER_RUSTFLAGS=""
+    export PLATFORM_LINKER_RUSTFLAGS_DARWIN=""
+    log_info "Fast linker disabled via opt-out"
 fi
 
 log_info "============================================================================="
