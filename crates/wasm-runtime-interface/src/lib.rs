@@ -9,6 +9,12 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
+pub mod runtime;
+pub use runtime::{
+    ChallengeInstance, HostFunctionRegistrar, InstanceConfig, RuntimeConfig, RuntimeState,
+    WasmModule, WasmRuntime, WasmRuntimeError,
+};
+
 /// Host functions that may be exposed to WASM challenges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

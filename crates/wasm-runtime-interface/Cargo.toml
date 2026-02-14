@@ -10,3 +10,4 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 ipnet = "2.11.0"
 url = "2.5.8"
+wasmtime = "41.0.3"
