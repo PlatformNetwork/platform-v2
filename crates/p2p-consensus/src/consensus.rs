@@ -8,12 +8,12 @@ use crate::messages::{
     ProposalContent, SequenceNumber, StateChangeType, ViewChangeMessage, ViewNumber,
 };
 use crate::state::StateManager;
-use crate::validator::{LeaderElection, ValidatorSet};
+use crate::validator::{LeaderElection, StakeWeightedVoting, ValidatorSet};
 use parking_lot::RwLock;
 use platform_core::{Hotkey, Keypair, SignedMessage};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::{info, warn};
@@ -126,12 +126,6 @@ pub struct ConsensusDecision {
 }
 
 /// PBFT Consensus engine
-///
-/// Quorum decisions are stake-weighted: prepares/commits/view-changes must
-/// collectively represent >= 2/3 of the verified validator stake (plus one).
-/// Validator weights originate from challenge evaluations and are surfaced as
-/// stake values in the validator set, so consensus reflects evaluation-derived
-/// weights instead of raw validator counts.
 pub struct ConsensusEngine {
     /// Our keypair
     keypair: Keypair,
@@ -139,6 +133,8 @@ pub struct ConsensusEngine {
     validator_set: Arc<ValidatorSet>,
     /// Leader election
     leader_election: LeaderElection,
+    /// Stake-weighted voting helper
+    stake_voting: StakeWeightedVoting,
     /// State manager (for applying decisions and sudo checks)
     state_manager: Arc<StateManager>,
     /// Current view number
@@ -165,11 +161,13 @@ impl ConsensusEngine {
         state_manager: Arc<StateManager>,
     ) -> Self {
         let leader_election = LeaderElection::new(validator_set.clone());
+        let stake_voting = StakeWeightedVoting::new(validator_set.clone());
 
         Self {
             keypair,
             validator_set,
             leader_election,
+            stake_voting,
             state_manager,
             current_view: RwLock::new(0),
             next_sequence: RwLock::new(1),
@@ -205,26 +203,6 @@ impl ConsensusEngine {
     /// Get required quorum size (2f+1)
     pub fn quorum_size(&self) -> usize {
         self.validator_set.quorum_size()
-    }
-
-    /// Get stake-weighted quorum threshold (2/3 of total stake + 1)
-    pub fn weighted_quorum_threshold(&self) -> u64 {
-        self.validator_set.stake_quorum_threshold()
-    }
-
-    /// Check if total stake in votes reaches weighted quorum
-    fn has_weighted_quorum<I>(&self, votes: I) -> bool
-    where
-        I: Iterator<Item = Hotkey>,
-    {
-        let threshold = self.weighted_quorum_threshold();
-        if threshold == 0 {
-            return false;
-        }
-        let total_stake: u64 = votes
-            .map(|hotkey| self.validator_set.stake_for(&hotkey))
-            .sum();
-        total_stake >= threshold
     }
 
     /// Create a new proposal (called by leader)
@@ -565,10 +543,13 @@ impl ConsensusEngine {
             Entry::Vacant(entry) => entry.insert(prepare),
         };
 
-        // Check if we have quorum (stake-weighted primary, size as safety fallback)
+        // Check if we have quorum and sufficient stake weight
         let quorum = self.quorum_size();
-        let has_weighted_quorum = self.has_weighted_quorum(round.prepares.keys().cloned());
-        if (has_weighted_quorum || round.prepares.len() >= quorum)
+        let voters: Vec<Hotkey> = round.prepares.keys().cloned().collect();
+        let meets_weight_threshold = self.stake_voting.meets_threshold(&voters, 2.0 / 3.0);
+        let voting_power = self.stake_voting.total_voting_power(&voters);
+        if round.prepares.len() >= quorum
+            && meets_weight_threshold
             && round.phase == ConsensusPhase::PrePrepare
         {
             round.phase = ConsensusPhase::Prepared;
@@ -576,9 +557,9 @@ impl ConsensusEngine {
                 view = round.view,
                 sequence = round.sequence,
                 prepares = round.prepares.len(),
+                voting_power,
                 "Reached prepare quorum"
             );
-
             // Extract data needed for commit while still holding lock to avoid race condition
             let view = round.view;
             let sequence = round.sequence;
@@ -702,10 +683,13 @@ impl ConsensusEngine {
             Entry::Vacant(entry) => entry.insert(commit),
         };
 
-        // Check if we have quorum (stake-weighted primary, size as safety fallback)
+        // Check if we have quorum and sufficient stake weight
         let quorum = self.quorum_size();
-        let has_weighted_quorum = self.has_weighted_quorum(round.commits.keys().cloned());
-        if (has_weighted_quorum || round.commits.len() >= quorum)
+        let voters: Vec<Hotkey> = round.commits.keys().cloned().collect();
+        let meets_weight_threshold = self.stake_voting.meets_threshold(&voters, 2.0 / 3.0);
+        let voting_power = self.stake_voting.total_voting_power(&voters);
+        if round.commits.len() >= quorum
+            && meets_weight_threshold
             && round.phase == ConsensusPhase::Prepared
         {
             round.phase = ConsensusPhase::Committed;
@@ -713,9 +697,9 @@ impl ConsensusEngine {
                 view = round.view,
                 sequence = round.sequence,
                 commits = round.commits.len(),
+                voting_power,
                 "Reached commit quorum - consensus achieved!"
             );
-
             // Create decision
             let proposal = round.proposal.as_ref().ok_or_else(|| {
                 ConsensusError::InvalidProposal("No proposal in committed round".to_string())
@@ -900,6 +884,7 @@ impl ConsensusEngine {
             }
 
             let mut valid_prepare_count = 0;
+            let mut valid_prepare_hotkeys = HashSet::new();
             for prepare in &proof.prepares {
                 let prepare_signing_data = PrepareSigningData {
                     view: prepare.view,
@@ -921,6 +906,7 @@ impl ConsensusEngine {
 
                 if prepare_valid {
                     valid_prepare_count += 1;
+                    valid_prepare_hotkeys.insert(prepare.validator.clone());
                 } else {
                     warn!(
                         validator = %prepare.validator.to_hex(),
@@ -929,19 +915,23 @@ impl ConsensusEngine {
                 }
             }
 
-            // Verify we have 2f+1 valid prepares and stake-weighted quorum
+            // Verify we have 2f+1 valid prepares
             let quorum = self.quorum_size();
-            let has_weighted_quorum = self.has_weighted_quorum(
-                proof
-                    .prepares
-                    .iter()
-                    .map(|prepare| prepare.validator.clone()),
-            );
-            if valid_prepare_count < quorum || !has_weighted_quorum {
+            if valid_prepare_count < quorum {
                 return Err(ConsensusError::NotEnoughVotes {
                     needed: quorum,
                     have: valid_prepare_count,
                 });
+            }
+
+            let valid_prepare_voters: Vec<Hotkey> = valid_prepare_hotkeys.into_iter().collect();
+            if !self
+                .stake_voting
+                .meets_threshold(&valid_prepare_voters, 2.0 / 3.0)
+            {
+                return Err(ConsensusError::InvalidProposal(
+                    "Prepared proof lacks weighted quorum".to_string(),
+                ));
             }
         }
 
@@ -982,9 +972,14 @@ impl ConsensusEngine {
 
         // Check if we have quorum and are the new leader
         let quorum = self.quorum_size();
-        let has_weighted_quorum = self.has_weighted_quorum(state.view_changes.keys().cloned());
         let new_view = state.new_view;
-        if (state.view_changes.len() >= quorum && has_weighted_quorum)
+
+        let view_change_voters: Vec<Hotkey> = state.view_changes.keys().cloned().collect();
+        let meets_weight_threshold = self
+            .stake_voting
+            .meets_threshold(&view_change_voters, 2.0 / 3.0);
+        if state.view_changes.len() >= quorum
+            && meets_weight_threshold
             && self
                 .leader_election
                 .is_leader(&self.keypair.hotkey(), new_view)
@@ -1059,15 +1054,27 @@ impl ConsensusEngine {
             return Err(ConsensusError::InvalidSignature(new_view.leader.to_hex()));
         }
 
-        // Verify quorum of view changes (size + stake-weighted)
+        // Verify quorum of view changes
         let quorum = self.quorum_size();
-        let has_weighted_quorum =
-            self.has_weighted_quorum(new_view.view_changes.iter().map(|vc| vc.validator.clone()));
-        if new_view.view_changes.len() < quorum || !has_weighted_quorum {
+        if new_view.view_changes.len() < quorum {
             return Err(ConsensusError::NotEnoughVotes {
                 needed: quorum,
                 have: new_view.view_changes.len(),
             });
+        }
+
+        let view_change_voters: Vec<Hotkey> = new_view
+            .view_changes
+            .iter()
+            .map(|vc| vc.validator.clone())
+            .collect();
+        if !self
+            .stake_voting
+            .meets_threshold(&view_change_voters, 2.0 / 3.0)
+        {
+            return Err(ConsensusError::InvalidProposal(
+                "View change lacks weighted quorum".to_string(),
+            ));
         }
 
         // Verify each ViewChangeMessage signature AND that they're all for the announced view

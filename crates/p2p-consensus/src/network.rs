@@ -4,7 +4,7 @@
 //! Provides the networking foundation for PBFT consensus.
 
 use crate::config::P2PConfig;
-use crate::messages::{P2PMessage, SignedP2PMessage};
+use crate::messages::{P2PMessage, SignedP2PMessage, WeightVoteMessage};
 use crate::validator::ValidatorSet;
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity, MessageId, ValidationMode},
@@ -13,7 +13,7 @@ use libp2p::{
     noise, tcp, yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use parking_lot::RwLock;
-use platform_core::{Hotkey, Keypair};
+use platform_core::{hash_data, Hotkey, Keypair};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
@@ -453,6 +453,27 @@ impl P2PNetwork {
             ));
         }
 
+        // Ensure the signed hotkey matches the message identity
+        if let Some(expected) = expected_signer(&signed.message) {
+            if expected != &signed.signer {
+                return Err(NetworkError::Gossipsub(
+                    "Signed hotkey does not match message sender".to_string(),
+                ));
+            }
+        }
+
+        // Enforce validator-only messages for consensus traffic
+        if requires_validator(&signed.message) && !self.validator_set.is_validator(&signed.signer) {
+            return Err(NetworkError::Gossipsub(
+                "Signer is not a registered validator".to_string(),
+            ));
+        }
+
+        // Validate weight vote payload integrity when present
+        if let P2PMessage::WeightVote(weight_vote) = &signed.message {
+            validate_weight_vote_hash(weight_vote)?;
+        }
+
         // Check rate limit before processing
         self.check_rate_limit(&signed.signer)?;
 
@@ -662,6 +683,39 @@ impl P2PNetwork {
 
         Ok((event_rx, cmd_tx))
     }
+}
+
+fn expected_signer(message: &P2PMessage) -> Option<&Hotkey> {
+    match message {
+        P2PMessage::Proposal(msg) => Some(&msg.proposer),
+        P2PMessage::PrePrepare(msg) => Some(&msg.leader),
+        P2PMessage::Prepare(msg) => Some(&msg.validator),
+        P2PMessage::Commit(msg) => Some(&msg.validator),
+        P2PMessage::ViewChange(msg) => Some(&msg.validator),
+        P2PMessage::NewView(msg) => Some(&msg.leader),
+        P2PMessage::StateRequest(msg) => Some(&msg.requester),
+        P2PMessage::StateResponse(msg) => Some(&msg.responder),
+        P2PMessage::Submission(msg) => Some(&msg.miner),
+        P2PMessage::Evaluation(msg) => Some(&msg.validator),
+        P2PMessage::WeightVote(msg) => Some(&msg.validator),
+        P2PMessage::Heartbeat(msg) => Some(&msg.validator),
+        P2PMessage::PeerAnnounce(msg) => Some(&msg.validator),
+    }
+}
+
+fn requires_validator(message: &P2PMessage) -> bool {
+    !matches!(message, P2PMessage::Submission(_))
+}
+
+fn validate_weight_vote_hash(message: &WeightVoteMessage) -> Result<(), NetworkError> {
+    let computed =
+        hash_data(&message.weights).map_err(|e| NetworkError::Serialization(e.to_string()))?;
+    if computed != message.weights_hash {
+        return Err(NetworkError::Gossipsub(
+            "Weight vote hash mismatch".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Extract peer ID from multiaddr if present

@@ -199,7 +199,11 @@ async fn main() -> Result<()> {
     let storage = Arc::new(storage);
     info!("Distributed storage initialized");
 
-    // Initialize P2P network config
+    if args.bootstrap.is_empty() {
+        return Err(anyhow::anyhow!(
+            "No bootstrap peers configured. Provide --bootstrap to connect to the P2P validator mesh."
+        ));
+    }
     let p2p_config = P2PConfig::default()
         .with_listen_addr(&args.listen_addr)
         .with_bootstrap_peers(args.bootstrap.clone())
