@@ -48,6 +48,12 @@ To opt into nightly (for parallel rustc or other nightly-only features), use one
 If you prefer explicit file selection, temporarily copy or symlink `rust-toolchain-nightly.toml` to
 `rust-toolchain.toml`. Stable builds do not enable nightly-only flags globally.
 
+Nightly-specific tooling flags are controlled via environment variables:
+
+- `PLATFORM_RUST_NIGHTLY=1` forces nightly toolchains in scripts.
+- `PLATFORM_DISABLE_NIGHTLY=1` disables nightly flags even on nightly.
+- `PLATFORM_NIGHTLY_RUSTFLAGS` adds nightly-only rustc flags like `-Z threads=0`.
+
 ### Faster Builds (Parallel rustc + Fast Linker)
 
 The repository ships with `.cargo/config.toml` configured to use all available CPU cores for compilation
@@ -58,10 +64,10 @@ Nightly-only parallel rustc is enabled by default when you use the nightly toolc
 (`rust-toolchain-nightly.toml`). It sets `PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"`, which lets nightly
 use all CPU threads. If you opt into nightly via `RUSTUP_TOOLCHAIN=nightly` or `cargo +nightly`, set
 `PLATFORM_NIGHTLY_RUSTFLAGS` yourself (for example, `-Z threads=0` or `-Z threads=8`). Opt out by
-unsetting `PLATFORM_NIGHTLY_RUSTFLAGS` (or setting it to an empty string). The
-`scripts/verify-nightly-config.sh`, `scripts/test-all.sh`, and `scripts/test-comprehensive.sh` helpers also
-honor `PLATFORM_DISABLE_NIGHTLY=1` for an explicit opt-out, and accept `PLATFORM_RUST_NIGHTLY=1` to force
-nightly toolchains during scripted runs.
+unsetting `PLATFORM_NIGHTLY_RUSTFLAGS` (or setting it to an empty string) or setting
+`PLATFORM_DISABLE_NIGHTLY=1`. The `scripts/verify-nightly-config.sh`, `scripts/test-all.sh`, and
+`scripts/test-comprehensive.sh` helpers also honor `PLATFORM_DISABLE_NIGHTLY=1` for an explicit opt-out,
+and accept `PLATFORM_RUST_NIGHTLY=1` to force nightly toolchains during scripted runs.
 
 Fast linker support is opt-in via environment variables; if you leave these unset,
 Rust falls back to the system linker. Supported linkers:
@@ -93,6 +99,17 @@ when this is set). To override defaults explicitly, set `PLATFORM_LINKER_RUSTFLA
 or `PLATFORM_LINKER_RUSTFLAGS_DARWIN` (macOS); these override the opt-in fast-linker values
 when present.
 
+
+Example: faster build/test runs with nightly + linker selection:
+
+```bash
+export RUSTUP_TOOLCHAIN=nightly
+export PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
+export PLATFORM_FAST_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+
+cargo build
+cargo test
+```
 Fast linker prerequisites (Ubuntu/Debian):
 
 ```bash
@@ -100,6 +117,13 @@ sudo apt-get update
 sudo apt-get install -y mold
 # or
 sudo apt-get install -y lld
+```
+
+Fast linker prerequisites (macOS):
+
+```bash
+brew install llvm
+brew install zld
 ```
 
 ### CI Nightly Opt-In

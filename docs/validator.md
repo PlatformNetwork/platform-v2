@@ -91,13 +91,23 @@ Validator development builds can take advantage of nightly parallel rustc and fa
 toolchain file (`rust-toolchain-nightly.toml`) sets `PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"`, which
 uses all available CPU threads. If you opt into nightly with `RUSTUP_TOOLCHAIN=nightly` or
 `cargo +nightly`, set `PLATFORM_NIGHTLY_RUSTFLAGS` yourself (for example, `-Z threads=0` or
-`-Z threads=8`). To opt out, unset `PLATFORM_NIGHTLY_RUSTFLAGS` or set it to an empty string. The
-`scripts/verify-nightly-config.sh`, `scripts/test-all.sh`, and `scripts/test-comprehensive.sh` helpers
-respect `PLATFORM_DISABLE_NIGHTLY=1` for a forced opt-out and accept `PLATFORM_RUST_NIGHTLY=1` to force
-nightly toolchains during scripted checks.
+`-Z threads=8`). To opt out, unset `PLATFORM_NIGHTLY_RUSTFLAGS` or set it to an empty string, or set
+`PLATFORM_DISABLE_NIGHTLY=1`. The `scripts/verify-nightly-config.sh`, `scripts/test-all.sh`, and
+`scripts/test-comprehensive.sh` helpers respect `PLATFORM_DISABLE_NIGHTLY=1` for a forced opt-out and
+accept `PLATFORM_RUST_NIGHTLY=1` to force nightly toolchains during scripted checks.
+
+Nightly and linker-related environment variables:
+
+- `PLATFORM_RUST_NIGHTLY=1`: force nightly toolchains in scripts.
+- `PLATFORM_DISABLE_NIGHTLY=1`: disable nightly flags even on nightly.
+- `PLATFORM_NIGHTLY_RUSTFLAGS`: nightly-only rustc flags (for example, `-Z threads=0`).
+- `PLATFORM_FAST_LINKER_RUSTFLAGS`: opt-in fast-linker flags for Linux.
+- `PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN`: opt-in fast-linker flags for macOS.
+- `PLATFORM_LINKER_RUSTFLAGS`: explicit linker flags for Linux (override fast-linker defaults).
+- `PLATFORM_LINKER_RUSTFLAGS_DARWIN`: explicit linker flags for macOS (override fast-linker defaults).
+- `PLATFORM_DISABLE_FAST_LINKER=1`: disable fast-linker flags in scripts.
 
 Supported fast linkers:
-
 - **Linux**: `mold`, `lld`
 - **macOS**: `lld`, `zld`
 
@@ -117,12 +127,32 @@ export PLATFORM_FAST_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 cargo build
 ```
 
-Opt out of fast linker flags by unsetting `PLATFORM_FAST_LINKER_RUSTFLAGS`/
-`PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN`, setting `PLATFORM_LINKER_RUSTFLAGS` (Linux) /
-`PLATFORM_LINKER_RUSTFLAGS_DARWIN` (macOS) to an empty string, or exporting
-`PLATFORM_DISABLE_FAST_LINKER=1` for scripted runs. To override defaults explicitly, set
-`PLATFORM_LINKER_RUSTFLAGS` (Linux) or `PLATFORM_LINKER_RUSTFLAGS_DARWIN` (macOS); these override the
-opt-in fast-linker values when present.
+Fast linker prerequisites (Ubuntu/Debian):
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mold
+# or
+sudo apt-get install -y lld
+```
+
+Fast linker prerequisites (macOS):
+
+```bash
+brew install llvm
+brew install zld
+```
+
+Example: faster build/test runs with nightly + linker selection:
+
+```bash
+export RUSTUP_TOOLCHAIN=nightly
+export PLATFORM_NIGHTLY_RUSTFLAGS="-Z threads=0"
+export PLATFORM_FAST_LINKER_RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+
+cargo build --release --bin validator-node
+cargo test
+```
 
 ### Bittensor
 
@@ -216,6 +246,13 @@ sudo apt-get update
 sudo apt-get install -y mold
 # or
 sudo apt-get install -y lld
+```
+
+Install a fast linker (macOS):
+
+```bash
+brew install llvm
+brew install zld
 ```
 
 To opt out for tests, export `PLATFORM_DISABLE_NIGHTLY=1` (disable nightly flags) and/or
