@@ -682,7 +682,7 @@ mod integration {
         let metagraph = client.sync_metagraph().await.expect("sync metagraph");
         let uid_map = map_metagraph_hotkeys(metagraph);
         let (hotkey, uid) = uid_map.iter().next().expect("hotkey mapping");
-        client.set_uid_overrides(vec![(hotkey.clone(), *uid)]);
+        assert!(client.get_uid_for_hotkey(hotkey).is_some());
 
         let mut submitter = WeightSubmitter::new(client, None);
         submitter.set_epoch(1);

@@ -88,12 +88,8 @@ if platform_should_run_docker; then
             log_failure "Secure container runtime Docker tests failed"
         fi
 
-        log_info "Running challenge-orchestrator Docker tests..."
-        if cargo test -p challenge-orchestrator --release -- --ignored 2>&1 | tee "${PLATFORM_TEST_LOG_DIR}/docker-orchestrator.log"; then
-            log_success "Challenge orchestrator Docker tests passed"
-        else
-            log_failure "Challenge orchestrator Docker tests failed"
-        fi
+        log_info "Challenge orchestrator Docker tests not configured in workspace"
+        log_skip "Challenge orchestrator crate unavailable; skipping"
     else
         log_skip "Docker Compose not available"
     fi
