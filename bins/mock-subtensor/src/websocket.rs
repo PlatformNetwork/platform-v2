@@ -448,9 +448,9 @@ mod tests {
             "id": 1
         });
 
-        let _response = post_rpc_handler(State(state), Json(request)).await;
+        let response = post_rpc_handler(State(state), Json(request)).await;
 
-        // Handler returns successfully
-        assert!(true);
+        let response = response.into_response();
+        assert!(response.status().is_success());
     }
 }

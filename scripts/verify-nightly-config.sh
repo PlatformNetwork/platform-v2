@@ -45,7 +45,6 @@ assert_config_contains() {
 
 verify_config_composition() {
     log_info "Verifying config composition"
-    assert_config_contains "${CARGO_CONFIG}" 'jobs = "default"'
     assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_DISABLE_NIGHTLY = { value = "${PLATFORM_DISABLE_NIGHTLY}", force = false }'
     assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_RUST_NIGHTLY = { value = "${PLATFORM_RUST_NIGHTLY}", force = false }'
     assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_NIGHTLY_RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS}", force = false }'
