@@ -32,25 +32,15 @@ At the epoch boundary, validators aggregate the revealed weights with a stake-we
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    Platform Validator                        │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │  Challenge  │  │  Challenge  │  │    State    │         │
-│  │  Registry   │  │ Orchestrator│  │   Manager   │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-├─────────────────────────────────────────────────────────────┤
-│                   Checkpoint System                          │
-│     (periodic saves, graceful shutdown, crash recovery)     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-    ┌─────────────┐   ┌─────────────┐  ┌─────────────┐
-    │ Challenge A │   │ Challenge B │  │ Challenge N │
-    │  (WASM)     │   │  (WASM)     │  │  (WASM)     │
-    └─────────────┘   └─────────────┘  └─────────────┘
+```mermaid
+flowchart TB
+    Validator[Platform Validator] --> Registry[Challenge Registry]
+    Validator --> Orchestrator[Challenge Orchestrator]
+    Validator --> StateMgr[State Manager]
+    Validator --> Checkpoints[Checkpoint System]
+    Registry --> Challenges[WASM Challenges]
+    Orchestrator --> Challenges
+    StateMgr --> Challenges
 ```
 
 ## Testing With Docker
@@ -67,13 +57,13 @@ Your challenge crate should follow this structure:
 
 ```
 my-challenge/
-├── Cargo.toml
-├── src/
-│   ├── lib.rs           # Challenge implementation
-│   ├── evaluation.rs    # Evaluation logic
-│   └── scoring.rs       # Scoring algorithm
-├── Dockerfile           # Test harness container build (optional)
-└── README.md           # Documentation
+  Cargo.toml
+  src/
+    lib.rs           # Challenge implementation
+    evaluation.rs    # Evaluation logic
+    scoring.rs       # Scoring algorithm
+  Dockerfile         # Test harness container build (optional)
+  README.md          # Documentation
 ```
 
 ### 2. Dependencies
@@ -114,7 +104,7 @@ impl ServerChallenge for MyChallenge {
     ) -> Result<EvaluationResponse, ChallengeError> {
         // Your evaluation logic
         let score = self.evaluate_submission(&req.data)?;
-        
+
         Ok(EvaluationResponse::success(
             &req.request_id,
             score,

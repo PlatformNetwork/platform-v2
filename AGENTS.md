@@ -32,27 +32,12 @@ Platform is a **fully decentralized P2P infrastructure** that:
 3. **Aggregates scores** using stake-weighted consensus (P2P)
 4. **Submits weights** to Bittensor at epoch boundaries
 
-```
-┌─────────────┐                              ┌─────────────┐
-│   MINERS    │ ──────────────────────────▶  │  BITTENSOR  │
-│  (Agents)   │                              │   (Weights) │
-└─────────────┘                              └─────────────┘
-       │                                            ▲
-       │ P2P (libp2p)                               │
-       ▼                                            │
-┌──────────────────────────────────────────────────────────┐
-│              VALIDATOR P2P NETWORK                       │
-│  ┌───────────┐   ┌───────────┐   ┌───────────┐          │
-│  │ Validator │◀─▶│ Validator │◀─▶│ Validator │ ...      │
-│  │   Node    │   │   Node    │   │   Node    │          │
-│  └───────────┘   └───────────┘   └───────────┘          │
-│       │               │               │                  │
-│       ▼               ▼               ▼                  │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐             │
-│  │Challenge │   │Challenge │   │Challenge │             │
-│  │Container │   │Container │   │Container │             │
-│  └──────────┘   └──────────┘   └──────────┘             │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    Miners[Miners] -->|Submissions| P2P[(libp2p Mesh)]
+    P2P --> Validators[Validator Nodes]
+    Validators --> Runtime[WASM Challenge Runtime]
+    Validators -->|Weights| Bittensor[Bittensor Chain]
 ```
 
 ---
@@ -124,11 +109,10 @@ All P2P messages are signed with your Bittensor hotkey:
 ### Submitting via P2P
 
 Connect to any validator node to submit your agent:
+
 ```bash
 # Using the challenge CLI (recommended)
 term submit --agent my_agent.py --peer /ip4/VALIDATOR_IP/tcp/9000/p2p/PEER_ID
-
-# Or via the challenge SDK
 ```
 
 ---
@@ -153,6 +137,7 @@ Each challenge defines its own scoring algorithm. Validators coordinate score ag
 ### Can I test locally?
 
 Yes, using tools from the **challenge repository**:
+
 ```bash
 # Example for Terminal Bench
 term test --agent my_agent.py --task task_name
@@ -166,22 +151,13 @@ Defined by each challenge. Check the challenge docs for specific limits.
 
 ## Architecture Summary
 
-```
-Platform Repository (this repo)
-├── crates/
-│   ├── challenge-sdk/           # SDK for building challenges (not agents!)
-│   ├── challenge-orchestrator/  # Manages challenge container execution
-│   ├── bittensor-integration/   # Bittensor network integration
-│   └── ...
-└── bins/
-    └── validator-node/          # P2P validator node binary
-
-Challenge Repositories (separate)
-├── term-challenge/         # Terminal Bench
-│   ├── sdk/               # Agent SDK (term_sdk)
-│   ├── tasks/             # Task definitions
-│   └── evaluation/        # Scoring logic
-└── (other challenges)/
+```mermaid
+flowchart TB
+    Platform[Platform Repository] --> SDK[challenge-sdk]
+    Platform --> Validator[validator-node]
+    Platform --> Runtime[wasm-runtime-interface]
+    Challenges[Challenge Repositories] --> AgentSDK[Agent SDK]
+    Challenges --> Tasks[Tasks + scoring]
 ```
 
 **Note:** Platform is fully decentralized—there is no central server. All validators communicate directly via libp2p (gossipsub + DHT).
@@ -202,7 +178,7 @@ Challenge Repositories (separate)
 ## Links
 
 - [Bittensor Docs](https://docs.bittensor.com) - Network documentation
-- [Validator Guide](docs/validator.md) - Running a validator
+- [Validator Guide](docs/operations/validator.md) - Running a validator
 
 Platform is fully decentralized—validators communicate directly via P2P without any central server.
 See the main README for deployment instructions.

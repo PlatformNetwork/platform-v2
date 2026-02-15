@@ -1,16 +1,17 @@
 # Validator/Core/P2P/WASM Audit Notes
 
 ## Scope
+
 Reviewed: `bins/validator-node`, `crates/core`, `crates/p2p-consensus`, `crates/challenge-orchestrator`, `crates/challenge-registry`, `crates/wasm-runtime-interface`.
 
 ## Key Findings
 
 ### Validator Node
 - `bins/validator-node` still wires consensus + storage, but no orchestrator usage. Challenge execution appears absent from validator node runtime path; any future WASM path needs explicit integration.
-- CLI flags include `--docker-challenges` with default `true` but no usage beyond argument definition. This is a likely legacy flag from Docker challenge flow.
+- CLI flags include `--docker-challenges` with default `true` but no usage beyond argument definition. This remains legacy from Docker challenge flow; production is WASM-first.
 
-### Challenge Orchestrator (Docker-first)
-- `crates/challenge-orchestrator` is centered on Docker container lifecycle. It auto-detects Docker network and connects validator container to `platform-network`.
+### Challenge Orchestrator (Test Harness)
+- `crates/challenge-orchestrator` is centered on Docker container lifecycle. It is intended for test harness usage only.
 - Backend selection uses secure broker if available, otherwise **falls back to direct Docker**, even when `DEVELOPMENT_MODE` is not set (`BackendMode::Fallback`), with warnings. This is a centralized fallback path that conflicts with P2P/secure expectations.
 - Docker-only notions appear in:
   - `ChallengeContainerConfig` usage (core) and `ChallengeInstance` container ID/endpoint metadata.
@@ -52,6 +53,7 @@ Reviewed: `bins/validator-node`, `crates/core`, `crates/p2p-consensus`, `crates/
    - Replace `p2p-consensus::ChallengeConfig` docker image with WASM module metadata (hash/path/entrypoint/policy) to support WASM-only evaluation.
 
 ## Suggested Next Steps
+
 - Determine removal strategy for Docker orchestrator (remove or gate behind dev-only compile feature).
 - Integrate WASM runtime execution into validator flow and consensus state.
 - Align registry and core state to store WASM metadata only, with migration of existing state.
