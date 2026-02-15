@@ -25,7 +25,7 @@ log_info "======================================================================
 log_info "Artifacts: ${PLATFORM_TEST_ARTIFACTS_DIR}"
 log_info "Run dir: ${PLATFORM_TEST_RUN_DIR}"
 log_info "Defaults: nightly toolchain uses -Z threads=0"
-log_info "Defaults: fast linker flags from config when set"
+log_info "Defaults: fast linker flags opt-in via env"
 log_info "Opt-out: PLATFORM_DISABLE_NIGHTLY=1"
 log_info "Override: PLATFORM_RUST_NIGHTLY=1"
 log_info "Opt-out: PLATFORM_DISABLE_FAST_LINKER=1"
@@ -35,13 +35,15 @@ log_info ""
 
 if [ "${PLATFORM_DISABLE_NIGHTLY:-0}" = "1" ]; then
     export PLATFORM_NIGHTLY_RUSTFLAGS=""
+    export RUSTUP_TOOLCHAIN=""
     log_info "Nightly Rust disabled via opt-out"
 elif [ "${PLATFORM_RUST_NIGHTLY:-0}" = "1" ] || [ "${RUSTUP_TOOLCHAIN:-}" = "nightly" ]; then
     export RUSTUP_TOOLCHAIN="nightly"
     export PLATFORM_NIGHTLY_RUSTFLAGS="${PLATFORM_NIGHTLY_RUSTFLAGS:--Z threads=0}"
     log_info "Nightly Rust enabled (parallel rustc)"
 else
-    log_info "Nightly Rust not requested; using default toolchain"
+    export PLATFORM_NIGHTLY_RUSTFLAGS=""
+    log_info "Nightly Rust not requested; clearing nightly flags"
 fi
 
 if [ "${PLATFORM_DISABLE_FAST_LINKER:-0}" = "1" ]; then

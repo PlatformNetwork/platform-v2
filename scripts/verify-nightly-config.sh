@@ -46,12 +46,15 @@ assert_config_contains() {
 verify_config_composition() {
     log_info "Verifying config composition"
     assert_config_contains "${CARGO_CONFIG}" 'jobs = "default"'
+    assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_DISABLE_NIGHTLY = { value = "${PLATFORM_DISABLE_NIGHTLY}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_RUST_NIGHTLY = { value = "${PLATFORM_RUST_NIGHTLY}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_NIGHTLY_RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS}", force = false }'
     assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_FAST_LINKER_RUSTFLAGS = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS}", force = false }'
     assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN}", force = false }'
     assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_LINKER_RUSTFLAGS = { value = "${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
     assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
-    assert_config_contains "${CARGO_CONFIG}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
-    assert_config_contains "${CARGO_CONFIG}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'RUSTFLAGS = { value = "${RUSTFLAGS} ${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = true }'
+    assert_config_contains "${CARGO_CONFIG}" 'RUSTFLAGS = { value = "${RUSTFLAGS} ${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = true }'
     assert_config_contains "${NIGHTLY_CONFIG}" 'PLATFORM_NIGHTLY_RUSTFLAGS = "-Z threads=0"'
 }
 
@@ -112,13 +115,15 @@ run_check() {
 
     if [ "${PLATFORM_DISABLE_NIGHTLY:-0}" = "1" ]; then
         PLATFORM_NIGHTLY_RUSTFLAGS=""
+        RUSTUP_TOOLCHAIN=""
         log_info "${label}: Nightly Rust disabled via opt-out"
     elif [ "${PLATFORM_RUST_NIGHTLY:-0}" = "1" ] || [ "${RUSTUP_TOOLCHAIN:-}" = "nightly" ]; then
         RUSTUP_TOOLCHAIN="nightly"
         PLATFORM_NIGHTLY_RUSTFLAGS="${PLATFORM_NIGHTLY_RUSTFLAGS:--Z threads=0}"
         log_info "${label}: Nightly Rust enabled (parallel rustc)"
     else
-        log_info "${label}: Nightly Rust not requested; using default toolchain"
+        PLATFORM_NIGHTLY_RUSTFLAGS=""
+        log_info "${label}: Nightly Rust not requested; clearing nightly flags"
     fi
 
     if [ "${PLATFORM_DISABLE_FAST_LINKER:-0}" = "1" ]; then
@@ -127,6 +132,13 @@ run_check() {
         PLATFORM_LINKER_RUSTFLAGS=""
         PLATFORM_LINKER_RUSTFLAGS_DARWIN=""
         log_info "${label}: Fast linker disabled via opt-out"
+    fi
+
+    if [ "${PLATFORM_DISABLE_NIGHTLY:-0}" = "1" ]; then
+        if [ -n "${PLATFORM_NIGHTLY_RUSTFLAGS}" ]; then
+            log_failure "${label}: Nightly rustflags should be empty when disabled"
+            return 1
+        fi
     fi
 
     log_info "${label}: Expected toolchain=${RUSTUP_TOOLCHAIN:-default}"
