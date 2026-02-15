@@ -37,22 +37,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-  build:
-    name: Build
-    runs-on: platform-runner
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - name: Verify nightly config (stable dry-run)
         run: scripts/verify-nightly-config.sh
       - uses: Swatinem/rust-cache@v2
@@ -66,16 +50,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-  clippy:
-    name: Clippy
-    runs-on: platform-runner
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "platform-ci"
@@ -90,12 +68,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-  test:
-    name: Test
-    runs-on: platform-runner
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -103,7 +75,6 @@ jobs:
         with:
           shared-key: "platform-ci"
           save-if: false
-
       - name: Run tests
         run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
 
@@ -116,13 +87,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-  integration:
-    name: Integration
-    runs-on: platform-runner
-    needs: [build, clippy, test]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -144,13 +108,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-  e2e:
-    name: E2E
-    runs-on: platform-runner
-    needs: [build, clippy, test]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -165,10 +122,6 @@ jobs:
 
   # Coverage runs in a separate job with its own concurrency group
   # This prevents coverage deployment from being cancelled by new commits
-  coverage:
-    name: Coverage
-    runs-on: platform-runner
-    if: github.ref == 'refs/heads/main'
   coverage:
     name: Coverage
     runs-on: platform-runner
@@ -190,18 +143,15 @@ jobs:
         with:
           shared-key: "platform-ci"
           save-if: false
-
       - name: Run tests with coverage
         run: |
           cargo llvm-cov nextest --workspace --json --output-path coverage.json -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
           cargo llvm-cov report --html --output-dir coverage-html
-
       - name: Upload coverage HTML report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
           path: coverage-html/
-
       - name: Publish coverage HTML to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -209,7 +159,6 @@ jobs:
           publish_dir: ./coverage-html
           destination_dir: coverage-html
           keep_files: true
-
       - name: Generate and deploy coverage badge
         run: |
           COVERAGE=$(jq '.data[0].totals.lines.percent // 0 | round' coverage.json)
@@ -220,7 +169,6 @@ jobs:
           elif (( COVERAGE >= 40 )); then COLOR="yellow"
           else COLOR="red"; fi
           curl -s "https://img.shields.io/badge/coverage-${COVERAGE}%25-${COLOR}" > badges/coverage.svg
-
       - name: Deploy coverage badge
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -234,10 +182,6 @@ jobs:
     name: Docker
     runs-on: platform-runner
     needs: [build, clippy, test]
-  docker:
-    name: Docker
-    runs-on: platform-runner
-    needs: [build, clippy, test]
     permissions:
       contents: read
       packages: write
@@ -247,26 +191,13 @@ jobs:
         run: scripts/install-docker.sh
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-    steps:
-      - uses: actions/checkout@v4
-      - name: Ensure Docker available
-        run: scripts/install-docker.sh
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-    steps:
-      - uses: actions/checkout@v4
-      - name: Ensure Docker available
-        run: scripts/install-docker.sh
-
       - uses: docker/setup-buildx-action@v3
-
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -289,10 +220,6 @@ jobs:
           cache-to: type=gha,mode=max
 
   # Release only on tags, after all checks pass
-  release:
-    name: Release
-    runs-on: platform-runner
-    needs: [build, clippy, test, docker]
   release:
     name: Release
     runs-on: platform-runner
@@ -321,9 +248,6 @@ jobs:
   nightly:
     name: Nightly Build & Test
     runs-on: platform-runner
-  nightly:
-    name: Nightly Build & Test
-    runs-on: platform-runner
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_nightly == 'true'
     env:
       RUSTUP_TOOLCHAIN: nightly
@@ -333,13 +257,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-      - name: Install mold linker
-        run: sudo apt-get update && sudo apt-get install -y mold
+      - name: Install nightly dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep mold
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -354,9 +273,6 @@ jobs:
       - name: Nightly tests
         run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
 
-  docker-nightly:
-    name: Docker Nightly Build
-    runs-on: platform-runner
   docker-nightly:
     name: Docker Nightly Build
     runs-on: platform-runner
