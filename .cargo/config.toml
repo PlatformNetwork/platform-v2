@@ -1,7 +1,7 @@
 [build]
 # Use all available CPU cores for compilation.
 # Override with CARGO_BUILD_JOBS if needed.
-jobs = "default"
+# Omit explicit jobs to allow Cargo defaults.
 
 [env]
 # Optional flags gated by environment variables (opt-in).

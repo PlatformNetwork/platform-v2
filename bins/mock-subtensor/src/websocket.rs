@@ -399,8 +399,7 @@ mod tests {
         let server = WsServer::new(state);
         let _router = server.router();
 
-        // Router created successfully
-        assert!(true);
+        let _ = _router;
     }
 
     #[tokio::test]
@@ -408,8 +407,7 @@ mod tests {
         let state = test_state();
         let _response = health_handler(State(state)).await;
 
-        // Handler returns successfully (response is impl IntoResponse)
-        assert!(true);
+        let _ = _response;
     }
 
     #[tokio::test]
@@ -417,8 +415,7 @@ mod tests {
         let state = test_state();
         let _response = get_state_handler(State(state)).await;
 
-        // Handler returns successfully
-        assert!(true);
+        let _ = _response;
     }
 
     #[tokio::test]
@@ -426,8 +423,7 @@ mod tests {
         let state = test_state();
         let _response = get_metagraph_handler(State(state)).await;
 
-        // Handler returns successfully
-        assert!(true);
+        let _ = _response;
     }
 
     #[tokio::test]

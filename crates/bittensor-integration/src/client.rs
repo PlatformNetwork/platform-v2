@@ -133,7 +133,6 @@ impl SubtensorClient {
         None
     }
 
-    #[cfg(test)]
     pub fn set_uid_overrides(&mut self, entries: Vec<(String, u16)>) {
         self.uid_overrides = entries.into_iter().collect();
     }

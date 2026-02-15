@@ -269,7 +269,7 @@ mod tests {
     fn test_block_hash_lookup() {
         let mut chain = Chain::new(&test_config());
         let block = chain.produce_block();
-        let hash_hex = format!("0x{}", hex::encode(&block.hash));
+        let hash_hex = format!("0x{}", hex::encode(block.hash));
 
         assert!(chain.get_block_by_hash(&hash_hex).is_some());
         assert_eq!(chain.get_block_by_hash(&hash_hex).unwrap().header.number, 1);

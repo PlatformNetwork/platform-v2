@@ -35,6 +35,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+  build:
+    name: Build
+    runs-on: platform-runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - name: Verify nightly config (stable dry-run)
         run: scripts/verify-nightly-config.sh
       - uses: Swatinem/rust-cache@v2
@@ -42,6 +60,14 @@ jobs:
           shared-key: "platform-ci"
       - run: cargo build --release
 
+  clippy:
+    name: Clippy
+    runs-on: platform-runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
   clippy:
     name: Clippy
     runs-on: platform-runner
@@ -62,6 +88,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+  test:
+    name: Test
+    runs-on: platform-runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -73,6 +107,15 @@ jobs:
       - name: Run tests
         run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
 
+  integration:
+    name: Integration
+    runs-on: platform-runner
+    needs: [build, clippy, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
   integration:
     name: Integration
     runs-on: platform-runner
@@ -99,6 +142,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+  e2e:
+    name: E2E
+    runs-on: platform-runner
+    needs: [build, clippy, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -113,6 +165,10 @@ jobs:
 
   # Coverage runs in a separate job with its own concurrency group
   # This prevents coverage deployment from being cancelled by new commits
+  coverage:
+    name: Coverage
+    runs-on: platform-runner
+    if: github.ref == 'refs/heads/main'
   coverage:
     name: Coverage
     runs-on: platform-runner
@@ -178,9 +234,25 @@ jobs:
     name: Docker
     runs-on: platform-runner
     needs: [build, clippy, test]
+  docker:
+    name: Docker
+    runs-on: platform-runner
+    needs: [build, clippy, test]
     permissions:
       contents: read
       packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Docker available
+        run: scripts/install-docker.sh
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Docker available
+        run: scripts/install-docker.sh
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
     steps:
       - uses: actions/checkout@v4
       - name: Ensure Docker available
@@ -221,6 +293,10 @@ jobs:
     name: Release
     runs-on: platform-runner
     needs: [build, clippy, test, docker]
+  release:
+    name: Release
+    runs-on: platform-runner
+    needs: [build, clippy, test, docker]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -245,12 +321,20 @@ jobs:
   nightly:
     name: Nightly Build & Test
     runs-on: platform-runner
+  nightly:
+    name: Nightly Build & Test
+    runs-on: platform-runner
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_nightly == 'true'
     env:
       RUSTUP_TOOLCHAIN: nightly
       PLATFORM_RUST_NIGHTLY: "1"
       PLATFORM_NIGHTLY_RUSTFLAGS: "-Z threads=0"
       PLATFORM_FAST_LINKER_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -270,6 +354,9 @@ jobs:
       - name: Nightly tests
         run: cargo nextest run --workspace -E 'not (test(/live/) | test(/integration/) | test(/e2e/))'
 
+  docker-nightly:
+    name: Docker Nightly Build
+    runs-on: platform-runner
   docker-nightly:
     name: Docker Nightly Build
     runs-on: platform-runner

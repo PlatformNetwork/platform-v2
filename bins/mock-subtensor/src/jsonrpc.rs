@@ -869,8 +869,6 @@ impl RpcHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chain::Chain;
-    use crate::state::MockMetagraph;
 
     fn test_state() -> Arc<AppState> {
         let config = crate::Config {
@@ -931,7 +929,7 @@ mod tests {
         let resp = handler.handle(req);
         assert!(resp.result.is_some());
         let result = resp.result.unwrap();
-        assert!(result.as_array().unwrap().len() > 0);
+        assert!(!result.as_array().unwrap().is_empty());
     }
 
     #[test]
