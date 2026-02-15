@@ -34,6 +34,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "platform-ci"
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+  build-release:
+    name: Build Release Artifacts
+    runs-on: platform-runner
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "platform-ci"
 
       - name: Build release binaries
         run: cargo build --release
@@ -52,6 +65,19 @@ jobs:
           files: |
             platform-${{ needs.release-please.outputs.version }}-linux-x86_64.tar.gz
 
+  docker-release:
+    name: Docker Release
+    runs-on: platform-runner
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Ensure Docker available
+        run: scripts/install-docker.sh
   docker-release:
     name: Docker Release
     runs-on: platform-runner
