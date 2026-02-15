@@ -15,6 +15,7 @@ members = [
     "crates/wasm-runtime-interface",
     "bins/validator-node",
     "bins/utils",
+    "bins/mock-subtensor",
     "tests",
 ]
 # Note: Challenges are in separate repositories and import platform-challenge-sdk as a git dependency
