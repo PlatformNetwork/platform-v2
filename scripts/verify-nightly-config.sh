@@ -18,7 +18,11 @@ trap platform_cleanup_run_dir EXIT
 platform_require_command rg
 platform_require_command cargo
 
+CARGO_CONFIG="${PLATFORM_TEST_ROOT}/.cargo/config.toml"
+NIGHTLY_CONFIG="${PLATFORM_TEST_ROOT}/rust-toolchain-nightly.toml"
+
 log_info "Nightly config verification"
+log_info "Defaults: build.jobs uses all cores"
 log_info "Defaults: nightly toolchain uses -Z threads=0"
 log_info "Defaults: fast linker flags from config when set"
 log_info "Opt-out: PLATFORM_DISABLE_NIGHTLY=1"
@@ -40,17 +44,15 @@ assert_config_contains() {
 }
 
 verify_config_composition() {
-    local cargo_config="${PLATFORM_TEST_ROOT}/.cargo/config.toml"
-    local nightly_config="${PLATFORM_TEST_ROOT}/rust-toolchain-nightly.toml"
-
     log_info "Verifying config composition"
-    assert_config_contains "${cargo_config}" 'PLATFORM_FAST_LINKER_RUSTFLAGS = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS}", force = false }'
-    assert_config_contains "${cargo_config}" 'PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN}", force = false }'
-    assert_config_contains "${cargo_config}" 'PLATFORM_LINKER_RUSTFLAGS = { value = "${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
-    assert_config_contains "${cargo_config}" 'PLATFORM_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
-    assert_config_contains "${cargo_config}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
-    assert_config_contains "${cargo_config}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
-    assert_config_contains "${nightly_config}" 'PLATFORM_NIGHTLY_RUSTFLAGS = "-Z threads=0"'
+    assert_config_contains "${CARGO_CONFIG}" 'jobs = "default"'
+    assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_FAST_LINKER_RUSTFLAGS = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_LINKER_RUSTFLAGS = { value = "${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'PLATFORM_LINKER_RUSTFLAGS_DARWIN = { value = "${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS} ${PLATFORM_LINKER_RUSTFLAGS}", force = false }'
+    assert_config_contains "${CARGO_CONFIG}" 'RUSTFLAGS = { value = "${PLATFORM_NIGHTLY_RUSTFLAGS} ${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN} ${PLATFORM_LINKER_RUSTFLAGS_DARWIN}", force = false }'
+    assert_config_contains "${NIGHTLY_CONFIG}" 'PLATFORM_NIGHTLY_RUSTFLAGS = "-Z threads=0"'
 }
 
 run_check() {
@@ -58,17 +60,23 @@ run_check() {
     local log_file="$2"
     local expect_nightly="$3"
     local expect_no_nightly="$4"
-    shift 4
+    local expect_fast="$5"
+    local expect_no_fast="$6"
+    shift 6
 
     PLATFORM_DISABLE_NIGHTLY=0
     PLATFORM_RUST_NIGHTLY=0
     RUSTUP_TOOLCHAIN=""
     PLATFORM_NIGHTLY_RUSTFLAGS=""
-    PLATFORM_FAST_LINKER_RUSTFLAGS="${PLATFORM_FAST_LINKER_RUSTFLAGS:-}"
-    PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN="${PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN:-}"
-    PLATFORM_LINKER_RUSTFLAGS="${PLATFORM_LINKER_RUSTFLAGS:-}"
-    PLATFORM_LINKER_RUSTFLAGS_DARWIN="${PLATFORM_LINKER_RUSTFLAGS_DARWIN:-}"
-    PLATFORM_DISABLE_FAST_LINKER="${PLATFORM_DISABLE_FAST_LINKER:-0}"
+    PLATFORM_FAST_LINKER_RUSTFLAGS=""
+    PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN=""
+    PLATFORM_LINKER_RUSTFLAGS=""
+    PLATFORM_LINKER_RUSTFLAGS_DARWIN=""
+    PLATFORM_DISABLE_FAST_LINKER=0
+
+    local fast_linker_test_flag="-C link-arg=-s"
+    local use_fast_linker=0
+    local disable_fast_linker=0
 
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -78,6 +86,12 @@ run_check() {
             --stable)
                 PLATFORM_DISABLE_NIGHTLY=1
                 ;;
+            --fast-linker)
+                use_fast_linker=1
+                ;;
+            --disable-fast-linker)
+                disable_fast_linker=1
+                ;;
             *)
                 log_failure "Unknown option: $1"
                 return 1
@@ -85,6 +99,16 @@ run_check() {
         esac
         shift
     done
+
+    if [ "${use_fast_linker}" -eq 1 ]; then
+        PLATFORM_FAST_LINKER_RUSTFLAGS="${fast_linker_test_flag}"
+        PLATFORM_FAST_LINKER_RUSTFLAGS_DARWIN="${fast_linker_test_flag}"
+        log_info "${label}: Fast linker override enabled"
+    fi
+
+    if [ "${disable_fast_linker}" -eq 1 ]; then
+        PLATFORM_DISABLE_FAST_LINKER=1
+    fi
 
     if [ "${PLATFORM_DISABLE_NIGHTLY:-0}" = "1" ]; then
         PLATFORM_NIGHTLY_RUSTFLAGS=""
@@ -145,16 +169,40 @@ run_check() {
             log_success "${label}: Nightly rustflags absent as expected"
         fi
     fi
+
+    if [ "${expect_fast}" -eq 1 ]; then
+        if rg -F --quiet "${fast_linker_test_flag}" "${log_file}"; then
+            log_success "${label}: Fast linker rustflags detected"
+        else
+            log_failure "${label}: Fast linker rustflags missing"
+            return 1
+        fi
+    fi
+
+    if [ "${expect_no_fast}" -eq 1 ]; then
+        if rg -F --quiet "${fast_linker_test_flag}" "${log_file}"; then
+            log_failure "${label}: Unexpected fast linker rustflags detected"
+            return 1
+        else
+            log_success "${label}: Fast linker rustflags absent as expected"
+        fi
+    fi
 }
 
 verify_config_composition
 
 log_info "Stable verification (nightly opt-out)"
-run_check "Stable" "${PLATFORM_TEST_LOG_DIR}/nightly-config-stable.log" 0 1 --stable
+run_check "Stable" "${PLATFORM_TEST_LOG_DIR}/nightly-config-stable.log" 0 1 0 1 --stable
+
+log_info "Fast linker override verification"
+run_check "Fast linker" "${PLATFORM_TEST_LOG_DIR}/nightly-config-fast-linker.log" 0 1 1 0 --stable --fast-linker
+
+log_info "Fast linker opt-out verification"
+run_check "Fast linker opt-out" "${PLATFORM_TEST_LOG_DIR}/nightly-config-fast-linker-disabled.log" 0 1 0 1 --stable --fast-linker --disable-fast-linker
 
 if command -v rustup >/dev/null 2>&1 && rustup toolchain list 2>/dev/null | rg -q '^nightly'; then
     log_info "Nightly verification (defaults apply)"
-    run_check "Nightly" "${PLATFORM_TEST_LOG_DIR}/nightly-config-nightly.log" 1 0 --nightly
+    run_check "Nightly" "${PLATFORM_TEST_LOG_DIR}/nightly-config-nightly.log" 1 0 0 1 --nightly
 else
     log_skip "Nightly toolchain not installed; skipping nightly verification"
 fi
