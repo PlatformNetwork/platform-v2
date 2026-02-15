@@ -1,9 +1,8 @@
 //! Chain state management
 
 use crate::{
-    hash_data, BlockHeight, Challenge, ChallengeContainerConfig, ChallengeId,
-    ChallengeWeightAllocation, Hotkey, Job, MechanismWeightConfig, NetworkConfig, Result, Stake,
-    ValidatorInfo, WasmChallengeConfig,
+    hash_data, BlockHeight, Challenge, ChallengeId, ChallengeWeightAllocation, Hotkey, Job,
+    MechanismWeightConfig, NetworkConfig, Result, Stake, ValidatorInfo, WasmChallengeConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,7 +12,6 @@ use std::collections::HashMap;
 pub struct RequiredVersion {
     pub min_version: String,
     pub recommended_version: String,
-    pub docker_image: String,
     pub mandatory: bool,
     pub deadline_block: Option<u64>,
 }
@@ -45,10 +43,6 @@ pub struct ChainState {
     /// Active challenges (legacy, for SDK-based challenges)
     #[serde(default)]
     pub challenges: HashMap<ChallengeId, Challenge>,
-
-    /// Challenge container configs (for Docker-based challenges)
-    #[serde(default)]
-    pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
 
     /// WASM challenge configurations (metadata only)
     #[serde(default)]
@@ -98,7 +92,6 @@ impl Default for ChainState {
             sudo_key: Hotkey([0u8; 32]),
             validators: HashMap::new(),
             challenges: HashMap::new(),
-            challenge_configs: HashMap::new(),
             wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
@@ -121,7 +114,6 @@ impl ChainState {
             sudo_key,
             validators: HashMap::new(),
             challenges: HashMap::new(),
-            challenge_configs: HashMap::new(),
             wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),

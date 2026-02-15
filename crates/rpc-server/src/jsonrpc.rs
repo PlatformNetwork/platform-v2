@@ -189,21 +189,6 @@ pub struct RpcHandler {
     pub broadcast_tx: Arc<RwLock<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>>,
     /// Keypair for signing P2P messages (optional, set by validator)
     pub keypair: Arc<RwLock<Option<platform_core::Keypair>>>,
-    /// Channel to trigger orchestrator for challenge container management
-    /// Sends (action, config) where action is "add", "update", or "remove"
-    pub orchestrator_tx:
-        Arc<RwLock<Option<tokio::sync::mpsc::UnboundedSender<OrchestratorCommand>>>>,
-}
-
-/// Command to send to the orchestrator
-#[derive(Debug, Clone)]
-pub enum OrchestratorCommand {
-    /// Add and start a new challenge container
-    Add(platform_core::ChallengeContainerConfig),
-    /// Update a challenge (pull new image, restart)
-    Update(platform_core::ChallengeContainerConfig),
-    /// Remove a challenge container
-    Remove(platform_core::ChallengeId),
 }
 
 impl RpcHandler {
@@ -219,7 +204,6 @@ impl RpcHandler {
             route_handler: Arc::new(RwLock::new(None)),
             broadcast_tx: Arc::new(RwLock::new(None)),
             keypair: Arc::new(RwLock::new(None)),
-            orchestrator_tx: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -231,11 +215,6 @@ impl RpcHandler {
     /// Set the broadcast channel for P2P message sending
     pub fn set_broadcast_tx(&self, tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>) {
         *self.broadcast_tx.write() = Some(tx);
-    }
-
-    /// Set the orchestrator channel for challenge container management
-    pub fn set_orchestrator_tx(&self, tx: tokio::sync::mpsc::UnboundedSender<OrchestratorCommand>) {
-        *self.orchestrator_tx.write() = Some(tx);
     }
 
     /// Normalize challenge name: lowercase, replace spaces with dashes, remove special chars
@@ -373,10 +352,6 @@ impl RpcHandler {
             // Sudo namespace (for subnet owner actions)
             ["sudo", "submit"] => self.sudo_submit(req.id, req.params),
 
-            // Monitor namespace (for csudo monitoring)
-            ["monitor", "getChallengeHealth"] => self.monitor_get_challenge_health(req.id),
-            ["monitor", "getChallengeLogs"] => self.monitor_get_challenge_logs(req.id, req.params),
-
             _ => {
                 warn!("Unknown RPC method: {}", req.method);
                 JsonRpcResponse::error(
@@ -420,7 +395,6 @@ impl RpcHandler {
                     // RPC
                     "rpc_methods",
                     // Monitor
-                    "monitor_getChallengeHealth", "monitor_getChallengeLogs"
                 ]
             }),
         )
@@ -555,28 +529,6 @@ impl RpcHandler {
     fn chain_get_state(&self, id: Value) -> JsonRpcResponse {
         let chain = self.chain_state.read();
 
-        // Serialize challenge_configs
-        let challenge_configs: serde_json::Map<String, Value> = chain
-            .challenge_configs
-            .iter()
-            .map(|(id, config)| {
-                (
-                    id.to_string(),
-                    json!({
-                        "challenge_id": id.to_string(),
-                        "name": config.name,
-                        "docker_image": config.docker_image,
-                        "mechanism_id": config.mechanism_id,
-                        "emission_weight": config.emission_weight,
-                        "timeout_secs": config.timeout_secs,
-                        "cpu_cores": config.cpu_cores,
-                        "memory_mb": config.memory_mb,
-                        "gpu_required": config.gpu_required,
-                    }),
-                )
-            })
-            .collect();
-
         // Serialize mechanism_configs
         let mechanism_configs: serde_json::Map<String, Value> = chain
             .mechanism_configs
@@ -638,7 +590,6 @@ impl RpcHandler {
                 "sudoKey": chain.sudo_key.to_hex(),
                 "validators": validators,
                 "challenges": chain.challenges.len(),
-                "challenge_configs": challenge_configs,
                 "mechanism_configs": mechanism_configs,
                 "challenge_weights": challenge_weights,
                 "pendingJobs": chain.pending_jobs.len(),
@@ -960,7 +911,7 @@ impl RpcHandler {
         let only_active = self.get_param_bool(&params, "onlyActive").unwrap_or(false);
 
         // Get WASM challenges
-        let mut challenges: Vec<Value> = chain
+        let challenges: Vec<Value> = chain
             .challenges
             .values()
             .filter(|c| !only_active || c.is_active)
@@ -982,23 +933,6 @@ impl RpcHandler {
                 })
             })
             .collect();
-
-        // Also include Docker challenge configs
-        for (cid, config) in chain.challenge_configs.iter() {
-            let challenge_routes = routes.get(&cid.to_string()).map(|r| r.len()).unwrap_or(0);
-            challenges.push(json!({
-                "id": cid.to_string(),
-                "name": config.name,
-                "description": format!("Docker challenge: {}", config.docker_image),
-                "dockerImage": config.docker_image,
-                "isActive": true,
-                "mechanismId": config.mechanism_id,
-                "emissionWeight": config.emission_weight,
-                "timeoutSecs": config.timeout_secs,
-                "routesCount": challenge_routes,
-                "type": "docker",
-            }));
-        }
 
         JsonRpcResponse::result(
             id,
@@ -1392,144 +1326,6 @@ impl RpcHandler {
             );
         }
 
-        // Also apply locally since gossipsub doesn't echo back to sender
-        // Handle SudoActions: AddChallenge, UpdateChallenge, RemoveChallenge
-        if let platform_core::NetworkMessage::Proposal(ref proposal) = signed.message {
-            match &proposal.action {
-                platform_core::ProposalAction::Sudo(platform_core::SudoAction::AddChallenge {
-                    config,
-                }) => {
-                    // Normalize the challenge name (no spaces, lowercase, dashes)
-                    let mut normalized_config = config.clone();
-                    normalized_config.name = Self::normalize_challenge_name(&config.name);
-
-                    // Apply locally
-                    {
-                        let mut chain = self.chain_state.write();
-                        chain
-                            .challenge_configs
-                            .insert(normalized_config.challenge_id, normalized_config.clone());
-                    }
-                    info!(
-                        "Applied AddChallenge locally: {} ({})",
-                        normalized_config.name, normalized_config.challenge_id
-                    );
-
-                    // Register routes with normalized name
-                    use platform_challenge_sdk::ChallengeRoute;
-                    let routes = vec![
-                        ChallengeRoute::post("/submit", "Submit an agent"),
-                        ChallengeRoute::get("/status/:hash", "Get agent status"),
-                        ChallengeRoute::get("/leaderboard", "Get leaderboard"),
-                        ChallengeRoute::get("/config", "Get challenge config"),
-                        ChallengeRoute::get("/stats", "Get statistics"),
-                        ChallengeRoute::get("/health", "Health check"),
-                    ];
-                    self.register_challenge_routes(&normalized_config.name, routes);
-
-                    // Trigger orchestrator to start the Docker container
-                    if let Some(tx) = self.orchestrator_tx.read().as_ref() {
-                        if let Err(e) = tx.send(OrchestratorCommand::Add(normalized_config.clone()))
-                        {
-                            warn!("Failed to send to orchestrator: {}", e);
-                        } else {
-                            info!(
-                                "Sent AddChallenge to orchestrator: {}",
-                                normalized_config.name
-                            );
-                        }
-                    } else {
-                        warn!(
-                            "Orchestrator channel not configured - container won't start automatically"
-                        );
-                    }
-                }
-                platform_core::ProposalAction::Sudo(
-                    platform_core::SudoAction::UpdateChallenge { config },
-                ) => {
-                    // Normalize name
-                    let mut normalized_config = config.clone();
-                    normalized_config.name = Self::normalize_challenge_name(&config.name);
-
-                    // Apply locally
-                    {
-                        let mut chain = self.chain_state.write();
-                        chain
-                            .challenge_configs
-                            .insert(normalized_config.challenge_id, normalized_config.clone());
-                    }
-                    info!(
-                        "Applied UpdateChallenge locally: {} ({})",
-                        normalized_config.name, normalized_config.challenge_id
-                    );
-
-                    // Trigger orchestrator to update the container
-                    if let Some(tx) = self.orchestrator_tx.read().as_ref() {
-                        if let Err(e) =
-                            tx.send(OrchestratorCommand::Update(normalized_config.clone()))
-                        {
-                            warn!("Failed to send to orchestrator: {}", e);
-                        }
-                    }
-                }
-                platform_core::ProposalAction::Sudo(
-                    platform_core::SudoAction::RemoveChallenge { id },
-                ) => {
-                    // Apply locally
-                    {
-                        let mut chain = self.chain_state.write();
-                        chain.challenge_configs.remove(id);
-                    }
-                    info!("Applied RemoveChallenge locally: {:?}", id);
-
-                    // Trigger orchestrator to stop the container
-                    if let Some(tx) = self.orchestrator_tx.read().as_ref() {
-                        if let Err(e) = tx.send(OrchestratorCommand::Remove(*id)) {
-                            warn!("Failed to send to orchestrator: {}", e);
-                        }
-                    }
-                }
-                platform_core::ProposalAction::Sudo(
-                    platform_core::SudoAction::RefreshChallenges { challenge_id },
-                ) => {
-                    info!("RefreshChallenges action received: {:?}", challenge_id);
-                    // Trigger orchestrator to refresh (re-pull and restart)
-                    if let Some(tx) = self.orchestrator_tx.read().as_ref() {
-                        match challenge_id {
-                            Some(id) => {
-                                // Refresh specific challenge - get config and send update
-                                let config =
-                                    { self.chain_state.read().challenge_configs.get(id).cloned() };
-                                if let Some(config) = config {
-                                    if let Err(e) = tx.send(OrchestratorCommand::Update(config)) {
-                                        warn!("Failed to send refresh to orchestrator: {}", e);
-                                    }
-                                }
-                            }
-                            None => {
-                                // Refresh all - send update for each challenge
-                                let configs: Vec<_> = self
-                                    .chain_state
-                                    .read()
-                                    .challenge_configs
-                                    .values()
-                                    .cloned()
-                                    .collect();
-                                for config in configs {
-                                    if let Err(e) = tx.send(OrchestratorCommand::Update(config)) {
-                                        warn!("Failed to send refresh to orchestrator: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {
-                    // Other sudo actions - just apply to state
-                }
-            }
-        }
-
         // Send to broadcast channel for P2P propagation
         let tx = self.broadcast_tx.read();
         match tx.as_ref() {
@@ -1566,89 +1362,6 @@ impl RpcHandler {
     }
 
     // ==================== Monitor Namespace ====================
-
-    /// Get challenge container health status for this validator
-    fn monitor_get_challenge_health(&self, id: Value) -> JsonRpcResponse {
-        let chain = self.chain_state.read();
-
-        // Get validator info from first validator in state
-        let (hotkey, ss58) = if let Some(v) = chain.validators.values().next() {
-            (v.hotkey.to_string(), v.hotkey.to_string())
-        } else {
-            ("unknown".to_string(), "unknown".to_string())
-        };
-
-        // Get challenges from state
-        let mut challenges = Vec::new();
-        let mut healthy_count = 0;
-        let mut unhealthy_count = 0;
-
-        for (challenge_id, config) in &chain.challenge_configs {
-            // Check if we have routes registered for this challenge (indicates it's running)
-            let has_routes = self.challenge_routes.read().contains_key(&config.name);
-
-            let status = if has_routes { "Running" } else { "Unknown" };
-            let health = if has_routes { "Healthy" } else { "Unknown" };
-
-            if has_routes {
-                healthy_count += 1;
-            } else {
-                unhealthy_count += 1;
-            }
-
-            challenges.push(json!({
-                "challenge_id": challenge_id.to_string(),
-                "challenge_name": config.name,
-                "container_id": null,
-                "container_name": format!("challenge-{}", config.name),
-                "status": status,
-                "health": health,
-                "uptime_secs": null,
-                "endpoint": format!("http://challenge-{}:8080", config.name)
-            }));
-        }
-
-        let total_challenges = challenges.len();
-
-        JsonRpcResponse::result(
-            id,
-            json!({
-                "validator_hotkey": hotkey,
-                "validator_ss58": ss58,
-                "challenges": challenges,
-                "total_challenges": total_challenges,
-                "healthy_challenges": healthy_count,
-                "unhealthy_challenges": unhealthy_count
-            }),
-        )
-    }
-
-    /// Get logs from a challenge container
-    fn monitor_get_challenge_logs(&self, id: Value, params: Value) -> JsonRpcResponse {
-        let challenge_name = match self.get_param_str(&params, 0, "challengeName") {
-            Some(n) => n,
-            None => {
-                return JsonRpcResponse::error(
-                    id,
-                    INVALID_PARAMS,
-                    "Missing 'challengeName' parameter",
-                )
-            }
-        };
-
-        let _lines = self.get_param_u64(&params, 1, "lines").unwrap_or(100) as u32;
-
-        // Note: Real implementation would need access to Docker client
-        // For now, return a placeholder message
-        JsonRpcResponse::result(
-            id,
-            json!({
-                "challengeName": challenge_name,
-                "logs": format!("[Note: Docker logs access requires orchestrator integration]\n\nTo view logs for '{}', use:\n  docker logs challenge-{}", challenge_name, challenge_name),
-                "linesRequested": _lines
-            }),
-        )
-    }
 }
 
 #[cfg(test)]
@@ -2300,48 +2013,6 @@ mod tests {
     }
 
     #[test]
-    fn test_monitor_get_challenge_health() {
-        let handler = create_handler();
-        let req = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method: "monitor_getChallengeHealth".to_string(),
-            params: Value::Null,
-            id: json!(1),
-        };
-        let resp = handler.handle(req);
-        assert!(resp.result.is_some());
-        let result = resp.result.unwrap();
-        assert!(result.get("challenges").is_some());
-    }
-
-    #[test]
-    fn test_monitor_get_challenge_logs() {
-        let handler = create_handler();
-        let req = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method: "monitor_getChallengeLogs".to_string(),
-            params: json!(["test-challenge", 100]),
-            id: json!(1),
-        };
-        let resp = handler.handle(req);
-        assert!(resp.result.is_some());
-    }
-
-    #[test]
-    fn test_monitor_get_challenge_logs_missing_param() {
-        let handler = create_handler();
-        let req = JsonRpcRequest {
-            jsonrpc: "2.0".to_string(),
-            method: "monitor_getChallengeLogs".to_string(),
-            params: json!([]),
-            id: json!(1),
-        };
-        let resp = handler.handle(req);
-        assert!(resp.error.is_some());
-        assert_eq!(resp.error.unwrap().code, INVALID_PARAMS);
-    }
-
-    #[test]
     fn test_sudo_submit_missing_param() {
         let handler = create_handler();
         let req = JsonRpcRequest {
@@ -2478,14 +2149,6 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         handler.set_broadcast_tx(tx);
         assert!(handler.broadcast_tx.read().is_some());
-    }
-
-    #[test]
-    fn test_set_orchestrator_tx() {
-        let handler = create_handler();
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        handler.set_orchestrator_tx(tx);
-        assert!(handler.orchestrator_tx.read().is_some());
     }
 
     #[test]

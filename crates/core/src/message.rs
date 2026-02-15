@@ -263,23 +263,6 @@ pub enum SudoAction {
     /// Update network configuration
     UpdateConfig { config: NetworkConfig },
 
-    // === Challenge Management (Docker-based) ===
-    /// Add a new challenge (Docker container)
-    AddChallenge { config: ChallengeContainerConfig },
-
-    /// Update challenge (new Docker image version)
-    UpdateChallenge { config: ChallengeContainerConfig },
-
-    /// Remove a challenge
-    RemoveChallenge { id: ChallengeId },
-
-    /// Refresh challenges (re-pull images and restart containers)
-    /// Used when challenge images are updated on the registry
-    RefreshChallenges {
-        /// Optional: specific challenge ID to refresh. If None, refresh all.
-        challenge_id: Option<ChallengeId>,
-    },
-
     // === Weight Allocation ===
     /// Set challenge weight ratio on a mechanism (0.0 - 1.0)
     /// Remaining weight goes to UID 0 (burn) unless other challenges share the mechanism
@@ -310,7 +293,6 @@ pub enum SudoAction {
     SetRequiredVersion {
         min_version: String,
         recommended_version: String,
-        docker_image: String,
         mandatory: bool,
         deadline_block: Option<u64>,
         release_notes: Option<String>,
@@ -332,141 +314,6 @@ pub enum SudoAction {
 
     /// Force state update (for recovery)
     ForceStateUpdate { state: ChainState },
-}
-
-/// Allowed Docker image prefixes (whitelist)
-/// Only images from these registries are allowed to prevent malicious containers
-/// In DEVELOPMENT_MODE, local images are also allowed
-pub const ALLOWED_DOCKER_PREFIXES: &[&str] = &[
-    "ghcr.io/platformnetwork/", // Official Platform Network images
-    "ghcr.io/PlatformNetwork/", // Case variant
-];
-
-/// Check if development mode is enabled (allows local Docker images)
-pub fn is_development_mode() -> bool {
-    std::env::var("DEVELOPMENT_MODE")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false)
-}
-
-/// Challenge container configuration (for Docker-based challenges)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ChallengeContainerConfig {
-    /// Unique challenge ID
-    pub challenge_id: ChallengeId,
-    /// Challenge name
-    pub name: String,
-    /// Docker image (must be from ghcr.io/platformnetwork/)
-    pub docker_image: String,
-    /// Mechanism ID for weight submission
-    pub mechanism_id: u8,
-    /// Emission weight (0.0 - 1.0)
-    pub emission_weight: f64,
-    /// Evaluation timeout per task (seconds)
-    pub timeout_secs: u64,
-    /// CPU cores limit
-    pub cpu_cores: f64,
-    /// Memory limit in MB
-    pub memory_mb: u64,
-    /// Whether GPU is required
-    pub gpu_required: bool,
-}
-
-impl ChallengeContainerConfig {
-    pub fn new(name: &str, docker_image: &str, mechanism_id: u8, emission_weight: f64) -> Self {
-        Self {
-            challenge_id: ChallengeId::new(),
-            name: name.to_string(),
-            docker_image: docker_image.to_string(),
-            mechanism_id,
-            emission_weight,
-            timeout_secs: 3600,
-            cpu_cores: 2.0,
-            memory_mb: 4096,
-            gpu_required: false,
-        }
-    }
-
-    pub fn with_resources(mut self, cpu_cores: f64, memory_mb: u64, gpu: bool) -> Self {
-        self.cpu_cores = cpu_cores;
-        self.memory_mb = memory_mb;
-        self.gpu_required = gpu;
-        self
-    }
-
-    pub fn with_timeout(mut self, timeout_secs: u64) -> Self {
-        self.timeout_secs = timeout_secs;
-        self
-    }
-
-    /// Validate the Docker image is from an allowed registry
-    /// Returns true if the image is whitelisted, false otherwise
-    /// In DEVELOPMENT_MODE, all local images are allowed
-    pub fn is_docker_image_allowed(&self) -> bool {
-        // In development mode, allow any image (for local testing)
-        if is_development_mode() {
-            return true;
-        }
-        let image_lower = self.docker_image.to_lowercase();
-        ALLOWED_DOCKER_PREFIXES
-            .iter()
-            .any(|prefix| image_lower.starts_with(&prefix.to_lowercase()))
-    }
-
-    /// Validate the entire config
-    /// Returns Ok(()) if valid, Err with reason if invalid
-    pub fn validate(&self) -> std::result::Result<(), String> {
-        // Check name is not empty
-        if self.name.trim().is_empty() {
-            return Err("Challenge name cannot be empty".into());
-        }
-
-        // Check Docker image is not empty
-        if self.docker_image.trim().is_empty() {
-            return Err("Docker image cannot be empty".into());
-        }
-
-        // Check Docker image is from allowed registry
-        if !self.is_docker_image_allowed() {
-            return Err(format!(
-                "Docker image '{}' is not from an allowed registry. \
-                 Only images from ghcr.io/platformnetwork/ are allowed.",
-                self.docker_image
-            ));
-        }
-
-        // Check emission weight is valid
-        if self.emission_weight < 0.0 || self.emission_weight > 1.0 {
-            return Err(format!(
-                "Emission weight must be between 0.0 and 1.0, got {}",
-                self.emission_weight
-            ));
-        }
-
-        // Check timeout is reasonable (at least 60 seconds, max 24 hours)
-        if self.timeout_secs < 60 {
-            return Err("Timeout must be at least 60 seconds".into());
-        }
-        if self.timeout_secs > 86400 {
-            return Err("Timeout cannot exceed 24 hours (86400 seconds)".into());
-        }
-
-        // Check resources are reasonable
-        if self.cpu_cores < 0.5 || self.cpu_cores > 64.0 {
-            return Err(format!(
-                "CPU cores must be between 0.5 and 64, got {}",
-                self.cpu_cores
-            ));
-        }
-        if self.memory_mb < 512 || self.memory_mb > 131072 {
-            return Err(format!(
-                "Memory must be between 512MB and 128GB, got {}MB",
-                self.memory_mb
-            ));
-        }
-
-        Ok(())
-    }
 }
 
 /// Configuration for how weights are distributed on a mechanism
@@ -977,18 +824,6 @@ mod tests {
     }
 
     #[test]
-    fn test_challenge_container_config() {
-        let config = ChallengeContainerConfig::new("Test Challenge", "test:latest", 0, 1.0);
-
-        assert_eq!(config.name, "Test Challenge");
-        assert_eq!(config.docker_image, "test:latest");
-        assert_eq!(config.mechanism_id, 0);
-        assert_eq!(config.emission_weight, 1.0);
-        assert!(config.cpu_cores > 0.0);
-        assert!(config.memory_mb > 0);
-    }
-
-    #[test]
     fn test_challenge_message_types() {
         let types = vec![
             ChallengeMessageType::EncryptedSubmission,
@@ -1017,52 +852,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sudo_action_add_challenge() {
-        let config = ChallengeContainerConfig::new("Test", "test:v1", 0, 1.0);
-        let action = SudoAction::AddChallenge {
-            config: config.clone(),
-        };
-
-        match action {
-            SudoAction::AddChallenge { config: c } => {
-                assert_eq!(c.name, "Test");
-            }
-            _ => panic!("Expected AddChallenge"),
-        }
-    }
-
-    #[test]
-    fn test_sudo_action_update_challenge() {
-        let config = ChallengeContainerConfig::new("Test", "test:v2", 0, 1.0);
-        let action = SudoAction::UpdateChallenge { config };
-
-        match action {
-            SudoAction::UpdateChallenge { config: c } => {
-                assert_eq!(c.docker_image, "test:v2");
-            }
-            _ => panic!("Expected UpdateChallenge"),
-        }
-    }
-
-    #[test]
-    fn test_sudo_action_remove_challenge() {
-        let id = ChallengeId::new();
-        let action = SudoAction::RemoveChallenge { id };
-
-        match action {
-            SudoAction::RemoveChallenge { id: i } => {
-                assert_eq!(i, id);
-            }
-            _ => panic!("Expected RemoveChallenge"),
-        }
-    }
-
-    #[test]
     fn test_sudo_action_set_required_version() {
         let action = SudoAction::SetRequiredVersion {
             min_version: "0.2.0".to_string(),
             recommended_version: "0.3.0".to_string(),
-            docker_image: "validator:v0.3.0".to_string(),
             mandatory: true,
             deadline_block: Some(1000),
             release_notes: Some("Bug fixes".to_string()),
@@ -1455,97 +1248,6 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_docker_image_whitelist_allowed() {
-        // Valid PlatformNetwork images
-        let config = ChallengeContainerConfig::new(
-            "test",
-            "ghcr.io/platformnetwork/term-challenge:v1.0",
-            1,
-            1.0,
-        );
-        assert!(config.is_docker_image_allowed());
-
-        // Case insensitive
-        let config2 = ChallengeContainerConfig::new(
-            "test",
-            "ghcr.io/PlatformNetwork/another-challenge:latest",
-            1,
-            1.0,
-        );
-        assert!(config2.is_docker_image_allowed());
-    }
-
-    #[test]
-    fn test_docker_image_whitelist_rejected() {
-        // Random Docker Hub image
-        let config1 = ChallengeContainerConfig::new("test", "ubuntu:latest", 1, 1.0);
-        assert!(!config1.is_docker_image_allowed());
-
-        // Other GHCR organization
-        let config2 = ChallengeContainerConfig::new(
-            "test",
-            "ghcr.io/malicious-org/evil-container:latest",
-            1,
-            1.0,
-        );
-        assert!(!config2.is_docker_image_allowed());
-
-        // Docker Hub with similar name
-        let config3 = ChallengeContainerConfig::new("test", "platformnetwork/fake:v1", 1, 1.0);
-        assert!(!config3.is_docker_image_allowed());
-
-        // Empty image
-        let config4 = ChallengeContainerConfig::new("test", "", 1, 1.0);
-        assert!(!config4.is_docker_image_allowed());
-    }
-
-    #[test]
-    fn test_challenge_config_validate_success() {
-        let config = ChallengeContainerConfig::new(
-            "Terminal Benchmark",
-            "ghcr.io/platformnetwork/term-challenge:v1.0.0",
-            1,
-            0.5,
-        );
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_challenge_config_validate_bad_image() {
-        let config =
-            ChallengeContainerConfig::new("Test", "docker.io/malicious/container:latest", 1, 1.0);
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not from an allowed registry"));
-    }
-
-    #[test]
-    fn test_challenge_config_validate_empty_name() {
-        let config =
-            ChallengeContainerConfig::new("", "ghcr.io/platformnetwork/term-challenge:v1", 1, 1.0);
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("name cannot be empty"));
-    }
-
-    #[test]
-    fn test_challenge_config_validate_bad_emission_weight() {
-        let mut config = ChallengeContainerConfig::new(
-            "Test",
-            "ghcr.io/platformnetwork/term-challenge:v1",
-            1,
-            1.5, // Invalid: > 1.0
-        );
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Emission weight"));
-
-        config.emission_weight = -0.1; // Invalid: < 0.0
-        let result2 = config.validate();
-        assert!(result2.is_err());
-    }
-
-    #[test]
     fn test_task_progress_message_new() {
         let msg = TaskProgressMessage::new(
             "test-challenge".to_string(),
@@ -1567,26 +1269,6 @@ mod tests {
         assert!(msg.passed);
         assert_eq!(msg.score, 0.95);
         assert!(msg.timestamp > 0);
-    }
-
-    #[test]
-    fn test_challenge_container_config_with_resources() {
-        let config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 1, 0.5)
-                .with_resources(4.0, 8192, true);
-
-        assert_eq!(config.cpu_cores, 4.0);
-        assert_eq!(config.memory_mb, 8192);
-        assert!(config.gpu_required);
-    }
-
-    #[test]
-    fn test_challenge_container_config_with_timeout() {
-        let config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 1, 0.5)
-                .with_timeout(7200);
-
-        assert_eq!(config.timeout_secs, 7200);
     }
 
     #[test]
@@ -1618,88 +1300,6 @@ mod tests {
         assert_eq!(allocation.mechanism_id, 1);
         assert_eq!(allocation.weight_ratio, 0.7);
         assert!(allocation.active);
-    }
-
-    #[test]
-    fn test_challenge_config_validate_empty_docker_image() {
-        let config = ChallengeContainerConfig::new(
-            "Test", "", // Empty docker image
-            1, 0.5,
-        );
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Docker image cannot be empty"));
-    }
-
-    #[test]
-    fn test_challenge_config_validate_timeout_too_short() {
-        let mut config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 1, 0.5);
-        config.timeout_secs = 30; // Less than 60
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("at least 60 seconds"));
-    }
-
-    #[test]
-    fn test_challenge_config_validate_timeout_too_long() {
-        let mut config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 1, 0.5);
-        config.timeout_secs = 90000; // More than 86400
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("cannot exceed 24 hours"));
-    }
-
-    #[test]
-    fn test_challenge_config_validate_cpu_cores_invalid() {
-        let mut config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 1, 0.5);
-        config.cpu_cores = 0.1; // Less than 0.5
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("CPU cores"));
-
-        config.cpu_cores = 100.0; // More than 64
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("CPU cores"));
-    }
-
-    #[test]
-    fn test_challenge_config_validate_memory_invalid() {
-        let mut config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 1, 0.5);
-        config.memory_mb = 256; // Less than 512
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Memory"));
-
-        config.memory_mb = 200000; // More than 131072
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Memory"));
-    }
-
-    #[test]
-    fn test_is_development_mode() {
-        // Test the development mode check
-        // Save current state and test both paths
-        let original = std::env::var("DEVELOPMENT_MODE").ok();
-
-        // Test with DEVELOPMENT_MODE unset
-        std::env::remove_var("DEVELOPMENT_MODE");
-        assert!(!is_development_mode());
-
-        // Test with DEVELOPMENT_MODE set
-        std::env::set_var("DEVELOPMENT_MODE", "1");
-        assert!(is_development_mode());
-
-        // Restore original state
-        match original {
-            Some(val) => std::env::set_var("DEVELOPMENT_MODE", val),
-            None => std::env::remove_var("DEVELOPMENT_MODE"),
-        }
     }
 
     #[test]

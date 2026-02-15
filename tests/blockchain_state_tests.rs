@@ -287,7 +287,6 @@ fn test_state_hash_unique_per_modification() {
     let config = ChallengeConfig {
         id: ChallengeId::new(),
         name: "Test Challenge".to_string(),
-        docker_image: "test:latest".to_string(),
         weight: 50,
         is_active: true,
         creator: Hotkey([0u8; 32]),
@@ -413,7 +412,6 @@ fn test_full_state_lifecycle_with_block_linking() {
     let challenge = ChallengeConfig {
         id: ChallengeId::new(),
         name: "Integration Test Challenge".to_string(),
-        docker_image: "test:latest".to_string(),
         weight: 100,
         is_active: true,
         creator: sudo_keypair.hotkey(),
@@ -570,7 +568,6 @@ fn test_challenge_removal_changes_hash() {
     let config = ChallengeConfig {
         id: challenge_id,
         name: "Removable Challenge".to_string(),
-        docker_image: "test:latest".to_string(),
         weight: 50,
         is_active: true,
         creator: Hotkey([0u8; 32]),

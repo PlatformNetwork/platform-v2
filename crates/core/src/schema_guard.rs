@@ -59,11 +59,11 @@ impl SchemaHash for crate::ValidatorInfo {
 /// ChainState schema hash
 impl SchemaHash for crate::ChainState {
     fn schema_hash() -> u64 {
-        const_hash("ChainState:block_height:u64,epoch:u64,config:NetworkConfig,sudo_key:Hotkey,validators:HashMap<Hotkey,ValidatorInfo>,challenges:HashMap<ChallengeId,Challenge>,challenge_configs:HashMap,wasm_challenge_configs:HashMap,mechanism_configs:HashMap,challenge_weights:HashMap,required_version:Option,pending_jobs:Vec,state_hash:[u8;32],last_updated:DateTime,registered_hotkeys:HashSet<Hotkey>")
+        const_hash("ChainState:block_height:u64,epoch:u64,config:NetworkConfig,sudo_key:Hotkey,validators:HashMap<Hotkey,ValidatorInfo>,challenges:HashMap<ChallengeId,Challenge>,wasm_challenge_configs:HashMap,mechanism_configs:HashMap,challenge_weights:HashMap,required_version:Option,pending_jobs:Vec,state_hash:[u8;32],last_updated:DateTime,registered_hotkeys:HashSet<Hotkey>")
     }
 
     fn schema_description() -> String {
-        "ChainState { block_height, epoch, config, sudo_key, validators, challenges, challenge_configs, wasm_challenge_configs, mechanism_configs, challenge_weights, required_version, pending_jobs, state_hash, last_updated, registered_hotkeys }".to_string()
+        "ChainState { block_height, epoch, config, sudo_key, validators, challenges, wasm_challenge_configs, mechanism_configs, challenge_weights, required_version, pending_jobs, state_hash, last_updated, registered_hotkeys }".to_string()
     }
 }
 
@@ -118,12 +118,13 @@ pub fn expected_schema_hashes() -> BTreeMap<u32, SchemaRegistry> {
         chain_state_hash: const_hash("ChainState:block_height:u64,epoch:u64,config:NetworkConfig,sudo_key:Hotkey,validators:HashMap<Hotkey,ValidatorInfo>,challenges:HashMap<ChallengeId,Challenge>,challenge_configs:HashMap,wasm_challenge_configs:HashMap,mechanism_configs:HashMap,challenge_weights:HashMap,required_version:Option,pending_jobs:Vec,state_hash:[u8;32],last_updated:DateTime,registered_hotkeys:HashSet<Hotkey>"),
         description: "Added WASM restart metadata",
     });
-    // Version 4: Added wasm_challenge_configs to ChainState
-    registry.insert(4, SchemaRegistry {
-        version: 4,
+
+    // Version 6: Removed docker challenge configs
+    registry.insert(6, SchemaRegistry {
+        version: 6,
         validator_info_hash: const_hash("ValidatorInfo:hotkey:Hotkey,stake:Stake,is_active:bool,last_seen:DateTime,peer_id:Option<String>,x25519_pubkey:Option<String>"),
-        chain_state_hash: const_hash("ChainState:block_height:u64,epoch:u64,config:NetworkConfig,sudo_key:Hotkey,validators:HashMap<Hotkey,ValidatorInfo>,challenges:HashMap<ChallengeId,Challenge>,challenge_configs:HashMap,wasm_challenge_configs:HashMap,mechanism_configs:HashMap,challenge_weights:HashMap,required_version:Option,pending_jobs:Vec,state_hash:[u8;32],last_updated:DateTime,registered_hotkeys:HashSet<Hotkey>"),
-        description: "Added wasm_challenge_configs to ChainState",
+        chain_state_hash: const_hash("ChainState:block_height:u64,epoch:u64,config:NetworkConfig,sudo_key:Hotkey,validators:HashMap<Hotkey,ValidatorInfo>,challenges:HashMap<ChallengeId,Challenge>,wasm_challenge_configs:HashMap,mechanism_configs:HashMap,challenge_weights:HashMap,required_version:Option,pending_jobs:Vec,state_hash:[u8;32],last_updated:DateTime,registered_hotkeys:HashSet<Hotkey>"),
+        description: "Removed docker challenge configs",
     });
 
     registry

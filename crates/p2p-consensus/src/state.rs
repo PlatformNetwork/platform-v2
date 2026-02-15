@@ -72,8 +72,6 @@ pub struct ChallengeConfig {
     pub id: ChallengeId,
     /// Challenge name
     pub name: String,
-    /// Docker image for evaluation
-    pub docker_image: String,
     /// Weight allocation (0-100)
     pub weight: u16,
     /// Whether challenge is active
@@ -795,7 +793,6 @@ mod tests {
         let config = ChallengeConfig {
             id: ChallengeId::new(),
             name: "Test Challenge".to_string(),
-            docker_image: "test:latest".to_string(),
             weight: 50,
             is_active: true,
             creator: Hotkey([0u8; 32]),

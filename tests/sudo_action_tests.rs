@@ -1,16 +1,15 @@
-//! Tests for SudoAction operations including challenge loading/unloading
-//! and blockchain halt functionality.
+//! Tests for SudoAction operations and blockchain halt functionality.
 //!
 //! These tests verify:
-//! - Challenge management (AddChallenge, UpdateChallenge, RemoveChallenge)
 //! - Emergency controls (EmergencyPause, Resume)
 //! - Signature verification for sudo operations
-//! - ChallengeContainerConfig validation
+//! - Version management
+//! - Weight and validator management
 
 use platform_core::{
-    is_production_sudo, production_sudo_key, ChainState, ChallengeContainerConfig, ChallengeId,
-    Hotkey, Keypair, NetworkConfig, NetworkMessage, ProposalAction, SignedNetworkMessage, Stake,
-    SudoAction, ValidatorInfo, SUDO_KEY_BYTES,
+    is_production_sudo, production_sudo_key, ChainState, ChallengeId, Hotkey, Keypair,
+    NetworkConfig, NetworkMessage, ProposalAction, SignedNetworkMessage, Stake, SudoAction,
+    ValidatorInfo, SUDO_KEY_BYTES,
 };
 
 // ============================================================================
@@ -27,127 +26,12 @@ fn create_production_state() -> ChainState {
     ChainState::new_production(NetworkConfig::default())
 }
 
-/// Create a valid challenge config with allowed Docker image
-fn create_valid_challenge_config(name: &str) -> ChallengeContainerConfig {
-    ChallengeContainerConfig::new(
-        name,
-        "ghcr.io/platformnetwork/term-challenge:v1.0.0",
-        0,
-        0.5,
-    )
-}
-
-/// Create an invalid challenge config with disallowed Docker image
-fn create_invalid_image_challenge_config(name: &str) -> ChallengeContainerConfig {
-    ChallengeContainerConfig::new(name, "docker.io/malicious/container:latest", 0, 0.5)
-}
-
 // ============================================================================
-// CHALLENGE MANAGEMENT TESTS
+// SUDO KEY AUTHORIZATION TESTS
 // ============================================================================
 
 #[test]
-fn test_sudo_add_challenge_valid_image() {
-    let sudo_kp = Keypair::generate();
-    let mut state = create_test_state_with_sudo(&sudo_kp);
-
-    let config = create_valid_challenge_config("Terminal Benchmark");
-    let challenge_id = config.challenge_id;
-
-    // Validate the config
-    assert!(
-        config.validate().is_ok(),
-        "Valid challenge config should pass validation"
-    );
-    assert!(
-        config.is_docker_image_allowed(),
-        "GHCR platform image should be allowed"
-    );
-
-    // Add challenge config to state
-    state.challenge_configs.insert(challenge_id, config.clone());
-    state.update_hash();
-
-    // Verify it was added
-    assert!(state.challenge_configs.contains_key(&challenge_id));
-    assert_eq!(
-        state.challenge_configs.get(&challenge_id).unwrap().name,
-        "Terminal Benchmark"
-    );
-}
-
-#[test]
-fn test_sudo_add_challenge_invalid_image_rejected() {
-    let config = create_invalid_image_challenge_config("Malicious Challenge");
-
-    // Docker image should not be allowed
-    assert!(
-        !config.is_docker_image_allowed(),
-        "Docker Hub image should not be allowed"
-    );
-
-    // Validation should fail
-    let result = config.validate();
-    assert!(result.is_err(), "Invalid image should fail validation");
-    assert!(
-        result.unwrap_err().contains("not from an allowed registry"),
-        "Error should mention registry restriction"
-    );
-}
-
-#[test]
-fn test_sudo_update_challenge_changes_config() {
-    let sudo_kp = Keypair::generate();
-    let mut state = create_test_state_with_sudo(&sudo_kp);
-
-    // Add initial challenge
-    let mut config = create_valid_challenge_config("Test Challenge");
-    let challenge_id = config.challenge_id;
-    state.challenge_configs.insert(challenge_id, config.clone());
-
-    // Update the challenge (new version)
-    config.docker_image = "ghcr.io/platformnetwork/term-challenge:v2.0.0".to_string();
-    config.emission_weight = 0.75;
-    config.timeout_secs = 7200;
-    state.challenge_configs.insert(challenge_id, config.clone());
-    state.update_hash();
-
-    // Verify update
-    let updated = state.challenge_configs.get(&challenge_id).unwrap();
-    assert_eq!(
-        updated.docker_image,
-        "ghcr.io/platformnetwork/term-challenge:v2.0.0"
-    );
-    assert_eq!(updated.emission_weight, 0.75);
-    assert_eq!(updated.timeout_secs, 7200);
-}
-
-#[test]
-fn test_sudo_remove_challenge_cleans_up() {
-    let sudo_kp = Keypair::generate();
-    let mut state = create_test_state_with_sudo(&sudo_kp);
-
-    // Add challenge
-    let config = create_valid_challenge_config("To Be Removed");
-    let challenge_id = config.challenge_id;
-    state.challenge_configs.insert(challenge_id, config);
-
-    // Verify it exists
-    assert!(state.challenge_configs.contains_key(&challenge_id));
-    assert_eq!(state.challenge_configs.len(), 1);
-
-    // Remove challenge
-    let removed = state.challenge_configs.remove(&challenge_id);
-    state.update_hash();
-
-    // Verify removal
-    assert!(removed.is_some());
-    assert!(!state.challenge_configs.contains_key(&challenge_id));
-    assert_eq!(state.challenge_configs.len(), 0);
-}
-
-#[test]
-fn test_only_sudo_can_add_challenge() {
+fn test_only_sudo_can_perform_actions() {
     let sudo_kp = Keypair::generate();
     let non_sudo_kp = Keypair::generate();
     let state = create_test_state_with_sudo(&sudo_kp);
@@ -397,162 +281,6 @@ fn test_proposal_action_sudo_variant() {
 }
 
 // ============================================================================
-// CHALLENGE CONTAINER CONFIG VALIDATION TESTS
-// ============================================================================
-
-#[test]
-fn test_challenge_config_validate_allowed_image() {
-    // Official Platform Network images
-    let configs = vec![
-        ChallengeContainerConfig::new(
-            "Test",
-            "ghcr.io/platformnetwork/term-challenge:v1.0.0",
-            0,
-            0.5,
-        ),
-        ChallengeContainerConfig::new(
-            "Test",
-            "ghcr.io/PlatformNetwork/another-challenge:latest",
-            1,
-            0.3,
-        ),
-        ChallengeContainerConfig::new(
-            "Test",
-            "ghcr.io/platformnetwork/challenge:sha256-abc123",
-            0,
-            1.0,
-        ),
-    ];
-
-    for config in configs {
-        assert!(
-            config.is_docker_image_allowed(),
-            "Image '{}' should be allowed",
-            config.docker_image
-        );
-        assert!(
-            config.validate().is_ok(),
-            "Config with image '{}' should validate",
-            config.docker_image
-        );
-    }
-}
-
-#[test]
-fn test_challenge_config_validate_disallowed_image() {
-    let disallowed_images = vec![
-        "ubuntu:latest",
-        "docker.io/library/python:3.9",
-        "ghcr.io/malicious-org/evil:latest",
-        "quay.io/platformnetwork/term-challenge:v1",
-        "platformnetwork/term-challenge:v1",
-        "localhost:5000/test:latest",
-        "registry.example.com/image:tag",
-    ];
-
-    for image in disallowed_images {
-        let config = ChallengeContainerConfig::new("Test", image, 0, 0.5);
-        assert!(
-            !config.is_docker_image_allowed(),
-            "Image '{}' should NOT be allowed",
-            image
-        );
-
-        let result = config.validate();
-        assert!(
-            result.is_err(),
-            "Config with image '{}' should fail validation",
-            image
-        );
-    }
-}
-
-#[test]
-fn test_challenge_config_validate_emission_weight_bounds() {
-    // Valid emission weights
-    let valid_weights = vec![0.0, 0.5, 1.0, 0.001, 0.999];
-    for weight in valid_weights {
-        let config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 0, weight);
-        assert!(
-            config.validate().is_ok(),
-            "Weight {} should be valid",
-            weight
-        );
-    }
-
-    // Invalid emission weights (out of bounds)
-    let invalid_weights = vec![-0.1, 1.1, -1.0, 2.0, f64::INFINITY, f64::NEG_INFINITY];
-    for weight in invalid_weights {
-        let config =
-            ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 0, weight);
-        let result = config.validate();
-        assert!(result.is_err(), "Weight {} should be invalid", weight);
-        if let Err(err) = result {
-            assert!(
-                err.contains("Emission weight"),
-                "Error should mention emission weight"
-            );
-        }
-    }
-}
-
-#[test]
-fn test_challenge_config_validate_resource_limits() {
-    let base_config =
-        || ChallengeContainerConfig::new("Test", "ghcr.io/platformnetwork/test:v1", 0, 0.5);
-
-    // Test CPU cores validation
-    let mut config = base_config();
-    config.cpu_cores = 0.1; // Too low (< 0.5)
-    assert!(config.validate().is_err());
-
-    config.cpu_cores = 100.0; // Too high (> 64)
-    assert!(config.validate().is_err());
-
-    config.cpu_cores = 4.0; // Valid
-    assert!(config.validate().is_ok());
-
-    // Test memory validation
-    config = base_config();
-    config.memory_mb = 256; // Too low (< 512)
-    assert!(config.validate().is_err());
-
-    config.memory_mb = 200_000; // Too high (> 131072)
-    assert!(config.validate().is_err());
-
-    config.memory_mb = 8192; // Valid
-    assert!(config.validate().is_ok());
-
-    // Test timeout validation
-    config = base_config();
-    config.timeout_secs = 30; // Too short (< 60)
-    assert!(config.validate().is_err());
-
-    config.timeout_secs = 100_000; // Too long (> 86400)
-    assert!(config.validate().is_err());
-
-    config.timeout_secs = 3600; // Valid
-    assert!(config.validate().is_ok());
-}
-
-#[test]
-fn test_challenge_config_validate_empty_name() {
-    let config = ChallengeContainerConfig::new("", "ghcr.io/platformnetwork/test:v1", 0, 0.5);
-    let result = config.validate();
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("name cannot be empty"));
-}
-
-#[test]
-fn test_challenge_config_validate_empty_docker_image() {
-    let config = ChallengeContainerConfig::new("Test", "", 0, 0.5);
-    let result = config.validate();
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Docker image cannot be empty"));
-}
-
-// ============================================================================
 // SUDO ACTION SERIALIZATION TESTS
 // ============================================================================
 
@@ -563,9 +291,6 @@ fn test_sudo_action_serialization_roundtrip() {
             reason: "Test pause".to_string(),
         },
         SudoAction::Resume,
-        SudoAction::RemoveChallenge {
-            id: ChallengeId::new(),
-        },
         SudoAction::SetChallengeWeight {
             challenge_id: ChallengeId::new(),
             mechanism_id: 1,
@@ -587,9 +312,6 @@ fn test_sudo_action_serialization_roundtrip() {
                 SudoAction::EmergencyPause { reason: r2 },
             ) => assert_eq!(r1, r2),
             (SudoAction::Resume, SudoAction::Resume) => {}
-            (SudoAction::RemoveChallenge { id: id1 }, SudoAction::RemoveChallenge { id: id2 }) => {
-                assert_eq!(id1, id2)
-            }
             (
                 SudoAction::SetChallengeWeight {
                     challenge_id: c1,
@@ -619,8 +341,8 @@ fn test_sudo_action_serialization_roundtrip() {
 fn test_signed_sudo_message_contains_signer_info() {
     let sudo_kp = Keypair::generate();
 
-    let action = SudoAction::AddChallenge {
-        config: create_valid_challenge_config("Signed Challenge"),
+    let action = SudoAction::EmergencyPause {
+        reason: "Signed Challenge".to_string(),
     };
     let msg = NetworkMessage::SudoAction(action);
     let signed = SignedNetworkMessage::new(msg, &sudo_kp).expect("Should sign");
@@ -630,10 +352,10 @@ fn test_signed_sudo_message_contains_signer_info() {
 
     // Verify message is accessible
     match &signed.message {
-        NetworkMessage::SudoAction(SudoAction::AddChallenge { config }) => {
-            assert_eq!(config.name, "Signed Challenge");
+        NetworkMessage::SudoAction(SudoAction::EmergencyPause { reason }) => {
+            assert_eq!(reason, "Signed Challenge");
         }
-        _ => panic!("Expected SudoAction(AddChallenge)"),
+        _ => panic!("Expected SudoAction(EmergencyPause)"),
     }
 }
 
@@ -641,24 +363,12 @@ fn test_signed_sudo_message_contains_signer_info() {
 fn test_all_sudo_action_variants_can_be_signed() {
     let kp = Keypair::generate();
 
-    let challenge_id = ChallengeId::new();
     let actions: Vec<SudoAction> = vec![
         SudoAction::UpdateConfig {
             config: NetworkConfig::default(),
         },
-        SudoAction::AddChallenge {
-            config: create_valid_challenge_config("Test"),
-        },
-        SudoAction::UpdateChallenge {
-            config: create_valid_challenge_config("Updated"),
-        },
-        SudoAction::RemoveChallenge { id: challenge_id },
-        SudoAction::RefreshChallenges { challenge_id: None },
-        SudoAction::RefreshChallenges {
-            challenge_id: Some(challenge_id),
-        },
         SudoAction::SetChallengeWeight {
-            challenge_id,
+            challenge_id: ChallengeId::new(),
             mechanism_id: 0,
             weight_ratio: 0.5,
         },
@@ -673,7 +383,6 @@ fn test_all_sudo_action_variants_can_be_signed() {
         SudoAction::SetRequiredVersion {
             min_version: "0.1.0".to_string(),
             recommended_version: "0.2.0".to_string(),
-            docker_image: "validator:v0.2.0".to_string(),
             mandatory: false,
             deadline_block: None,
             release_notes: None,
@@ -814,7 +523,6 @@ fn test_set_required_version_action() {
     let action = SudoAction::SetRequiredVersion {
         min_version: "0.2.0".to_string(),
         recommended_version: "0.3.0".to_string(),
-        docker_image: "ghcr.io/platformnetwork/validator:v0.3.0".to_string(),
         mandatory: true,
         deadline_block: Some(50000),
         release_notes: Some("Security patches and performance improvements".to_string()),
@@ -824,41 +532,17 @@ fn test_set_required_version_action() {
         SudoAction::SetRequiredVersion {
             min_version,
             recommended_version,
-            docker_image,
             mandatory,
             deadline_block,
             release_notes,
         } => {
             assert_eq!(min_version, "0.2.0");
             assert_eq!(recommended_version, "0.3.0");
-            assert!(docker_image.contains("validator:v0.3.0"));
             assert!(mandatory);
             assert_eq!(deadline_block, Some(50000));
             assert!(release_notes.is_some());
         }
         _ => panic!("Expected SetRequiredVersion"),
-    }
-}
-
-// ============================================================================
-// VALIDATOR MANAGEMENT VIA SUDO TESTS
-// ============================================================================
-
-#[test]
-fn test_sudo_add_validator_action() {
-    let new_validator_kp = Keypair::generate();
-    let stake = Stake::new(10_000_000_000);
-    let info = ValidatorInfo::new(new_validator_kp.hotkey(), stake);
-
-    let action = SudoAction::AddValidator { info: info.clone() };
-
-    match action {
-        SudoAction::AddValidator { info: added_info } => {
-            assert_eq!(added_info.hotkey, new_validator_kp.hotkey());
-            assert_eq!(added_info.stake, stake);
-            assert!(added_info.is_active);
-        }
-        _ => panic!("Expected AddValidator"),
     }
 }
 
@@ -875,37 +559,6 @@ fn test_sudo_remove_validator_action() {
             assert_eq!(hotkey, validator_kp.hotkey());
         }
         _ => panic!("Expected RemoveValidator"),
-    }
-}
-
-// ============================================================================
-// REFRESH CHALLENGES TESTS
-// ============================================================================
-
-#[test]
-fn test_refresh_challenges_all() {
-    let action = SudoAction::RefreshChallenges { challenge_id: None };
-
-    match action {
-        SudoAction::RefreshChallenges { challenge_id } => {
-            assert!(challenge_id.is_none(), "Should refresh all challenges");
-        }
-        _ => panic!("Expected RefreshChallenges"),
-    }
-}
-
-#[test]
-fn test_refresh_challenges_specific() {
-    let specific_id = ChallengeId::new();
-    let action = SudoAction::RefreshChallenges {
-        challenge_id: Some(specific_id),
-    };
-
-    match action {
-        SudoAction::RefreshChallenges { challenge_id } => {
-            assert_eq!(challenge_id, Some(specific_id));
-        }
-        _ => panic!("Expected RefreshChallenges"),
     }
 }
 

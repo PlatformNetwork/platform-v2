@@ -19,9 +19,8 @@
 //! 5. Add `#[serde(default)]` to any new fields
 
 use crate::{
-    BlockHeight, Challenge, ChallengeContainerConfig, ChallengeId, ChallengeWeightAllocation,
-    Hotkey, Job, MechanismWeightConfig, NetworkConfig, Result, Stake, ValidatorInfo,
-    WasmChallengeConfig,
+    BlockHeight, Challenge, ChallengeId, ChallengeWeightAllocation, Hotkey, Job,
+    MechanismWeightConfig, NetworkConfig, Result, Stake, ValidatorInfo, WasmChallengeConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -33,7 +32,8 @@ use tracing::{info, warn};
 /// V3: Added x25519_pubkey to ValidatorInfo
 /// V4: Added wasm_challenge_configs
 /// V5: Added WASM restart metadata
-pub const CURRENT_STATE_VERSION: u32 = 5;
+/// V6: Removed docker challenge configs
+pub const CURRENT_STATE_VERSION: u32 = 6;
 
 /// Minimum supported version for migration
 pub const MIN_SUPPORTED_VERSION: u32 = 1;
@@ -125,7 +125,6 @@ pub struct ChainStateV1 {
     pub sudo_key: Hotkey,
     pub validators: HashMap<Hotkey, ValidatorInfoLegacy>,
     pub challenges: HashMap<ChallengeId, Challenge>,
-    pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
     #[serde(default)]
     pub wasm_challenge_configs: HashMap<ChallengeId, WasmChallengeConfig>,
     pub mechanism_configs: HashMap<u8, MechanismWeightConfig>,
@@ -151,7 +150,6 @@ impl ChainStateV1 {
                 .map(|(k, v)| (k, v.migrate()))
                 .collect(),
             challenges: self.challenges,
-            challenge_configs: self.challenge_configs,
             wasm_challenge_configs: self.wasm_challenge_configs,
             mechanism_configs: self.mechanism_configs,
             challenge_weights: self.challenge_weights,
@@ -177,7 +175,6 @@ pub struct ChainStateV2 {
     pub sudo_key: Hotkey,
     pub validators: HashMap<Hotkey, ValidatorInfoLegacy>,
     pub challenges: HashMap<ChallengeId, Challenge>,
-    pub challenge_configs: HashMap<ChallengeId, ChallengeContainerConfig>,
     #[serde(default)]
     pub wasm_challenge_configs: HashMap<ChallengeId, WasmChallengeConfig>,
     pub mechanism_configs: HashMap<u8, MechanismWeightConfig>,
@@ -203,7 +200,6 @@ impl ChainStateV2 {
                 .map(|(k, v)| (k, v.migrate()))
                 .collect(),
             challenges: self.challenges,
-            challenge_configs: self.challenge_configs,
             wasm_challenge_configs: self.wasm_challenge_configs,
             mechanism_configs: self.mechanism_configs,
             challenge_weights: self.challenge_weights,
@@ -224,53 +220,65 @@ impl ChainStateV2 {
 fn migrate_state(version: u32, data: &[u8]) -> Result<crate::ChainState> {
     match version {
         1 => {
-            // V1 -> V5: Add registered_hotkeys, x25519_pubkey, wasm_challenge_configs
+            // V1 -> V6: Add registered_hotkeys, x25519_pubkey, wasm_challenge_configs
             let v1: ChainStateV1 = bincode::deserialize(data).map_err(|e| {
                 crate::MiniChainError::Serialization(format!("V1 migration failed: {}", e))
             })?;
             info!(
-                "Migrated state V1->V5: block_height={}, validators={}",
+                "Migrated state V1->V6: block_height={}, validators={}",
                 v1.block_height,
                 v1.validators.len()
             );
             Ok(v1.migrate())
         }
         2 => {
-            // V2 -> V5: Add x25519_pubkey to ValidatorInfo and wasm_challenge_configs
+            // V2 -> V6: Add x25519_pubkey to ValidatorInfo and wasm_challenge_configs
             let v2: ChainStateV2 = bincode::deserialize(data).map_err(|e| {
                 crate::MiniChainError::Serialization(format!("V2 migration failed: {}", e))
             })?;
             info!(
-                "Migrated state V2->V5: block_height={}, validators={}",
+                "Migrated state V2->V6: block_height={}, validators={}",
                 v2.block_height,
                 v2.validators.len()
             );
             Ok(v2.migrate())
         }
         3 => {
-            // V3 -> V5: Add wasm_challenge_configs
+            // V3 -> V6: Add wasm_challenge_configs
             let mut v3: crate::ChainState = bincode::deserialize(data).map_err(|e| {
                 crate::MiniChainError::Serialization(format!("V3 migration failed: {}", e))
             })?;
             v3.wasm_challenge_configs = HashMap::new();
             info!(
-                "Migrated state V3->V5: block_height={}, validators={}",
+                "Migrated state V3->V6: block_height={}, validators={}",
                 v3.block_height,
                 v3.validators.len()
             );
             Ok(v3)
         }
         4 => {
-            // V4 -> V5: Added WASM restart metadata (handled by serde defaults)
+            // V4 -> V6: Added WASM restart metadata and removed docker configs
             let v4: crate::ChainState = bincode::deserialize(data).map_err(|e| {
                 crate::MiniChainError::Serialization(format!("V4 migration failed: {}", e))
             })?;
             info!(
-                "Migrated state V4->V5: block_height={}, validators={}",
+                "Migrated state V4->V6: block_height={}, validators={}",
                 v4.block_height,
                 v4.validators.len()
             );
             Ok(v4)
+        }
+        5 => {
+            // V5 -> V6: Remove docker configs (handled by serde defaults)
+            let v5: crate::ChainState = bincode::deserialize(data).map_err(|e| {
+                crate::MiniChainError::Serialization(format!("V5 migration failed: {}", e))
+            })?;
+            info!(
+                "Migrated state V5->V6: block_height={}, validators={}",
+                v5.block_height,
+                v5.validators.len()
+            );
+            Ok(v5)
         }
         _ => Err(crate::MiniChainError::Serialization(format!(
             "Unknown state version: {}",
@@ -408,7 +416,6 @@ mod tests {
             sudo_key: sudo.hotkey(),
             validators: HashMap::new(),
             challenges: HashMap::new(),
-            challenge_configs: HashMap::new(),
             wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
@@ -447,7 +454,6 @@ mod tests {
             sudo_key: sudo.hotkey(),
             validators: HashMap::new(),
             challenges: HashMap::new(),
-            challenge_configs: HashMap::new(),
             wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
@@ -469,7 +475,7 @@ mod tests {
     #[test]
     fn test_version_constants() {
         const _: () = assert!(CURRENT_STATE_VERSION >= MIN_SUPPORTED_VERSION);
-        assert_eq!(CURRENT_STATE_VERSION, 5);
+        assert_eq!(CURRENT_STATE_VERSION, 6);
     }
 
     #[test]
@@ -502,7 +508,6 @@ mod tests {
             sudo_key: sudo.hotkey(),
             validators: HashMap::new(),
             challenges: HashMap::new(),
-            challenge_configs: HashMap::new(),
             wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),
@@ -529,7 +534,6 @@ mod tests {
             sudo_key: sudo.hotkey(),
             validators: HashMap::new(),
             challenges: HashMap::new(),
-            challenge_configs: HashMap::new(),
             wasm_challenge_configs: HashMap::new(),
             mechanism_configs: HashMap::new(),
             challenge_weights: HashMap::new(),

@@ -155,10 +155,6 @@ struct Args {
     /// Disable Bittensor (for testing)
     #[arg(long)]
     no_bittensor: bool,
-
-    /// Docker challenges support
-    #[arg(long, default_value = "true")]
-    docker_challenges: bool,
 }
 
 // ==================== Main ====================
