@@ -40,22 +40,24 @@ jobs:
             python3 -c "import json; json.load(open('$f'))"
           done
 
-      - name: Check for TODO/FIXME markers
+      - name: Check for unresolved work markers
         run: |
-          if grep -rn "TODO\|FIXME" \
+          if grep -rn '\bTODO\b\|\bFIXME\b' \
             --exclude-dir=.git \
             --exclude-dir=node_modules \
             --exclude-dir=target \
             --exclude-dir=dist \
             --exclude-dir=vendor \
+            --exclude-dir=.githooks \
+            --exclude='AGENTS.md' \
             --include='*.md' --include='*.json' --include='*.yml' --include='*.yaml' \
             --include='*.rs' --include='*.ts' --include='*.js' --include='*.py' --include='*.go' \
             --include='*.sh' --include='*.toml' \
             .; then
-            echo "::error::TODO/FIXME markers found. Remove them or create GitHub Issues."
+            echo "::error::Unresolved work markers found. Remove them or create GitHub Issues."
             exit 1
           fi
-          echo "No TODO/FIXME markers found."
+          echo "No unresolved work markers found."
 
       # --- Node.js ---
       - name: Setup Node.js

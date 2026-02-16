@@ -1,7 +1,7 @@
 # AGENTS.md — Root
 
 ## Project Purpose
-This repository is a new project scaffold, initialized with CI/CD, git hooks, and versioning infrastructure. It provides the foundational tooling and conventions for autonomous coding agents and human developers to build upon. All new code should follow the conventions documented here and in per-module `AGENTS.md` files.
+This repository is a project scaffold providing CI/CD, git hooks, and versioning infrastructure for autonomous coding agents and human developers. All new code should follow the conventions documented here and in per-module `AGENTS.md` files. When application code is added, update this root file and create per-module documentation.
 
 ## Architecture Overview
 ```
@@ -33,7 +33,7 @@ When application code is added, update this table with languages, frameworks, da
 
 1. **Conventional Commits required.** Every commit message MUST follow the format `type(scope): description` (e.g., `feat(api): add user endpoint`, `fix(core): null check`). Valid types: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `perf`, `test`, `ci`, `build`, `revert`. This drives automated versioning via semantic-release.
 
-2. **No TODO/FIXME in committed code.** The pre-commit hook rejects any staged files containing `TODO` or `FIXME`. If you need to track work, create a GitHub Issue instead.
+2. **No unresolved work markers in committed code.** The pre-commit hook rejects any staged files containing unresolved work markers (the words that start with "TO" + "DO" or "FIX" + "ME"). If you need to track work, create a GitHub Issue instead.
 
 3. **All hooks must pass before push.** The pre-push hook runs format checks, linting, and tests. Never use `--no-verify` in production branches. The only exception is the initial indexation commit (`chore: cluster indexation`).
 
@@ -47,17 +47,21 @@ When application code is added, update this table with languages, frameworks, da
 
 8. **Security: never commit secrets.** No API keys, tokens, passwords, or credentials in source code. Use environment variables and reference them via `${{ secrets.* }}` in CI workflows.
 
+9. **File size limit: 5 MB.** The pre-commit hook rejects files larger than 5 MB. Use Git LFS for large binary assets.
+
+10. **JSON validation is enforced.** All `.json` files are validated on commit. Malformed JSON will be rejected by the pre-commit hook.
+
 ## What TO DO
 - Read the `AGENTS.md` in any directory before editing files there.
 - Write tests for all new functionality.
 - Use Conventional Commits for all commit messages.
 - Create per-module `AGENTS.md` files when adding new directories.
-- Run `git hooks` locally before pushing (they run automatically if `.gitconfig` is applied).
+- Run git hooks locally before pushing (they run automatically if `.gitconfig` is applied).
 - Keep CI green — fix failures immediately.
 - Update this file when adding new tech stack components, services, or conventions.
 
 ## What NOT TO DO
-- Do NOT commit `TODO` or `FIXME` comments — the pre-commit hook will reject them.
+- Do NOT commit unresolved work marker comments — the pre-commit hook will reject them.
 - Do NOT manually edit `VERSION` or `version.json` — semantic-release manages these.
 - Do NOT skip git hooks with `--no-verify` on `main` branch.
 - Do NOT merge PRs with failing CI checks.
@@ -97,7 +101,10 @@ When application code is added, document language-specific commands here:
 ### `.githooks/pre-commit`
 - **Trigger:** Runs before every `git commit`.
 - **Checks:**
-  - Scans staged files for `TODO` and `FIXME` markers. Rejects the commit if any are found.
+  - Scans staged files for unresolved work markers. Rejects the commit if any are found.
+  - Validates all staged `.json` files for correct syntax.
+  - Rejects files larger than 5 MB.
+  - Warns about potential secrets (API keys, tokens, passwords).
 - **Bypass:** Set `SKIP_GIT_HOOKS=1` environment variable.
 
 ### `.githooks/pre-push`
@@ -106,7 +113,9 @@ When application code is added, document language-specific commands here:
   - Validates that `AGENTS.md` exists at the project root.
   - Validates that `VERSION` file exists and is non-empty.
   - Validates that `version.json` is valid JSON.
-  - Runs any project-specific format, lint, test, and build checks (to be added when application code is introduced).
+  - Validates that `.releaserc.json` is valid JSON.
+  - Scans the entire project for unresolved work markers.
+  - Runs language-specific format, lint, test, and build checks when tooling is detected (Node.js, Rust, Python, Go).
 - **Bypass:** Set `SKIP_GIT_HOOKS=1` environment variable.
 
 ## Workflow

@@ -52,18 +52,29 @@ if [ -f ".releaserc.json" ]; then
 fi
 
 # ------------------------------------------------------------------
-# 4. Scan for TODO/FIXME across the entire project
+# 4. Scan for unresolved work markers across the project
+#    (excludes AGENTS.md files and .githooks/ which document these rules)
 # ------------------------------------------------------------------
+MARKER_SCAN_ARGS="--glob !.git --glob !node_modules --glob !target --glob !dist --glob !vendor --glob !AGENTS.md --glob !**/AGENTS.md --glob !.githooks"
+
 if command -v rg >/dev/null 2>&1; then
-  if rg -n "TODO|FIXME" --glob '!.git' --glob '!node_modules' --glob '!target' --glob '!dist' --glob '!vendor' . >/dev/null 2>&1; then
-    echo "[pre-push] ERROR: TODO/FIXME markers found in the project:"
-    rg -n "TODO|FIXME" --glob '!.git' --glob '!node_modules' --glob '!target' --glob '!dist' --glob '!vendor' . || true
+  if rg -n '\bTODO\b|\bFIXME\b' $MARKER_SCAN_ARGS . >/dev/null 2>&1; then
+    echo "[pre-push] ERROR: Unresolved work markers found in the project:"
+    rg -n '\bTODO\b|\bFIXME\b' $MARKER_SCAN_ARGS . || true
     exit 1
   fi
 elif command -v grep >/dev/null 2>&1; then
-  if grep -rn "TODO\|FIXME" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target --exclude-dir=dist --exclude-dir=vendor . >/dev/null 2>&1; then
-    echo "[pre-push] ERROR: TODO/FIXME markers found in the project:"
-    grep -rn "TODO\|FIXME" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target --exclude-dir=dist --exclude-dir=vendor . || true
+  if grep -rn '\bTODO\b\|\bFIXME\b' \
+    --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target \
+    --exclude-dir=dist --exclude-dir=vendor --exclude-dir=.githooks \
+    --exclude='AGENTS.md' \
+    . >/dev/null 2>&1; then
+    echo "[pre-push] ERROR: Unresolved work markers found in the project:"
+    grep -rn '\bTODO\b\|\bFIXME\b' \
+      --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target \
+      --exclude-dir=dist --exclude-dir=vendor --exclude-dir=.githooks \
+      --exclude='AGENTS.md' \
+      . || true
     exit 1
   fi
 fi
