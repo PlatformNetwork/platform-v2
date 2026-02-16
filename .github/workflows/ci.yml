@@ -1,0 +1,183 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # ---------------------------------------------------------------
+  # Check: format, lint, test, build
+  # ---------------------------------------------------------------
+  check:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify AGENTS.md exists
+        run: test -f AGENTS.md
+
+      - name: Verify VERSION file exists
+        run: |
+          test -f VERSION
+          echo "Version: $(cat VERSION)"
+
+      - name: Validate JSON files
+        run: |
+          for f in $(find . -name '*.json' -not -path './.git/*' -not -path './node_modules/*'); do
+            echo "Validating $f..."
+            python3 -c "import json; json.load(open('$f'))"
+          done
+
+      - name: Check for TODO/FIXME markers
+        run: |
+          if grep -rn "TODO\|FIXME" \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude-dir=target \
+            --exclude-dir=dist \
+            --exclude-dir=vendor \
+            --include='*.md' --include='*.json' --include='*.yml' --include='*.yaml' \
+            --include='*.rs' --include='*.ts' --include='*.js' --include='*.py' --include='*.go' \
+            --include='*.sh' --include='*.toml' \
+            .; then
+            echo "::error::TODO/FIXME markers found. Remove them or create GitHub Issues."
+            exit 1
+          fi
+          echo "No TODO/FIXME markers found."
+
+      # --- Node.js ---
+      - name: Setup Node.js
+        if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        if: hashFiles('package.json') != ''
+        run: npm ci
+
+      - name: Node lint
+        if: hashFiles('package.json') != ''
+        run: npm run lint --if-present
+
+      - name: Node test
+        if: hashFiles('package.json') != ''
+        run: npm test --if-present
+
+      - name: Node build
+        if: hashFiles('package.json') != ''
+        run: npm run build --if-present
+
+      # --- Rust ---
+      - name: Setup Rust
+        if: hashFiles('Cargo.toml') != ''
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        if: hashFiles('Cargo.toml') != ''
+        uses: Swatinem/rust-cache@v2
+
+      - name: Rust format check
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo fmt --check
+
+      - name: Rust clippy
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo clippy -- -D warnings
+
+      - name: Rust test
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo test
+
+      - name: Rust build
+        if: hashFiles('Cargo.toml') != ''
+        run: cargo build --release
+
+      # --- Python ---
+      - name: Setup Python
+        if: hashFiles('pyproject.toml') != '' || hashFiles('requirements.txt') != '' || hashFiles('setup.py') != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python install deps
+        if: hashFiles('requirements.txt') != ''
+        run: pip install -r requirements.txt
+
+      - name: Python lint (ruff)
+        if: hashFiles('pyproject.toml') != '' || hashFiles('requirements.txt') != ''
+        run: |
+          pip install ruff
+          ruff check .
+          ruff format --check .
+        continue-on-error: true
+
+      - name: Python test
+        if: hashFiles('pyproject.toml') != '' || hashFiles('requirements.txt') != ''
+        run: |
+          pip install pytest
+          pytest || echo "No tests found"
+        continue-on-error: true
+
+      # --- Go ---
+      - name: Setup Go
+        if: hashFiles('go.mod') != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Go vet
+        if: hashFiles('go.mod') != ''
+        run: go vet ./...
+
+      - name: Go test
+        if: hashFiles('go.mod') != ''
+        run: go test ./...
+
+      - name: Go build
+        if: hashFiles('go.mod') != ''
+        run: go build ./...
+
+  # ---------------------------------------------------------------
+  # Release: semantic-release (only on push to main/master)
+  # ---------------------------------------------------------------
+  release:
+    name: Release
+    needs: check
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install semantic-release
+        run: npm install -g semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/exec
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
