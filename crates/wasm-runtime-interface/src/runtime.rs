@@ -409,3 +409,195 @@ impl ChallengeInstance {
         func(self.store.data_mut())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::NetworkPolicy;
+    use wasmtime::StoreLimitsBuilder;
+
+    #[test]
+    fn test_wasm_runtime_error_compile_display() {
+        let err = WasmRuntimeError::Compile("bad wasm".to_string());
+        assert_eq!(err.to_string(), "module compile failed: bad wasm");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_instantiate_display() {
+        let err = WasmRuntimeError::Instantiate("link error".to_string());
+        assert_eq!(err.to_string(), "module instantiation failed: link error");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_host_function_display() {
+        let err = WasmRuntimeError::HostFunction("dup func".to_string());
+        assert_eq!(
+            err.to_string(),
+            "host function registration failed: dup func"
+        );
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_missing_export_display() {
+        let err = WasmRuntimeError::MissingExport("main".to_string());
+        assert_eq!(err.to_string(), "missing export: main");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_memory_display() {
+        let err = WasmRuntimeError::Memory("out of bounds".to_string());
+        assert_eq!(err.to_string(), "memory error: out of bounds");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_execution_display() {
+        let err = WasmRuntimeError::Execution("trap".to_string());
+        assert_eq!(err.to_string(), "execution error: trap");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_io_display() {
+        let err = WasmRuntimeError::Io("file not found".to_string());
+        assert_eq!(err.to_string(), "io error: file not found");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_fuel_exhausted_display() {
+        let err = WasmRuntimeError::FuelExhausted;
+        assert_eq!(err.to_string(), "fuel exhausted");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_policy_violation_display() {
+        let err = WasmRuntimeError::PolicyViolation("blocked host".to_string());
+        assert_eq!(err.to_string(), "policy violation: blocked host");
+    }
+
+    #[test]
+    fn test_wasm_runtime_error_from_io_error() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing file");
+        let err: WasmRuntimeError = io_err.into();
+        assert!(matches!(err, WasmRuntimeError::Io(_)));
+        assert!(err.to_string().contains("missing file"));
+    }
+
+    #[test]
+    fn test_runtime_config_default() {
+        let config = RuntimeConfig::default();
+        assert_eq!(config.max_memory_bytes, 512 * 1024 * 1024);
+        assert_eq!(config.max_instances, 32);
+        assert!(!config.allow_fuel);
+        assert!(config.fuel_limit.is_none());
+    }
+
+    #[test]
+    fn test_instance_config_default() {
+        let config = InstanceConfig::default();
+        assert!(config.audit_logger.is_none());
+        assert_eq!(config.memory_export, DEFAULT_WASM_MEMORY_NAME);
+        assert_eq!(config.challenge_id, "unknown");
+        assert_eq!(config.validator_id, "unknown");
+        assert!(config.restart_id.is_empty());
+        assert_eq!(config.config_version, 0);
+    }
+
+    #[test]
+    fn test_runtime_state_new() {
+        let policy = NetworkPolicy::development();
+        let network_state = NetworkState::new(
+            policy.clone(),
+            None,
+            "chal-1".to_string(),
+            "val-1".to_string(),
+        )
+        .unwrap();
+        let limits = StoreLimitsBuilder::new().build();
+
+        let state = RuntimeState::new(
+            policy,
+            network_state,
+            "memory".to_string(),
+            "chal-1".to_string(),
+            "val-1".to_string(),
+            "restart-1".to_string(),
+            42,
+            limits,
+        );
+
+        assert_eq!(state.challenge_id, "chal-1");
+        assert_eq!(state.validator_id, "val-1");
+        assert_eq!(state.restart_id, "restart-1");
+        assert_eq!(state.config_version, 42);
+        assert_eq!(state.memory_export, "memory");
+    }
+
+    #[test]
+    fn test_runtime_state_reset_network_counters() {
+        let policy = NetworkPolicy::development();
+        let network_state = NetworkState::new(
+            policy.clone(),
+            None,
+            "chal-1".to_string(),
+            "val-1".to_string(),
+        )
+        .unwrap();
+
+        let limits = StoreLimitsBuilder::new().build();
+        let mut state = RuntimeState::new(
+            policy,
+            network_state,
+            "memory".to_string(),
+            "chal-1".to_string(),
+            "val-1".to_string(),
+            "".to_string(),
+            0,
+            limits,
+        );
+
+        assert_eq!(state.network_state.requests_made(), 0);
+        assert_eq!(state.network_state.dns_lookups(), 0);
+
+        state.reset_network_counters();
+
+        assert_eq!(state.network_state.requests_made(), 0);
+        assert_eq!(state.network_state.dns_lookups(), 0);
+    }
+
+    #[test]
+    fn test_wasm_runtime_new_default_config() {
+        let config = RuntimeConfig::default();
+        let runtime = WasmRuntime::new(config);
+        assert!(runtime.is_ok());
+    }
+
+    #[test]
+    fn test_wasm_runtime_new_with_fuel() {
+        let config = RuntimeConfig {
+            allow_fuel: true,
+            fuel_limit: None,
+            ..RuntimeConfig::default()
+        };
+        let runtime = WasmRuntime::new(config);
+        assert!(runtime.is_ok());
+    }
+
+    #[test]
+    fn test_wasm_runtime_new_with_fuel_limit() {
+        let config = RuntimeConfig {
+            allow_fuel: true,
+            fuel_limit: Some(1_000_000),
+            ..RuntimeConfig::default()
+        };
+        let runtime = WasmRuntime::new(config);
+        assert!(runtime.is_ok());
+    }
+
+    #[test]
+    fn test_wasm_runtime_from_engine() {
+        let engine = Engine::default();
+        let config = RuntimeConfig::default();
+        let runtime = WasmRuntime::from_engine(engine, config.clone());
+        assert_eq!(runtime.config.max_memory_bytes, config.max_memory_bytes);
+        assert_eq!(runtime.config.max_instances, config.max_instances);
+    }
+}

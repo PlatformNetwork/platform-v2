@@ -693,4 +693,321 @@ mod tests {
         let policy = NetworkPolicy::strict(vec!["bad host".to_string()]);
         assert!(policy.validate().is_err());
     }
+
+    #[test]
+    fn test_host_function_variants() {
+        let http_request = HostFunction::HttpRequest;
+        let http_get = HostFunction::HttpGet;
+        let http_post = HostFunction::HttpPost;
+        let dns_resolve = HostFunction::DnsResolve;
+
+        assert_ne!(http_request, http_get);
+        assert_ne!(http_request, http_post);
+        assert_ne!(http_request, dns_resolve);
+        assert_ne!(http_get, http_post);
+        assert_ne!(http_get, dns_resolve);
+        assert_ne!(http_post, dns_resolve);
+    }
+
+    #[test]
+    fn test_host_function_serde() {
+        let funcs = vec![
+            HostFunction::HttpRequest,
+            HostFunction::HttpGet,
+            HostFunction::HttpPost,
+            HostFunction::DnsResolve,
+        ];
+        for func in funcs {
+            let serialized = serde_json::to_string(&func).unwrap();
+            let deserialized: HostFunction = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(func, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_network_policy_strict() {
+        let hosts = vec!["api.example.com".to_string(), "cdn.example.com".to_string()];
+        let policy = NetworkPolicy::strict(hosts.clone());
+
+        assert!(policy.allow_internet);
+        assert_eq!(policy.http.allowed_hosts, hosts);
+        assert_eq!(policy.http.allowed_schemes, vec![HttpScheme::Https]);
+        assert_eq!(policy.http.allowed_ports, vec![443]);
+    }
+
+    #[test]
+    fn test_network_policy_development() {
+        let policy = NetworkPolicy::development();
+
+        assert!(policy.allow_internet);
+        assert!(policy.http.allowed_hosts.is_empty());
+        assert!(policy.http.allowed_schemes.contains(&HttpScheme::Http));
+        assert!(policy.http.allowed_schemes.contains(&HttpScheme::Https));
+        assert!(policy.http.allowed_ports.contains(&80));
+        assert!(policy.http.allowed_ports.contains(&443));
+        assert!(policy.dns_policy.enabled);
+        assert!(!policy.dns_policy.block_private_ranges);
+        assert_eq!(policy.dns_policy.max_lookups, 32);
+        assert_eq!(policy.dns_policy.cache_ttl_secs, 10);
+        assert!(policy.audit.log_headers);
+    }
+
+    #[test]
+    fn test_http_policy_default() {
+        let policy = HttpPolicy::default();
+
+        assert!(policy.allowed_hosts.is_empty());
+        assert_eq!(policy.allowed_schemes, vec![HttpScheme::Https]);
+        assert_eq!(policy.allowed_ports, vec![443]);
+    }
+
+    #[test]
+    fn test_http_policy_development() {
+        let policy = HttpPolicy::development();
+
+        assert!(policy.allowed_hosts.is_empty());
+        assert!(policy.allowed_schemes.contains(&HttpScheme::Http));
+        assert!(policy.allowed_schemes.contains(&HttpScheme::Https));
+        assert!(policy.allowed_ports.contains(&80));
+        assert!(policy.allowed_ports.contains(&443));
+    }
+
+    #[test]
+    fn test_dns_policy_default() {
+        let policy = DnsPolicy::default();
+
+        assert!(!policy.enabled);
+        assert!(policy.allowed_hosts.is_empty());
+        assert!(policy.allowed_record_types.contains(&DnsRecordType::A));
+        assert!(policy.allowed_record_types.contains(&DnsRecordType::Aaaa));
+        assert_eq!(policy.max_lookups, 8);
+        assert_eq!(policy.cache_ttl_secs, 60);
+        assert!(policy.block_private_ranges);
+    }
+
+    #[test]
+    fn test_dns_policy_development() {
+        let policy = DnsPolicy::development();
+
+        assert!(policy.enabled);
+        assert!(policy.allowed_hosts.is_empty());
+        assert_eq!(policy.max_lookups, 32);
+        assert_eq!(policy.cache_ttl_secs, 10);
+        assert!(!policy.block_private_ranges);
+    }
+
+    #[test]
+    fn test_request_limits_default() {
+        let limits = RequestLimits::default();
+
+        assert_eq!(limits.max_request_bytes, 256 * 1024);
+        assert_eq!(limits.max_response_bytes, 512 * 1024);
+        assert_eq!(limits.max_header_bytes, 32 * 1024);
+        assert_eq!(limits.timeout_ms, 5_000);
+        assert_eq!(limits.max_requests, 8);
+        assert_eq!(limits.max_redirects, 2);
+    }
+
+    #[test]
+    fn test_request_limits_development() {
+        let limits = RequestLimits::development();
+
+        assert_eq!(limits.max_request_bytes, 1024 * 1024);
+        assert_eq!(limits.max_response_bytes, 2 * 1024 * 1024);
+        assert_eq!(limits.max_header_bytes, 64 * 1024);
+        assert_eq!(limits.timeout_ms, 15_000);
+        assert_eq!(limits.max_requests, 32);
+        assert_eq!(limits.max_redirects, 4);
+    }
+
+    #[test]
+    fn test_audit_policy_default() {
+        let policy = AuditPolicy::default();
+
+        assert!(policy.enabled);
+        assert!(!policy.log_headers);
+        assert!(!policy.log_bodies);
+        assert!(policy.tags.is_empty());
+    }
+
+    #[test]
+    fn test_audit_policy_development() {
+        let policy = AuditPolicy::development();
+
+        assert!(policy.enabled);
+        assert!(policy.log_headers);
+        assert!(!policy.log_bodies);
+        assert!(policy.tags.is_empty());
+    }
+
+    #[test]
+    fn test_normalized_host_pattern_exact_match() {
+        let pattern = normalize_host_pattern("example.com").unwrap();
+        assert!(pattern.matches("example.com"));
+        assert!(!pattern.matches("sub.example.com"));
+        assert!(!pattern.matches("notexample.com"));
+    }
+
+    #[test]
+    fn test_normalized_host_pattern_subdomain_match() {
+        let pattern = normalize_host_pattern("*.example.com").unwrap();
+        assert!(pattern.matches("example.com"));
+        assert!(pattern.matches("sub.example.com"));
+        assert!(pattern.matches("deep.sub.example.com"));
+        assert!(!pattern.matches("notexample.com"));
+    }
+
+    #[test]
+    fn test_normalized_host_pattern_dot_prefix_match() {
+        let pattern = normalize_host_pattern(".example.com").unwrap();
+        assert!(pattern.matches("example.com"));
+        assert!(pattern.matches("sub.example.com"));
+        assert!(!pattern.matches("notexample.com"));
+    }
+
+    #[test]
+    fn test_normalized_host_pattern_no_match() {
+        let pattern = normalize_host_pattern("example.com").unwrap();
+        assert!(!pattern.matches("evil.com"));
+        assert!(!pattern.matches("example.org"));
+    }
+
+    #[test]
+    fn test_normalized_host_pattern_case_insensitive() {
+        let pattern = normalize_host_pattern("Example.COM").unwrap();
+        assert!(pattern.matches("example.com"));
+        assert!(pattern.matches("EXAMPLE.COM"));
+        assert!(pattern.matches("Example.Com"));
+    }
+
+    #[test]
+    fn test_normalized_host_pattern_trailing_dot() {
+        let pattern = normalize_host_pattern("example.com.").unwrap();
+        assert!(pattern.matches("example.com"));
+        assert!(pattern.matches("example.com."));
+    }
+
+    #[test]
+    fn test_network_policy_error_display() {
+        assert_eq!(
+            NetworkPolicyError::NetworkDisabled.to_string(),
+            "network access disabled"
+        );
+        assert_eq!(
+            NetworkPolicyError::DnsDisabled.to_string(),
+            "dns access disabled"
+        );
+        assert_eq!(
+            NetworkPolicyError::InvalidHost("bad".to_string()).to_string(),
+            "invalid host pattern: bad"
+        );
+        assert_eq!(
+            NetworkPolicyError::InvalidIpRange("bad".to_string()).to_string(),
+            "invalid ip range: bad"
+        );
+        assert_eq!(
+            NetworkPolicyError::InvalidUrl("bad".to_string()).to_string(),
+            "invalid url: bad"
+        );
+        assert_eq!(
+            NetworkPolicyError::MissingHost.to_string(),
+            "missing host in url"
+        );
+        assert_eq!(
+            NetworkPolicyError::MissingPort.to_string(),
+            "missing port in url"
+        );
+        assert_eq!(
+            NetworkPolicyError::SchemeNotAllowed("ftp".to_string()).to_string(),
+            "scheme not allowed: ftp"
+        );
+        assert_eq!(
+            NetworkPolicyError::HostNotAllowed("evil.com".to_string()).to_string(),
+            "host not allowed: evil.com"
+        );
+        assert_eq!(
+            NetworkPolicyError::PortNotAllowed(8080).to_string(),
+            "port not allowed: 8080"
+        );
+        assert_eq!(
+            NetworkPolicyError::DnsRecordTypeNotAllowed(DnsRecordType::Txt).to_string(),
+            "dns record type not allowed: Txt"
+        );
+    }
+
+    #[test]
+    fn test_http_request_serialization() {
+        let request = HttpRequest {
+            method: HttpMethod::Post,
+            url: "https://example.com/api".to_string(),
+            headers: {
+                let mut h = HashMap::new();
+                h.insert("Content-Type".to_string(), "application/json".to_string());
+                h
+            },
+            body: b"test body".to_vec(),
+        };
+
+        let serialized = serde_json::to_string(&request).unwrap();
+        let deserialized: HttpRequest = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.method, HttpMethod::Post);
+        assert_eq!(deserialized.url, "https://example.com/api");
+        assert_eq!(
+            deserialized.headers.get("Content-Type"),
+            Some(&"application/json".to_string())
+        );
+        assert_eq!(deserialized.body, b"test body".to_vec());
+    }
+
+    #[test]
+    fn test_http_response_serialization() {
+        let response = HttpResponse {
+            status: 200,
+            headers: {
+                let mut h = HashMap::new();
+                h.insert("Content-Type".to_string(), "text/plain".to_string());
+                h
+            },
+            body: b"response body".to_vec(),
+        };
+
+        let serialized = serde_json::to_string(&response).unwrap();
+        let deserialized: HttpResponse = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.status, 200);
+        assert_eq!(
+            deserialized.headers.get("Content-Type"),
+            Some(&"text/plain".to_string())
+        );
+        assert_eq!(deserialized.body, b"response body".to_vec());
+    }
+
+    #[test]
+    fn test_dns_request_serialization() {
+        let request = DnsRequest {
+            hostname: "example.com".to_string(),
+            record_type: DnsRecordType::A,
+        };
+
+        let serialized = serde_json::to_string(&request).unwrap();
+        let deserialized: DnsRequest = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.hostname, "example.com");
+        assert_eq!(deserialized.record_type, DnsRecordType::A);
+    }
+
+    #[test]
+    fn test_dns_response_serialization() {
+        let response = DnsResponse {
+            records: vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()],
+        };
+
+        let serialized = serde_json::to_string(&response).unwrap();
+        let deserialized: DnsResponse = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.records.len(), 2);
+        assert_eq!(deserialized.records[0], "1.2.3.4");
+        assert_eq!(deserialized.records[1], "5.6.7.8");
+    }
 }

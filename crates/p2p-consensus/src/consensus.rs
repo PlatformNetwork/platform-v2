@@ -1252,4 +1252,216 @@ mod tests {
         assert_eq!(view_change.new_view, 1);
         assert_eq!(view_change.validator, engine.keypair.hotkey());
     }
+
+    #[test]
+    fn test_consensus_error_display() {
+        let err = ConsensusError::NotLeader(5);
+        assert_eq!(format!("{}", err), "Not the leader for view 5");
+
+        let err = ConsensusError::InvalidProposal("bad data".to_string());
+        assert_eq!(format!("{}", err), "Invalid proposal: bad data");
+
+        let err = ConsensusError::InvalidSignature("abc123".to_string());
+        assert_eq!(format!("{}", err), "Invalid signature from abc123");
+
+        let err = ConsensusError::SequenceMismatch {
+            expected: 10,
+            actual: 5,
+        };
+        assert_eq!(
+            format!("{}", err),
+            "Sequence number mismatch: expected 10, got 5"
+        );
+
+        let err = ConsensusError::ViewMismatch {
+            expected: 3,
+            actual: 1,
+        };
+        assert_eq!(format!("{}", err), "View mismatch: expected 3, got 1");
+
+        let err = ConsensusError::NotEnoughVotes { needed: 5, have: 2 };
+        assert_eq!(format!("{}", err), "Not enough votes: need 5, have 2");
+
+        let err = ConsensusError::Timeout;
+        assert_eq!(format!("{}", err), "Consensus timeout");
+
+        let err = ConsensusError::ViewChangeInProgress;
+        assert_eq!(format!("{}", err), "View change in progress");
+
+        let err = ConsensusError::AlreadyVoted;
+        assert_eq!(format!("{}", err), "Already voted in this round");
+    }
+
+    #[test]
+    fn test_consensus_decision_creation_and_serialization() {
+        let content = ProposalContent {
+            change_type: StateChangeType::ChallengeSubmission,
+            data: vec![1, 2, 3, 4],
+            data_hash: [42u8; 32],
+        };
+
+        let decision = ConsensusDecision {
+            view: 10,
+            sequence: 100,
+            content,
+            commit_signatures: vec![(Hotkey([1u8; 32]), vec![0xAA, 0xBB])],
+        };
+
+        let serialized = bincode::serialize(&decision).expect("serialization should work");
+        let deserialized: ConsensusDecision =
+            bincode::deserialize(&serialized).expect("deserialization should work");
+
+        assert_eq!(deserialized.view, 10);
+        assert_eq!(deserialized.sequence, 100);
+        assert_eq!(
+            deserialized.content.change_type,
+            StateChangeType::ChallengeSubmission
+        );
+        assert_eq!(deserialized.content.data, vec![1, 2, 3, 4]);
+        assert_eq!(deserialized.commit_signatures.len(), 1);
+    }
+
+    #[test]
+    fn test_consensus_round_creation() {
+        let round = ConsensusRound::new(5, 10);
+
+        assert_eq!(round.view, 5);
+        assert_eq!(round.sequence, 10);
+        assert_eq!(round.phase, ConsensusPhase::Idle);
+        assert!(round.proposal.is_none());
+        assert!(round.pre_prepare.is_none());
+        assert!(round.prepares.is_empty());
+        assert!(round.commits.is_empty());
+        assert_eq!(round.proposal_hash, [0u8; 32]);
+        assert!(!round.local_prepared);
+        assert!(!round.local_committed);
+        assert!(round.started_at > 0);
+    }
+
+    #[test]
+    fn test_view_change_state_creation() {
+        let state = ViewChangeState {
+            new_view: 7,
+            view_changes: HashMap::new(),
+            started_at: chrono::Utc::now().timestamp_millis(),
+        };
+
+        assert_eq!(state.new_view, 7);
+        assert!(state.view_changes.is_empty());
+        assert!(state.started_at > 0);
+    }
+
+    #[test]
+    fn test_handle_new_view_invalid_leader() {
+        let engine = create_test_engine();
+
+        let wrong_leader = Hotkey([99u8; 32]);
+        let new_view_msg = NewViewMessage {
+            view: 1,
+            view_changes: vec![],
+            leader: wrong_leader,
+            signature: vec![],
+        };
+
+        let result = engine.handle_new_view(new_view_msg);
+        assert!(matches!(result, Err(ConsensusError::InvalidProposal(_))));
+    }
+
+    #[test]
+    fn test_handle_new_view_insufficient_quorum() {
+        let keypair = Keypair::generate();
+        let validator_set = Arc::new(ValidatorSet::new(keypair.clone(), 0));
+        let state_manager = Arc::new(StateManager::for_netuid(100));
+
+        let record = crate::validator::ValidatorRecord::new(keypair.hotkey(), 100_000);
+        validator_set.register_validator(record).unwrap();
+
+        for i in 1..4 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = i;
+            let record = crate::validator::ValidatorRecord::new(Hotkey(bytes), 10_000);
+            validator_set.register_validator(record).unwrap();
+        }
+
+        let engine = ConsensusEngine::new(keypair.clone(), validator_set.clone(), state_manager);
+
+        let leader = engine.current_leader().unwrap();
+        assert_eq!(leader, keypair.hotkey());
+
+        #[derive(Serialize)]
+        struct NewViewSigningData {
+            view: ViewNumber,
+        }
+
+        let signing_data = NewViewSigningData { view: 0 };
+        let signing_bytes = bincode::serialize(&signing_data).unwrap();
+        let signature = keypair.sign_bytes(&signing_bytes).unwrap();
+
+        let new_view_msg = NewViewMessage {
+            view: 0,
+            view_changes: vec![],
+            leader,
+            signature,
+        };
+
+        let result = engine.handle_new_view(new_view_msg);
+        assert!(
+            matches!(result, Err(ConsensusError::NotEnoughVotes { .. })),
+            "Expected NotEnoughVotes, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_check_timeout_no_round() {
+        let engine = create_test_engine();
+        assert!(!engine.check_timeout());
+    }
+
+    #[test]
+    fn test_check_view_change_timeout_no_state() {
+        let engine = create_test_engine();
+        assert!(!engine.check_view_change_timeout());
+    }
+
+    #[test]
+    fn test_should_initiate_view_change_no_timeout() {
+        let engine = create_test_engine();
+        engine
+            .create_proposal(StateChangeType::ChallengeSubmission, vec![1, 2, 3])
+            .unwrap();
+        assert!(!engine.should_initiate_view_change());
+    }
+
+    #[test]
+    fn test_get_decision_not_found() {
+        let engine = create_test_engine();
+        assert!(engine.get_decision(999).is_none());
+    }
+
+    #[test]
+    fn test_get_decision_found() {
+        let engine = create_test_engine();
+
+        let content = ProposalContent {
+            change_type: StateChangeType::ChallengeSubmission,
+            data: vec![1, 2, 3],
+            data_hash: [0u8; 32],
+        };
+
+        let decision = ConsensusDecision {
+            view: 0,
+            sequence: 42,
+            content,
+            commit_signatures: vec![],
+        };
+
+        engine.decisions.write().insert(42, decision.clone());
+
+        let retrieved = engine.get_decision(42);
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.sequence, 42);
+        assert_eq!(retrieved.view, 0);
+    }
 }

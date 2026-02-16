@@ -619,4 +619,214 @@ mod tests {
         assert_eq!(updated.last_sequence, 100);
         assert_eq!(updated.stake, 15_000);
     }
+
+    #[test]
+    fn test_validator_error_display() {
+        let err = ValidatorError::NotFound("abc123".to_string());
+        assert_eq!(format!("{}", err), "Validator not found: abc123");
+
+        let err = ValidatorError::InsufficientStake {
+            required: 1000,
+            actual: 500,
+        };
+        assert_eq!(
+            format!("{}", err),
+            "Insufficient stake: required 1000, has 500"
+        );
+
+        let err = ValidatorError::InvalidSignature;
+        assert_eq!(format!("{}", err), "Invalid signature from validator");
+
+        let err = ValidatorError::AlreadyRegistered;
+        assert_eq!(format!("{}", err), "Validator already registered");
+
+        let err = ValidatorError::NotAuthorized("not sudo".to_string());
+        assert_eq!(format!("{}", err), "Not authorized: not sudo");
+    }
+
+    #[test]
+    fn test_validator_record_update_from_heartbeat() {
+        let hotkey = Hotkey([1u8; 32]);
+        let mut record = ValidatorRecord::new(hotkey, 5000);
+
+        record.is_active = false;
+        let old_last_seen = record.last_seen;
+
+        let new_hash = [99u8; 32];
+        record.update_from_heartbeat(new_hash, 200, 7500);
+
+        assert_eq!(record.state_hash, new_hash);
+        assert_eq!(record.last_sequence, 200);
+        assert_eq!(record.stake, 7500);
+        assert!(record.is_active);
+        assert!(record.last_seen >= old_last_seen);
+    }
+
+    #[test]
+    fn test_validator_set_verified_stake() {
+        let set = create_validator_set();
+        let hotkey = Hotkey([1u8; 32]);
+
+        assert!(set.get_verified_stake(&hotkey).is_none());
+
+        set.set_verified_stake(&hotkey, 50_000);
+        assert_eq!(set.get_verified_stake(&hotkey), Some(50_000));
+
+        set.set_verified_stake(&hotkey, 75_000);
+        assert_eq!(set.get_verified_stake(&hotkey), Some(75_000));
+    }
+
+    #[test]
+    fn test_validator_set_clear_verified_stakes() {
+        let set = create_validator_set();
+        let hotkey1 = Hotkey([1u8; 32]);
+        let hotkey2 = Hotkey([2u8; 32]);
+
+        set.set_verified_stake(&hotkey1, 10_000);
+        set.set_verified_stake(&hotkey2, 20_000);
+
+        assert!(set.get_verified_stake(&hotkey1).is_some());
+        assert!(set.get_verified_stake(&hotkey2).is_some());
+
+        set.clear_verified_stakes();
+
+        assert!(set.get_verified_stake(&hotkey1).is_none());
+        assert!(set.get_verified_stake(&hotkey2).is_none());
+    }
+
+    #[test]
+    fn test_validator_set_remove_validator() {
+        let set = create_validator_set();
+        let hotkey = Hotkey([1u8; 32]);
+        let record = ValidatorRecord::new(hotkey.clone(), 10_000);
+
+        set.register_validator(record).unwrap();
+        assert!(set.is_validator(&hotkey));
+
+        set.remove_validator(&hotkey);
+        assert!(!set.is_validator(&hotkey));
+    }
+
+    #[test]
+    fn test_mark_stale_validators() {
+        let set = create_validator_set();
+        let hotkey = Hotkey([1u8; 32]);
+        let mut record = ValidatorRecord::new(hotkey.clone(), 10_000);
+        record.last_seen = chrono::Utc::now().timestamp_millis() - 200_000;
+        set.register_validator(record).unwrap();
+
+        let validator = set.get_validator(&hotkey).unwrap();
+        assert!(validator.is_active);
+
+        set.mark_stale_validators();
+
+        let validator = set.get_validator(&hotkey).unwrap();
+        assert!(!validator.is_active);
+    }
+
+    #[test]
+    fn test_stake_quorum_threshold() {
+        let set = create_validator_set();
+
+        for i in 0..3 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = i;
+            let record = ValidatorRecord::new(Hotkey(bytes), 10_000);
+            set.register_validator(record).unwrap();
+        }
+
+        let threshold = set.stake_quorum_threshold();
+        assert_eq!(threshold, (30_000 * 2 / 3) + 1);
+    }
+
+    #[test]
+    fn test_stake_quorum_threshold_zero() {
+        let set = create_validator_set();
+        assert_eq!(set.stake_quorum_threshold(), 0);
+    }
+
+    #[test]
+    fn test_verify_signature_not_found() {
+        let set = create_validator_set();
+        let unknown_hotkey = Hotkey([99u8; 32]);
+
+        let result = set.verify_signature(&unknown_hotkey, b"message", &[0u8; 64]);
+        assert!(matches!(result, Err(ValidatorError::NotFound(_))));
+    }
+
+    #[test]
+    fn test_verify_signature_valid() {
+        let keypair = create_test_keypair();
+        let set = ValidatorSet::new(keypair.clone(), 1000);
+
+        let record = ValidatorRecord::new(keypair.hotkey(), 10_000);
+        set.register_validator(record).unwrap();
+
+        let message = b"test message";
+        let signature = keypair.sign_bytes(message).unwrap();
+
+        let result = set.verify_signature(&keypair.hotkey(), message, &signature);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_leader_election_next_leader_view() {
+        let keypair = create_test_keypair();
+        let set = Arc::new(ValidatorSet::new(keypair.clone(), 1000));
+
+        let local_record = ValidatorRecord::new(keypair.hotkey(), 10_000);
+        set.register_validator(local_record).unwrap();
+
+        for i in 1..3 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = i;
+            let record = ValidatorRecord::new(Hotkey(bytes), 10_000 - i as u64 * 1000);
+            set.register_validator(record).unwrap();
+        }
+
+        let election = LeaderElection::new(set);
+
+        let next_view = election.next_leader_view(0);
+        assert!(next_view.is_some());
+    }
+
+    #[test]
+    fn test_leader_election_next_leader_view_not_validator() {
+        let keypair = create_test_keypair();
+        let set = Arc::new(ValidatorSet::new(keypair, 1000));
+
+        for i in 0..3 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = i;
+            let record = ValidatorRecord::new(Hotkey(bytes), 10_000);
+            set.register_validator(record).unwrap();
+        }
+
+        let election = LeaderElection::new(set);
+
+        let next_view = election.next_leader_view(0);
+        assert!(next_view.is_none());
+    }
+
+    #[test]
+    fn test_stake_weighted_voting_meets_quorum() {
+        let keypair = create_test_keypair();
+        let set = Arc::new(ValidatorSet::new(keypair, 1000));
+
+        for i in 0..4 {
+            let mut bytes = [0u8; 32];
+            bytes[0] = i;
+            let record = ValidatorRecord::new(Hotkey(bytes), 10_000);
+            set.register_validator(record).unwrap();
+        }
+
+        let voting = StakeWeightedVoting::new(set);
+
+        assert!(!voting.meets_quorum(0));
+        assert!(!voting.meets_quorum(1));
+        assert!(!voting.meets_quorum(2));
+        assert!(voting.meets_quorum(3));
+        assert!(voting.meets_quorum(4));
+    }
 }
