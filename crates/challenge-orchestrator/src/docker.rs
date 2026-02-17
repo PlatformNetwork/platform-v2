@@ -742,9 +742,9 @@ impl DockerClient {
 
         // Create named volumes for Docker-in-Docker task sharing
         // These volumes are shared between challenge containers and agent containers
-        let tasks_volume = "term-challenge-tasks";
-        let dind_cache_volume = "term-challenge-cache";
-        let evals_volume = "term-challenge-evals";
+        let tasks_volume = "challenge-tasks";
+        let dind_cache_volume = "challenge-cache";
+        let evals_volume = "challenge-evals";
 
         for vol_name in [tasks_volume, dind_cache_volume, evals_volume] {
             let vol_opts = CreateVolumeOptions {
@@ -776,13 +776,13 @@ impl DockerClient {
                     tasks_volume, tasks_volume
                 ),
                 // Cache volume - for downloaded datasets
-                format!("{}:/root/.cache/term-challenge:rw", dind_cache_volume),
+                format!("{}:/root/.cache/challenge:rw", dind_cache_volume),
                 format!(
                     "{}:/var/lib/docker/volumes/{}/_data:rw",
                     dind_cache_volume, dind_cache_volume
                 ),
                 // Evals volume - for evaluation logs
-                format!("{}:/tmp/term-challenge-evals:rw", evals_volume),
+                format!("{}:/tmp/challenge-evals:rw", evals_volume),
                 format!(
                     "{}:/var/lib/docker/volumes/{}/_data:rw",
                     evals_volume, evals_volume
@@ -826,14 +826,14 @@ impl DockerClient {
         env.push("PORT=8080".to_string());
         // For Docker-in-Docker: use Docker volume paths on host
         // The HOST_*_DIR tells the challenge how to map container paths to host paths for DinD
-        env.push("HOST_TASKS_DIR=/var/lib/docker/volumes/term-challenge-tasks/_data".to_string());
-        env.push("HOST_CACHE_DIR=/var/lib/docker/volumes/term-challenge-cache/_data".to_string());
-        env.push("CACHE_DIR=/root/.cache/term-challenge".to_string());
+        env.push("HOST_TASKS_DIR=/var/lib/docker/volumes/challenge-tasks/_data".to_string());
+        env.push("HOST_CACHE_DIR=/var/lib/docker/volumes/challenge-cache/_data".to_string());
+        env.push("CACHE_DIR=/root/.cache/challenge".to_string());
         env.push(
-            "HOST_BENCHMARK_RESULTS_DIR=/var/lib/docker/volumes/term-challenge-evals/_data"
+            "HOST_BENCHMARK_RESULTS_DIR=/var/lib/docker/volumes/challenge-evals/_data"
                 .to_string(),
         );
-        env.push("BENCHMARK_RESULTS_DIR=/tmp/term-challenge-evals".to_string());
+        env.push("BENCHMARK_RESULTS_DIR=/tmp/challenge-evals".to_string());
         // Pass through DEVELOPMENT_MODE for local image support
         if let Ok(dev_mode) = std::env::var("DEVELOPMENT_MODE") {
             env.push(format!("DEVELOPMENT_MODE={}", dev_mode));
@@ -1135,7 +1135,7 @@ impl DockerClient {
     /// - Watchtower containers
     ///
     /// Parameters:
-    /// - `prefix`: Container name prefix to match (e.g., "term-challenge-")
+    /// - `prefix`: Container name prefix to match (e.g., "challenge-")
     /// - `max_age_minutes`: Only remove containers older than this (0 = remove all matching)
     /// - `exclude_patterns`: Container names containing these patterns will be kept
     pub async fn cleanup_stale_containers(
@@ -1570,14 +1570,14 @@ mod tests {
         let bridge = RecordingBridge::default();
         let now = chrono::Utc::now().timestamp();
         bridge.set_containers(vec![
-            make_container_summary("old", "term-challenge-old", now - 10_000),
+            make_container_summary("old", "challenge-old", now - 10_000),
             make_container_summary("exclude", "platform-helper", now - 10_000),
-            make_container_summary("young", "term-challenge-young", now - 100),
+            make_container_summary("young", "challenge-young", now - 100),
         ]);
         let client = DockerClient::with_bridge(bridge.clone(), "platform-network");
 
         let result = client
-            .cleanup_stale_containers("term-challenge-", 120, &["platform-"])
+            .cleanup_stale_containers("challenge-", 120, &["platform-"])
             .await
             .unwrap();
         assert_eq!(result.total_found, 1);

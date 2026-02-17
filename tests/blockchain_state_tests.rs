@@ -291,6 +291,9 @@ fn test_state_hash_unique_per_modification() {
         is_active: true,
         creator: Hotkey([0u8; 32]),
         created_at: chrono::Utc::now().timestamp_millis(),
+        wasm_hash: None,
+        wasm_entrypoint: None,
+        network_policy: None,
     };
     state.add_challenge(config);
     assert!(
@@ -416,6 +419,9 @@ fn test_full_state_lifecycle_with_block_linking() {
         is_active: true,
         creator: sudo_keypair.hotkey(),
         created_at: chrono::Utc::now().timestamp_millis(),
+        wasm_hash: None,
+        wasm_entrypoint: None,
+        network_policy: None,
     };
     state.add_challenge(challenge);
     assert_eq!(state.challenges.len(), 1);
@@ -572,6 +578,9 @@ fn test_challenge_removal_changes_hash() {
         is_active: true,
         creator: Hotkey([0u8; 32]),
         created_at: chrono::Utc::now().timestamp_millis(),
+        wasm_hash: None,
+        wasm_entrypoint: None,
+        network_policy: None,
     };
 
     state.add_challenge(config);
