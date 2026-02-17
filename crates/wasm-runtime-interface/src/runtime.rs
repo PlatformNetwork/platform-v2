@@ -1,3 +1,4 @@
+use crate::terminal::{TerminalAuditLogger, TerminalPolicy, TerminalState};
 use crate::{NetworkAuditLogger, NetworkPolicy, NetworkState};
 use std::sync::Arc;
 use thiserror::Error;
@@ -77,6 +78,10 @@ pub struct InstanceConfig {
     pub network_policy: NetworkPolicy,
     /// Optional audit logger for network calls.
     pub audit_logger: Option<Arc<dyn NetworkAuditLogger>>,
+    /// Terminal policy enforced by host functions.
+    pub terminal_policy: TerminalPolicy,
+    /// Optional audit logger for terminal calls.
+    pub terminal_audit_logger: Option<Arc<dyn TerminalAuditLogger>>,
     /// Wasm memory export name.
     pub memory_export: String,
     /// Identifier used in audit logs.
@@ -94,6 +99,8 @@ impl Default for InstanceConfig {
         Self {
             network_policy: NetworkPolicy::default(),
             audit_logger: None,
+            terminal_policy: TerminalPolicy::default(),
+            terminal_audit_logger: None,
             memory_export: DEFAULT_WASM_MEMORY_NAME.to_string(),
             challenge_id: "unknown".to_string(),
             validator_id: "unknown".to_string(),
@@ -108,6 +115,8 @@ pub struct RuntimeState {
     pub network_policy: NetworkPolicy,
     /// Mutable network state enforcing policy.
     pub network_state: NetworkState,
+    /// Terminal state enforcing terminal policy.
+    pub terminal_state: TerminalState,
     /// Wasm memory export name.
     pub memory_export: String,
     /// Identifier used in audit logs.
@@ -126,6 +135,7 @@ impl RuntimeState {
     pub fn new(
         network_policy: NetworkPolicy,
         network_state: NetworkState,
+        terminal_state: TerminalState,
         memory_export: String,
         challenge_id: String,
         validator_id: String,
@@ -136,6 +146,7 @@ impl RuntimeState {
         Self {
             network_policy,
             network_state,
+            terminal_state,
             memory_export,
             challenge_id,
             validator_id,
@@ -147,6 +158,10 @@ impl RuntimeState {
 
     pub fn reset_network_counters(&mut self) {
         self.network_state.reset_counters();
+    }
+
+    pub fn reset_terminal_counters(&mut self) {
+        self.terminal_state.reset_counters();
     }
 }
 
@@ -212,9 +227,16 @@ impl WasmRuntime {
             instance_config.validator_id.clone(),
         )
         .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+        let terminal_state = TerminalState::new(
+            instance_config.terminal_policy.clone(),
+            instance_config.challenge_id.clone(),
+            instance_config.validator_id.clone(),
+            instance_config.terminal_audit_logger.clone(),
+        );
         let runtime_state = RuntimeState::new(
             instance_config.network_policy.clone(),
             network_state,
+            terminal_state,
             instance_config.memory_export.clone(),
             instance_config.challenge_id.clone(),
             instance_config.validator_id.clone(),
@@ -392,6 +414,14 @@ impl ChallengeInstance {
 
     pub fn reset_network_state(&mut self) {
         self.store.data_mut().reset_network_counters();
+    }
+
+    pub fn reset_terminal_state(&mut self) {
+        self.store.data_mut().reset_terminal_counters();
+    }
+
+    pub fn terminal_commands_executed(&self) -> u32 {
+        self.store.data().terminal_state.commands_executed
     }
 
     pub fn challenge_id(&self) -> &str {

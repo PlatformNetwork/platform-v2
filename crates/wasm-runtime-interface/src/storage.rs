@@ -22,12 +22,14 @@
 
 #![allow(dead_code, unused_variables, unused_imports)]
 
+use crate::runtime::{HostFunctionRegistrar, RuntimeState, WasmRuntimeError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tracing::{debug, info, warn};
+use wasmtime::{Caller, Linker, Memory};
 
 pub const HOST_STORAGE_NAMESPACE: &str = "platform_storage";
 pub const HOST_STORAGE_GET: &str = "storage_get";
@@ -393,6 +395,329 @@ pub struct NoopStorageAuditLogger;
 
 impl StorageAuditLogger for NoopStorageAuditLogger {
     fn record(&self, _entry: StorageAuditEntry) {}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageHostFunction {
+    StorageGet,
+    StorageProposeWrite,
+    StorageDelete,
+}
+
+#[derive(Clone)]
+pub struct StorageHostFunctions {
+    enabled: Vec<StorageHostFunction>,
+    backend: Arc<dyn StorageBackend>,
+}
+
+impl std::fmt::Debug for StorageHostFunctions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StorageHostFunctions")
+            .field("enabled", &self.enabled)
+            .finish()
+    }
+}
+
+impl StorageHostFunctions {
+    pub fn new(enabled: Vec<StorageHostFunction>, backend: Arc<dyn StorageBackend>) -> Self {
+        Self { enabled, backend }
+    }
+
+    pub fn all(backend: Arc<dyn StorageBackend>) -> Self {
+        Self {
+            enabled: vec![
+                StorageHostFunction::StorageGet,
+                StorageHostFunction::StorageProposeWrite,
+                StorageHostFunction::StorageDelete,
+            ],
+            backend,
+        }
+    }
+}
+
+impl HostFunctionRegistrar for StorageHostFunctions {
+    fn register(&self, linker: &mut Linker<RuntimeState>) -> Result<(), WasmRuntimeError> {
+        let backend = self.backend.clone();
+        if self.enabled.contains(&StorageHostFunction::StorageGet) {
+            let backend = backend.clone();
+            linker
+                .func_wrap(
+                    HOST_STORAGE_NAMESPACE,
+                    HOST_STORAGE_GET,
+                    move |mut caller: Caller<RuntimeState>,
+                          key_ptr: i32,
+                          key_len: i32,
+                          resp_ptr: i32,
+                          resp_len: i32|
+                          -> i32 {
+                        handle_storage_get(
+                            &mut caller,
+                            &backend,
+                            key_ptr,
+                            key_len,
+                            resp_ptr,
+                            resp_len,
+                        )
+                    },
+                )
+                .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+        }
+
+        if self
+            .enabled
+            .contains(&StorageHostFunction::StorageProposeWrite)
+        {
+            let backend = backend.clone();
+            linker
+                .func_wrap(
+                    HOST_STORAGE_NAMESPACE,
+                    HOST_STORAGE_PROPOSE_WRITE,
+                    move |mut caller: Caller<RuntimeState>,
+                          key_ptr: i32,
+                          key_len: i32,
+                          val_ptr: i32,
+                          val_len: i32,
+                          resp_ptr: i32,
+                          resp_len: i32|
+                          -> i32 {
+                        handle_storage_propose_write(
+                            &mut caller,
+                            &backend,
+                            key_ptr,
+                            key_len,
+                            val_ptr,
+                            val_len,
+                            resp_ptr,
+                            resp_len,
+                        )
+                    },
+                )
+                .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+        }
+
+        if self.enabled.contains(&StorageHostFunction::StorageDelete) {
+            let backend = backend.clone();
+            linker
+                .func_wrap(
+                    HOST_STORAGE_NAMESPACE,
+                    HOST_STORAGE_DELETE,
+                    move |mut caller: Caller<RuntimeState>, key_ptr: i32, key_len: i32| -> i32 {
+                        handle_storage_delete(&mut caller, &backend, key_ptr, key_len)
+                    },
+                )
+                .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+        }
+
+        Ok(())
+    }
+}
+
+fn handle_storage_get(
+    caller: &mut Caller<RuntimeState>,
+    backend: &Arc<dyn StorageBackend>,
+    key_ptr: i32,
+    key_len: i32,
+    resp_ptr: i32,
+    resp_len: i32,
+) -> i32 {
+    let key_bytes = match read_memory(caller, key_ptr, key_len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                challenge_id = %caller.data().challenge_id,
+                error = %err,
+                "storage_get: memory read failed"
+            );
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    let challenge_id = caller.data().challenge_id.clone();
+    match backend.get(&challenge_id, &key_bytes) {
+        Ok(Some(value)) => {
+            let response = StorageGetResponse {
+                found: true,
+                value: Some(value),
+                version: None,
+            };
+            let serialized = match bincode::serialize(&response) {
+                Ok(bytes) => bytes,
+                Err(_) => return StorageHostStatus::InternalError.to_i32(),
+            };
+            write_bytes(caller, resp_ptr, resp_len, &serialized)
+        }
+        Ok(None) => {
+            let response = StorageGetResponse {
+                found: false,
+                value: None,
+                version: None,
+            };
+            let serialized = match bincode::serialize(&response) {
+                Ok(bytes) => bytes,
+                Err(_) => return StorageHostStatus::InternalError.to_i32(),
+            };
+            write_bytes(caller, resp_ptr, resp_len, &serialized)
+        }
+        Err(err) => {
+            warn!(
+                challenge_id = %caller.data().challenge_id,
+                error = %err,
+                "storage_get: backend error"
+            );
+            StorageHostStatus::from(err).to_i32()
+        }
+    }
+}
+
+fn handle_storage_propose_write(
+    caller: &mut Caller<RuntimeState>,
+    backend: &Arc<dyn StorageBackend>,
+    key_ptr: i32,
+    key_len: i32,
+    val_ptr: i32,
+    val_len: i32,
+    resp_ptr: i32,
+    resp_len: i32,
+) -> i32 {
+    let key_bytes = match read_memory(caller, key_ptr, key_len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                challenge_id = %caller.data().challenge_id,
+                error = %err,
+                "storage_propose_write: key memory read failed"
+            );
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    let val_bytes = match read_memory(caller, val_ptr, val_len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                challenge_id = %caller.data().challenge_id,
+                error = %err,
+                "storage_propose_write: value memory read failed"
+            );
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    let challenge_id = caller.data().challenge_id.clone();
+    match backend.propose_write(&challenge_id, &key_bytes, &val_bytes) {
+        Ok(proposal_id) => {
+            let response = StorageProposeWriteResponse {
+                proposal_id,
+                status: StorageHostStatus::Success.to_i32(),
+            };
+            let serialized = match bincode::serialize(&response) {
+                Ok(bytes) => bytes,
+                Err(_) => return StorageHostStatus::InternalError.to_i32(),
+            };
+            write_bytes(caller, resp_ptr, resp_len, &serialized)
+        }
+        Err(err) => {
+            warn!(
+                challenge_id = %caller.data().challenge_id,
+                error = %err,
+                "storage_propose_write: backend error"
+            );
+            StorageHostStatus::from(err).to_i32()
+        }
+    }
+}
+
+fn handle_storage_delete(
+    caller: &mut Caller<RuntimeState>,
+    backend: &Arc<dyn StorageBackend>,
+    key_ptr: i32,
+    key_len: i32,
+) -> i32 {
+    let key_bytes = match read_memory(caller, key_ptr, key_len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                challenge_id = %caller.data().challenge_id,
+                error = %err,
+                "storage_delete: memory read failed"
+            );
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    let challenge_id = caller.data().challenge_id.clone();
+    match backend.delete(&challenge_id, &key_bytes) {
+        Ok(true) => StorageHostStatus::Success.to_i32(),
+        Ok(false) => StorageHostStatus::NotFound.to_i32(),
+        Err(err) => {
+            warn!(
+                challenge_id = %caller.data().challenge_id,
+                error = %err,
+                "storage_delete: backend error"
+            );
+            StorageHostStatus::from(err).to_i32()
+        }
+    }
+}
+
+fn read_memory(caller: &mut Caller<RuntimeState>, ptr: i32, len: i32) -> Result<Vec<u8>, String> {
+    if ptr < 0 || len < 0 {
+        return Err("negative pointer/length".to_string());
+    }
+    let ptr = ptr as usize;
+    let len = len as usize;
+    let memory = get_memory(caller).ok_or_else(|| "memory export not found".to_string())?;
+    let data = memory.data(caller);
+    let end = ptr
+        .checked_add(len)
+        .ok_or_else(|| "pointer overflow".to_string())?;
+    if end > data.len() {
+        return Err("memory read out of bounds".to_string());
+    }
+    Ok(data[ptr..end].to_vec())
+}
+
+fn write_bytes(
+    caller: &mut Caller<RuntimeState>,
+    resp_ptr: i32,
+    resp_len: i32,
+    bytes: &[u8],
+) -> i32 {
+    if resp_ptr < 0 || resp_len < 0 {
+        return -1;
+    }
+    if bytes.len() > i32::MAX as usize {
+        return -1;
+    }
+    let resp_len = resp_len as usize;
+    if bytes.len() > resp_len {
+        return -(bytes.len() as i32);
+    }
+
+    let memory = match get_memory(caller) {
+        Some(memory) => memory,
+        None => return -1,
+    };
+
+    let ptr = resp_ptr as usize;
+    let end = match ptr.checked_add(bytes.len()) {
+        Some(end) => end,
+        None => return -1,
+    };
+    let data = memory.data_mut(caller);
+    if end > data.len() {
+        return -1;
+    }
+    data[ptr..end].copy_from_slice(bytes);
+    bytes.len() as i32
+}
+
+fn get_memory(caller: &mut Caller<RuntimeState>) -> Option<Memory> {
+    let memory_export = caller.data().memory_export.clone();
+    caller
+        .get_export(&memory_export)
+        .and_then(|export| export.into_memory())
 }
 
 #[cfg(test)]

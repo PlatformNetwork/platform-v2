@@ -12,12 +12,18 @@ use std::str::FromStr;
 pub mod network;
 pub mod runtime;
 pub mod storage;
+pub mod terminal;
 pub use network::{NetworkHostFunctions, NetworkState, NetworkStateError};
 pub use storage::{
     InMemoryStorageBackend, NoopStorageBackend, StorageAuditEntry, StorageAuditLogger,
     StorageBackend, StorageDeleteRequest, StorageGetRequest, StorageGetResponse, StorageHostConfig,
-    StorageHostError, StorageHostState, StorageHostStatus, StorageOperation,
-    StorageProposeWriteRequest, StorageProposeWriteResponse,
+    StorageHostError, StorageHostFunction, StorageHostFunctions, StorageHostState,
+    StorageHostStatus, StorageOperation, StorageProposeWriteRequest, StorageProposeWriteResponse,
+};
+pub use terminal::{
+    CommandRequest, CommandResult, DirEntry, TerminalAuditAction, TerminalAuditEntry,
+    TerminalAuditLogger, TerminalError, TerminalHostFunction, TerminalHostFunctions,
+    TerminalPolicy, TerminalState,
 };
 
 pub const HOST_FUNCTION_NAMESPACE: &str = "platform_network";
@@ -34,6 +40,10 @@ pub use storage::{
     HOST_STORAGE_ALLOC, HOST_STORAGE_DELETE, HOST_STORAGE_GET, HOST_STORAGE_GET_RESULT,
     HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE,
 };
+pub use terminal::{
+    HOST_TERMINAL_EXEC, HOST_TERMINAL_GET_TIME, HOST_TERMINAL_LIST_DIR, HOST_TERMINAL_NAMESPACE,
+    HOST_TERMINAL_RANDOM_SEED, HOST_TERMINAL_READ_FILE, HOST_TERMINAL_WRITE_FILE,
+};
 
 /// Host functions that may be exposed to WASM challenges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -43,6 +53,12 @@ pub enum HostFunction {
     HttpGet,
     HttpPost,
     DnsResolve,
+    TerminalExec,
+    TerminalReadFile,
+    TerminalWriteFile,
+    TerminalListDir,
+    TerminalGetTime,
+    TerminalRandomSeed,
 }
 
 /// Network policy aligned with secure-container-runtime patterns.
