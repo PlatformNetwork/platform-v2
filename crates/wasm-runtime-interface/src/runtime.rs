@@ -1,4 +1,4 @@
-use crate::{NetworkAuditLogger, NetworkPolicy, NetworkState};
+use crate::{NetworkAuditLogger, NetworkPolicy, NetworkState, SandboxPolicy};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::info;
@@ -75,6 +75,8 @@ impl Default for RuntimeConfig {
 pub struct InstanceConfig {
     /// Network policy enforced by host functions.
     pub network_policy: NetworkPolicy,
+    /// Sandbox policy for term-challenge execution.
+    pub sandbox_policy: SandboxPolicy,
     /// Optional audit logger for network calls.
     pub audit_logger: Option<Arc<dyn NetworkAuditLogger>>,
     /// Wasm memory export name.
@@ -93,6 +95,7 @@ impl Default for InstanceConfig {
     fn default() -> Self {
         Self {
             network_policy: NetworkPolicy::default(),
+            sandbox_policy: SandboxPolicy::default(),
             audit_logger: None,
             memory_export: DEFAULT_WASM_MEMORY_NAME.to_string(),
             challenge_id: "unknown".to_string(),
@@ -106,6 +109,8 @@ impl Default for InstanceConfig {
 pub struct RuntimeState {
     /// Network policy available to host functions.
     pub network_policy: NetworkPolicy,
+    /// Sandbox policy for term-challenge execution.
+    pub sandbox_policy: SandboxPolicy,
     /// Mutable network state enforcing policy.
     pub network_state: NetworkState,
     /// Wasm memory export name.
@@ -125,6 +130,7 @@ impl RuntimeState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         network_policy: NetworkPolicy,
+        sandbox_policy: SandboxPolicy,
         network_state: NetworkState,
         memory_export: String,
         challenge_id: String,
@@ -135,6 +141,7 @@ impl RuntimeState {
     ) -> Self {
         Self {
             network_policy,
+            sandbox_policy,
             network_state,
             memory_export,
             challenge_id,
@@ -214,6 +221,7 @@ impl WasmRuntime {
         .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
         let runtime_state = RuntimeState::new(
             instance_config.network_policy.clone(),
+            instance_config.sandbox_policy.clone(),
             network_state,
             instance_config.memory_export.clone(),
             instance_config.challenge_id.clone(),
@@ -357,6 +365,15 @@ impl ChallengeInstance {
             .get_typed_func::<(i32, i32), i32>(&mut self.store, name)
             .map_err(|_| WasmRuntimeError::MissingExport(name.to_string()))?;
         func.call(&mut self.store, (arg0, arg1))
+            .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))
+    }
+
+    pub fn call_i32_return_i32(&mut self, name: &str, arg0: i32) -> Result<i32, WasmRuntimeError> {
+        let func = self
+            .instance
+            .get_typed_func::<i32, i32>(&mut self.store, name)
+            .map_err(|_| WasmRuntimeError::MissingExport(name.to_string()))?;
+        func.call(&mut self.store, arg0)
             .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))
     }
 
