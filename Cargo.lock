@@ -5116,6 +5116,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "platform-challenge-sdk-wasm"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "serde",
+]
+
+[[package]]
 name = "platform-core"
 version = "0.1.0"
 dependencies = [
