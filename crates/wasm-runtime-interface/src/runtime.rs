@@ -1,4 +1,4 @@
-use crate::{NetworkAuditLogger, NetworkPolicy, NetworkState};
+use crate::{NetworkAuditLogger, NetworkPolicy, NetworkState, StorageHostState};
 use std::sync::Arc;
 use thiserror::Error;
 use tracing::info;
@@ -118,6 +118,8 @@ pub struct RuntimeState {
     pub restart_id: String,
     /// Configuration version for hot-restarts.
     pub config_version: u64,
+    /// Optional storage host state.
+    pub storage_state: Option<StorageHostState>,
     limits: StoreLimits,
 }
 
@@ -131,6 +133,7 @@ impl RuntimeState {
         validator_id: String,
         restart_id: String,
         config_version: u64,
+        storage_state: Option<StorageHostState>,
         limits: StoreLimits,
     ) -> Self {
         Self {
@@ -141,6 +144,7 @@ impl RuntimeState {
             validator_id,
             restart_id,
             config_version,
+            storage_state,
             limits,
         }
     }
@@ -220,6 +224,7 @@ impl WasmRuntime {
             instance_config.validator_id.clone(),
             instance_config.restart_id.clone(),
             instance_config.config_version,
+            None,
             limits.build(),
         );
         let mut store = Store::new(&self.engine, runtime_state);
