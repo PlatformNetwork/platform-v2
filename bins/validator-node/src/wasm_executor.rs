@@ -7,8 +7,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
-    ExecPolicy, InstanceConfig, NetworkHostFunctions, NetworkPolicy, RuntimeConfig,
-    StorageHostConfig, StorageHostState, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
+    ExecPolicy, InstanceConfig, NetworkHostFunctions, NetworkPolicy, NoopStorageBackend,
+    RuntimeConfig, StorageHostConfig, StorageHostState, TimePolicy, WasmModule, WasmRuntime,
+    WasmRuntimeError,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -139,6 +140,7 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
@@ -149,6 +151,7 @@ impl WasmChallengeExecutor {
         let _storage_state = StorageHostState::new(
             challenge_id.to_string(),
             self.config.storage_host_config.clone(),
+            Arc::new(NoopStorageBackend),
         );
 
         let initial_fuel = instance.fuel_remaining();
@@ -266,6 +269,7 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
@@ -276,6 +280,7 @@ impl WasmChallengeExecutor {
         let _storage_state = StorageHostState::new(
             challenge_id.to_string(),
             self.config.storage_host_config.clone(),
+            Arc::new(NoopStorageBackend),
         );
 
         let initial_fuel = instance.fuel_remaining();
