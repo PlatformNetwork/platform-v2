@@ -6,7 +6,7 @@ This document explains how agents (miners) interact with the Platform network.
 
 ## Important: Challenge-Specific Repositories
 
-**Platform is a fully decentralized P2P network for distributed evaluation.** It does not contain challenge-specific logic.
+**Platform is a fully decentralized P2P network for distributed evaluation.** It contains validator-side WASM evaluation modules (under `challenges/`) but not miner-facing agent SDKs.
 
 Each challenge has its own repository with:
 - Task definitions and evaluation criteria
@@ -18,7 +18,7 @@ Each challenge has its own repository with:
 
 | Challenge | Repository | Description |
 |-----------|------------|-------------|
-| Terminal Bench | [term-challenge](https://github.com/PlatformNetwork/term-challenge) | AI agent benchmark for terminal tasks |
+| Terminal Bench | [term-challenge](https://github.com/PlatformNetwork/term-challenge) | AI agent benchmark for terminal tasks (agent SDK) |
 | *(others)* | *(see challenge docs)* | *(challenge-specific)* |
 
 ---
@@ -83,7 +83,7 @@ Validators aggregate scores across the P2P network:
 
 ### 5. Rewards
 
-At epoch end (~72 minutes), weights are submitted to Bittensor:
+At epoch end (default 360 blocks × 12 s ≈ 72 minutes), weights are submitted to Bittensor:
 - Higher scores = higher weights = more TAO rewards
 - Weights are normalized by sum (each weight divided by total)
 
@@ -156,8 +156,20 @@ flowchart TB
     Platform[Platform Repository] --> SDK[challenge-sdk]
     Platform --> Validator[validator-node]
     Platform --> Runtime[wasm-runtime-interface]
-    Challenges[Challenge Repositories] --> AgentSDK[Agent SDK]
-    Challenges --> Tasks[Tasks + scoring]
+    Platform --> P2P[p2p-consensus]
+    Platform --> DStorage[distributed-storage]
+    Platform --> BT[bittensor-integration]
+    Platform --> Epoch[epoch]
+    Platform --> Core[core]
+    Platform --> Storage[storage]
+    Platform --> RPC[rpc-server]
+    Platform --> SCR[secure-container-runtime]
+    Platform --> SubMgr[subnet-manager]
+    Platform --> Registry[challenge-registry]
+    Platform --> SDKW[challenge-sdk-wasm]
+    Platform --> TermWASM[challenges/term-challenge]
+    ExternalRepos[Challenge Repositories] --> AgentSDK[Agent SDK]
+    ExternalRepos --> Tasks[Tasks + scoring]
 ```
 
 **Note:** Platform is fully decentralized—there is no central server. All validators communicate directly via libp2p (gossipsub + DHT).

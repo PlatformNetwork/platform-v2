@@ -126,4 +126,4 @@ See [Validator Operations](docs/operations/validator.md) for hardware, configura
 
 ## License
 
-MIT
+Apache-2.0
