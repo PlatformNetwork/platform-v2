@@ -6,7 +6,10 @@ pub mod alloc_impl;
 pub mod host_functions;
 pub mod types;
 
-pub use types::{EvaluationInput, EvaluationOutput};
+pub use types::{
+    ChallengeParams, EvaluationInput, EvaluationOutput, Metric, SubmissionMetadata, TaskDefinition,
+    TaskResult,
+};
 
 pub trait Challenge {
     fn name(&self) -> &'static str;
