@@ -12,6 +12,8 @@ pub struct EvaluationInput {
     pub epoch: Option<u64>,
     pub metadata: Vec<u8>,
     pub task_definitions: Vec<u8>,
+    pub task_definition: Option<Vec<u8>>,
+    pub environment_config: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,6 +21,7 @@ pub struct EvaluationOutput {
     pub score: i64,
     pub valid: bool,
     pub message: String,
+    pub metrics: Option<Vec<u8>>,
 }
 
 impl EvaluationOutput {
@@ -27,6 +30,7 @@ impl EvaluationOutput {
             score,
             valid: true,
             message: String::from(message),
+            metrics: None,
         }
     }
 
@@ -35,7 +39,13 @@ impl EvaluationOutput {
             score: 0,
             valid: false,
             message: String::from(message),
+            metrics: None,
         }
+    }
+
+    pub fn with_metrics(mut self, metrics: Vec<u8>) -> Self {
+        self.metrics = Some(metrics);
+        self
     }
 }
 

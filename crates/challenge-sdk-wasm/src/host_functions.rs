@@ -24,6 +24,16 @@ extern "C" {
     fn get_timestamp() -> i64;
 }
 
+#[link(wasm_import_module = "platform_terminal")]
+extern "C" {
+    fn terminal_exec(cmd_ptr: i32, cmd_len: i32, result_ptr: i32, result_len: i32) -> i32;
+    fn terminal_read_file(path_ptr: i32, path_len: i32, buf_ptr: i32, buf_len: i32) -> i32;
+    fn terminal_write_file(path_ptr: i32, path_len: i32, data_ptr: i32, data_len: i32) -> i32;
+    fn terminal_list_dir(path_ptr: i32, path_len: i32, buf_ptr: i32, buf_len: i32) -> i32;
+    fn terminal_get_time() -> i64;
+    fn terminal_random_seed(buf_ptr: i32, buf_len: i32) -> i32;
+}
+
 pub fn host_http_get(request: &[u8]) -> Result<Vec<u8>, i32> {
     let mut response_buf = vec![0u8; 65536];
     let status = unsafe {
@@ -129,4 +139,82 @@ pub fn typed_http_post(request: &HttpRequest) -> Result<HttpResponse, ChallengeE
     let raw = host_http_post(&encoded, body)
         .map_err(|code| ChallengeError::Network(format!("http_post failed with code {}", code)))?;
     bincode::deserialize(&raw).map_err(ChallengeError::from)
+}
+
+pub fn host_terminal_exec(request: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut result_buf = vec![0u8; 262144];
+    let status = unsafe {
+        terminal_exec(
+            request.as_ptr() as i32,
+            request.len() as i32,
+            result_buf.as_mut_ptr() as i32,
+            result_buf.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    result_buf.truncate(status as usize);
+    Ok(result_buf)
+}
+
+pub fn host_read_file(path: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut buf = vec![0u8; 262144];
+    let status = unsafe {
+        terminal_read_file(
+            path.as_ptr() as i32,
+            path.len() as i32,
+            buf.as_mut_ptr() as i32,
+            buf.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    buf.truncate(status as usize);
+    Ok(buf)
+}
+
+pub fn host_write_file(path: &[u8], data: &[u8]) -> Result<(), i32> {
+    let status = unsafe {
+        terminal_write_file(
+            path.as_ptr() as i32,
+            path.len() as i32,
+            data.as_ptr() as i32,
+            data.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    Ok(())
+}
+
+pub fn host_list_dir(path: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut buf = vec![0u8; 65536];
+    let status = unsafe {
+        terminal_list_dir(
+            path.as_ptr() as i32,
+            path.len() as i32,
+            buf.as_mut_ptr() as i32,
+            buf.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    buf.truncate(status as usize);
+    Ok(buf)
+}
+
+pub fn host_get_time() -> i64 {
+    unsafe { terminal_get_time() }
+}
+
+pub fn host_random_seed(buf: &mut [u8]) -> Result<(), i32> {
+    let status = unsafe { terminal_random_seed(buf.as_mut_ptr() as i32, buf.len() as i32) };
+    if status < 0 {
+        return Err(status);
+    }
+    Ok(())
 }
