@@ -8725,7 +8725,9 @@ dependencies = [
  "libp2p",
  "parking_lot 0.12.5",
  "platform-bittensor",
+ "platform-challenge-registry",
  "platform-challenge-sdk",
+ "platform-challenge-sdk-wasm",
  "platform-core",
  "platform-distributed-storage",
  "platform-p2p-consensus",
@@ -8739,6 +8741,7 @@ dependencies = [
  "tracing-subscriber 0.3.22",
  "uuid",
  "wasm-runtime-interface",
+ "wasmtime 41.0.3",
 ]
 
 [[package]]
