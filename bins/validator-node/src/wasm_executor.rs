@@ -7,9 +7,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
-    ExecPolicy, InstanceConfig, NetworkHostFunctions, NetworkPolicy, NoopStorageBackend,
-    RuntimeConfig, StorageHostConfig, StorageHostState, TimePolicy, WasmModule, WasmRuntime,
-    WasmRuntimeError,
+    ExecPolicy, InMemoryStorageBackend, InstanceConfig, NetworkHostFunctions, NetworkPolicy,
+    NoopStorageBackend, RuntimeConfig, SandboxHostFunctions, SandboxPolicy, StorageHostConfig,
+    StorageHostState, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -113,6 +113,25 @@ impl WasmChallengeExecutor {
         challenge_id: &str,
         params: &[u8],
     ) -> Result<(EvaluationOutput, ExecutionMetrics)> {
+        self.execute_evaluation_with_sandbox(
+            module_path,
+            network_policy,
+            &SandboxPolicy::default(),
+            agent_data,
+            challenge_id,
+            params,
+        )
+    }
+
+    pub fn execute_evaluation_with_sandbox(
+        &self,
+        module_path: &str,
+        network_policy: &NetworkPolicy,
+        sandbox_policy: &SandboxPolicy,
+        agent_data: &[u8],
+        challenge_id: &str,
+        params: &[u8],
+    ) -> Result<(EvaluationOutput, ExecutionMetrics)> {
         let start = Instant::now();
 
         let module = self
@@ -129,9 +148,11 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
+        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
+            sandbox_policy: sandbox_policy.clone(),
             exec_policy: ExecPolicy::default(),
             time_policy: TimePolicy::default(),
             audit_logger: None,
@@ -156,20 +177,7 @@ impl WasmChallengeExecutor {
 
         let initial_fuel = instance.fuel_remaining();
 
-        let alloc_result = instance.call_i32_i32_return_i32("alloc", serialized.len() as i32, 0);
-        let ptr = match alloc_result {
-            Ok(p) => p,
-            Err(_) => {
-                let mem_size = instance.memory().data_size(instance.store());
-                let offset = mem_size.saturating_sub(serialized.len() + 1024);
-                if offset == 0 {
-                    return Err(anyhow::anyhow!(
-                        "WASM module has insufficient memory for input data"
-                    ));
-                }
-                offset as i32
-            }
-        };
+        let ptr = self.allocate_input(&mut instance, &serialized)?;
 
         instance
             .write_memory(ptr as usize, &serialized)
@@ -258,9 +266,11 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
+        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
+            sandbox_policy: SandboxPolicy::default(),
             exec_policy: ExecPolicy::default(),
             time_policy: TimePolicy::default(),
             audit_logger: None,
@@ -285,20 +295,7 @@ impl WasmChallengeExecutor {
 
         let initial_fuel = instance.fuel_remaining();
 
-        let alloc_result = instance.call_i32_i32_return_i32("alloc", serialized.len() as i32, 0);
-        let ptr = match alloc_result {
-            Ok(p) => p,
-            Err(_) => {
-                let mem_size = instance.memory().data_size(instance.store());
-                let offset = mem_size.saturating_sub(serialized.len() + 1024);
-                if offset == 0 {
-                    return Err(anyhow::anyhow!(
-                        "WASM module has insufficient memory for input data"
-                    ));
-                }
-                offset as i32
-            }
-        };
+        let ptr = self.allocate_input(&mut instance, &serialized)?;
 
         instance
             .write_memory(ptr as usize, &serialized)
@@ -342,6 +339,179 @@ impl WasmChallengeExecutor {
         );
 
         Ok((valid, metrics))
+    }
+
+    fn allocate_input(
+        &self,
+        instance: &mut wasm_runtime_interface::ChallengeInstance,
+        input_data: &[u8],
+    ) -> Result<i32> {
+        if let Ok(p) = instance.call_i32_return_i32("alloc", input_data.len() as i32) {
+            return Ok(p);
+        }
+
+        if let Ok(p) = instance.call_i32_i32_return_i32("allocate", input_data.len() as i32, 0) {
+            return Ok(p);
+        }
+
+        let mem_size = instance.memory().data_size(instance.store());
+        let offset = mem_size.saturating_sub(input_data.len() + 1024);
+        if offset == 0 {
+            return Err(anyhow::anyhow!(
+                "WASM module has insufficient memory for input data"
+            ));
+        }
+        Ok(offset as i32)
+    }
+
+    #[allow(dead_code)]
+    pub fn execute_get_tasks(
+        &self,
+        module_path: &str,
+        network_policy: &NetworkPolicy,
+        sandbox_policy: &SandboxPolicy,
+    ) -> Result<(Vec<u8>, ExecutionMetrics)> {
+        let start = Instant::now();
+
+        let module = self
+            .load_module(module_path)
+            .context("Failed to load WASM module")?;
+
+        let network_host_fns = Arc::new(NetworkHostFunctions::all());
+
+        let instance_config = InstanceConfig {
+            network_policy: network_policy.clone(),
+            sandbox_policy: sandbox_policy.clone(),
+            exec_policy: ExecPolicy::default(),
+            time_policy: TimePolicy::default(),
+            audit_logger: None,
+            memory_export: "memory".to_string(),
+            challenge_id: module_path.to_string(),
+            validator_id: "validator".to_string(),
+            restart_id: String::new(),
+            config_version: 0,
+            storage_host_config: StorageHostConfig::default(),
+            storage_backend: Arc::new(InMemoryStorageBackend::new()),
+            fixed_timestamp_ms: None,
+        };
+
+        let mut instance = self
+            .runtime
+            .instantiate(&module, instance_config, Some(network_host_fns))
+            .map_err(|e| anyhow::anyhow!("WASM instantiation failed: {}", e))?;
+
+        let initial_fuel = instance.fuel_remaining();
+
+        let result_ptr = instance
+            .call_return_i32("get_tasks")
+            .map_err(|e| anyhow::anyhow!("WASM get_tasks call failed: {}", e))?;
+
+        let result_data = if result_ptr > 0 {
+            let len = instance
+                .call_return_i32("get_tasks_result_len")
+                .unwrap_or(0);
+            if len > 0 {
+                instance
+                    .read_memory(result_ptr as usize, len as usize)
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        let fuel_consumed = match (initial_fuel, instance.fuel_remaining()) {
+            (Some(initial), Some(remaining)) => Some(initial.saturating_sub(remaining)),
+            _ => None,
+        };
+
+        let metrics = ExecutionMetrics {
+            execution_time_ms: start.elapsed().as_millis(),
+            memory_used_bytes: instance.memory().data_size(instance.store()) as u64,
+            network_requests_made: instance.network_requests_made(),
+            fuel_consumed,
+        };
+
+        info!(
+            module = module_path,
+            result_bytes = result_data.len(),
+            execution_time_ms = metrics.execution_time_ms,
+            "WASM get_tasks completed"
+        );
+
+        Ok((result_data, metrics))
+    }
+
+    #[allow(dead_code)]
+    pub fn execute_configure(
+        &self,
+        module_path: &str,
+        network_policy: &NetworkPolicy,
+        sandbox_policy: &SandboxPolicy,
+        config_data: &[u8],
+    ) -> Result<(i32, ExecutionMetrics)> {
+        let start = Instant::now();
+
+        let module = self
+            .load_module(module_path)
+            .context("Failed to load WASM module")?;
+
+        let network_host_fns = Arc::new(NetworkHostFunctions::all());
+
+        let instance_config = InstanceConfig {
+            network_policy: network_policy.clone(),
+            sandbox_policy: sandbox_policy.clone(),
+            exec_policy: ExecPolicy::default(),
+            time_policy: TimePolicy::default(),
+            audit_logger: None,
+            memory_export: "memory".to_string(),
+            challenge_id: module_path.to_string(),
+            validator_id: "validator".to_string(),
+            restart_id: String::new(),
+            config_version: 0,
+            storage_host_config: StorageHostConfig::default(),
+            storage_backend: Arc::new(InMemoryStorageBackend::new()),
+            fixed_timestamp_ms: None,
+        };
+
+        let mut instance = self
+            .runtime
+            .instantiate(&module, instance_config, Some(network_host_fns))
+            .map_err(|e| anyhow::anyhow!("WASM instantiation failed: {}", e))?;
+
+        let initial_fuel = instance.fuel_remaining();
+
+        let ptr = self.allocate_input(&mut instance, config_data)?;
+
+        instance
+            .write_memory(ptr as usize, config_data)
+            .map_err(|e| anyhow::anyhow!("Failed to write config data to WASM memory: {}", e))?;
+
+        let result = instance
+            .call_i32_i32_return_i32("configure", ptr, config_data.len() as i32)
+            .map_err(|e| anyhow::anyhow!("WASM configure call failed: {}", e))?;
+
+        let fuel_consumed = match (initial_fuel, instance.fuel_remaining()) {
+            (Some(initial), Some(remaining)) => Some(initial.saturating_sub(remaining)),
+            _ => None,
+        };
+
+        let metrics = ExecutionMetrics {
+            execution_time_ms: start.elapsed().as_millis(),
+            memory_used_bytes: instance.memory().data_size(instance.store()) as u64,
+            network_requests_made: instance.network_requests_made(),
+            fuel_consumed,
+        };
+
+        info!(
+            module = module_path,
+            result,
+            execution_time_ms = metrics.execution_time_ms,
+            "WASM configure completed"
+        );
+
+        Ok((result, metrics))
     }
 
     fn load_module(&self, module_path: &str) -> Result<Arc<WasmModule>> {
