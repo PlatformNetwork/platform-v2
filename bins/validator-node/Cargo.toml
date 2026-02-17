@@ -17,7 +17,6 @@ platform-p2p-consensus = { path = "../../crates/p2p-consensus" }
 platform-distributed-storage = { path = "../../crates/distributed-storage" }
 platform-challenge-sdk = { path = "../../crates/challenge-sdk" }
 secure-container-runtime = { path = "../../crates/secure-container-runtime" }
-wasm-runtime-interface = { path = "../../crates/wasm-runtime-interface" }
 
 # Bittensor
 bittensor-rs = { workspace = true }
@@ -32,7 +31,6 @@ futures = { workspace = true }
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
-bincode = { workspace = true }
 
 # Logging
 tracing = { workspace = true }

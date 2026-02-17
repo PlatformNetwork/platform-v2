@@ -80,15 +80,6 @@ pub struct ChallengeConfig {
     pub creator: Hotkey,
     /// Creation timestamp
     pub created_at: i64,
-    /// SHA-256 hash of the WASM module
-    #[serde(default)]
-    pub wasm_hash: Option<String>,
-    /// WASM entrypoint function name
-    #[serde(default)]
-    pub wasm_entrypoint: Option<String>,
-    /// Serialized network policy for WASM execution
-    #[serde(default)]
-    pub network_policy: Option<String>,
 }
 
 /// Weight votes for epoch finalization
@@ -806,9 +797,6 @@ mod tests {
             is_active: true,
             creator: Hotkey([0u8; 32]),
             created_at: chrono::Utc::now().timestamp_millis(),
-            wasm_hash: None,
-            wasm_entrypoint: None,
-            network_policy: None,
         };
 
         let id = config.id;

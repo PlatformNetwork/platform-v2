@@ -30,7 +30,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
-use wasm_runtime_interface::{InstanceConfig, NetworkPolicy, RuntimeConfig, WasmRuntime};
 
 /// Storage key for persisted chain state
 const STATE_STORAGE_KEY: &str = "chain_state";
@@ -468,52 +467,6 @@ async fn main() -> Result<()> {
 
     info!("Stopped.");
     Ok(())
-}
-
-async fn evaluate_submission_wasm(
-    wasm_bytes: &[u8],
-    input: &[u8],
-    entrypoint: &str,
-    network_policy: NetworkPolicy,
-    challenge_id: &str,
-    validator_id: &str,
-) -> Result<Vec<u8>> {
-    let runtime = WasmRuntime::new(RuntimeConfig::default())
-        .map_err(|e| anyhow::anyhow!("wasm runtime init failed: {}", e))?;
-
-    let module = runtime
-        .compile_module(wasm_bytes)
-        .map_err(|e| anyhow::anyhow!("wasm compile failed: {}", e))?;
-
-    let instance_config = InstanceConfig {
-        network_policy,
-        challenge_id: challenge_id.to_string(),
-        validator_id: validator_id.to_string(),
-        ..Default::default()
-    };
-
-    let mut instance = runtime
-        .instantiate(&module, instance_config, None)
-        .map_err(|e| anyhow::anyhow!("wasm instantiate failed: {}", e))?;
-
-    let ptr = 0i32;
-    let len = input.len() as i32;
-    instance
-        .write_memory(ptr as usize, input)
-        .map_err(|e| anyhow::anyhow!("wasm write_memory failed: {}", e))?;
-
-    let packed = instance
-        .call_i32_i32_return_i64(entrypoint, ptr, len)
-        .map_err(|e| anyhow::anyhow!("wasm call failed: {}", e))?;
-
-    let result_ptr = (packed >> 32) as u32 as usize;
-    let result_len = (packed & 0xFFFF_FFFF) as u32 as usize;
-
-    let output = instance
-        .read_memory(result_ptr, result_len)
-        .map_err(|e| anyhow::anyhow!("wasm read_memory failed: {}", e))?;
-
-    Ok(output)
 }
 
 fn load_keypair(args: &Args) -> Result<Keypair> {
