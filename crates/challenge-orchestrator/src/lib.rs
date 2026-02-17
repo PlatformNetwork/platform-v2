@@ -314,18 +314,19 @@ impl ChallengeOrchestrator {
     ///
     /// Called periodically to prevent Docker from accumulating orphaned containers.
     #[deprecated(note = "Docker-based container cleanup is deprecated; prefer WASM-based challenge execution")]
-    pub async fn cleanup_stale_task_containers(&self) -> anyhow::Result<CleanupResult> {
+    pub async fn cleanup_stale_task_containers(&self, prefix: &str) -> anyhow::Result<CleanupResult> {
         tracing::warn!("Docker-based container cleanup is deprecated; prefer WASM-based challenge execution");
-        // Clean up term-challenge task containers older than 2 hours
+        // Clean up task containers matching the given prefix older than 2 hours
         // Exclude:
-        // - challenge-* (main challenge containers managed by orchestrator)
+        // - challenge-{prefix}* (main challenge containers managed by orchestrator)
         // - platform-* (validator, watchtower)
+        let main_container_exclude = format!("challenge-{}", prefix);
         let result = self
             .docker
             .cleanup_stale_containers(
-                "term-challenge-",
+                prefix,
                 120, // 2 hours old
-                &["challenge-term-challenge", "platform-"],
+                &[&main_container_exclude, "platform-"],
             )
             .await?;
 
@@ -696,7 +697,7 @@ mod tests {
         let orchestrator = orchestrator_with_mock(docker.clone()).await;
 
         let result = orchestrator
-            .cleanup_stale_task_containers()
+            .cleanup_stale_task_containers("my-challenge-")
             .await
             .expect("cleanup ok");
         assert_eq!(result.total_found, 3);
@@ -706,10 +707,10 @@ mod tests {
         let calls = docker.cleanup_calls();
         assert_eq!(calls.len(), 1);
         let (prefix, max_age, excludes) = &calls[0];
-        assert_eq!(prefix, "term-challenge-");
+        assert_eq!(prefix, "my-challenge-");
         assert_eq!(*max_age, 120);
         let expected: Vec<String> = vec![
-            "challenge-term-challenge".to_string(),
+            "challenge-my-challenge-".to_string(),
             "platform-".to_string(),
         ];
         assert_eq!(excludes, &expected);

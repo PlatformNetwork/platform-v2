@@ -5,7 +5,7 @@
 
 use crate::messages::{MerkleNode, MerkleProof, SequenceNumber};
 use parking_lot::RwLock;
-use platform_core::{hash_data, ChallengeId, Hotkey, SignedMessage};
+use platform_core::{hash_data, ChallengeId, Hotkey, SignedMessage, WasmModuleMetadata};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -80,6 +80,9 @@ pub struct ChallengeConfig {
     pub creator: Hotkey,
     /// Creation timestamp
     pub created_at: i64,
+    /// WASM module metadata
+    #[serde(default)]
+    pub wasm_module_metadata: Option<WasmModuleMetadata>,
 }
 
 /// Weight votes for epoch finalization
@@ -797,6 +800,7 @@ mod tests {
             is_active: true,
             creator: Hotkey([0u8; 32]),
             created_at: chrono::Utc::now().timestamp_millis(),
+            wasm_module_metadata: None,
         };
 
         let id = config.id;

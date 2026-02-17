@@ -744,11 +744,12 @@ impl DockerClient {
 
         // Create named volumes for Docker-in-Docker task sharing
         // These volumes are shared between challenge containers and agent containers
-        let tasks_volume = "term-challenge-tasks";
-        let dind_cache_volume = "term-challenge-cache";
-        let evals_volume = "term-challenge-evals";
+        let challenge_slug = config.name.to_lowercase().replace(' ', "-");
+        let tasks_volume = format!("{}-tasks", challenge_slug);
+        let dind_cache_volume = format!("{}-cache", challenge_slug);
+        let evals_volume = format!("{}-evals", challenge_slug);
 
-        for vol_name in [tasks_volume, dind_cache_volume, evals_volume] {
+        for vol_name in [&tasks_volume, &dind_cache_volume, &evals_volume] {
             let vol_opts = CreateVolumeOptions {
                 name: vol_name.to_string(),
                 driver: "local".to_string(),
@@ -778,13 +779,13 @@ impl DockerClient {
                     tasks_volume, tasks_volume
                 ),
                 // Cache volume - for downloaded datasets
-                format!("{}:/root/.cache/term-challenge:rw", dind_cache_volume),
+                format!("{}:/root/.cache/{}:rw", dind_cache_volume, challenge_slug),
                 format!(
                     "{}:/var/lib/docker/volumes/{}/_data:rw",
                     dind_cache_volume, dind_cache_volume
                 ),
                 // Evals volume - for evaluation logs
-                format!("{}:/tmp/term-challenge-evals:rw", evals_volume),
+                format!("{}:/tmp/{}-evals:rw", evals_volume, challenge_slug),
                 format!(
                     "{}:/var/lib/docker/volumes/{}/_data:rw",
                     evals_volume, evals_volume
@@ -828,14 +829,11 @@ impl DockerClient {
         env.push("PORT=8080".to_string());
         // For Docker-in-Docker: use Docker volume paths on host
         // The HOST_*_DIR tells the challenge how to map container paths to host paths for DinD
-        env.push("HOST_TASKS_DIR=/var/lib/docker/volumes/term-challenge-tasks/_data".to_string());
-        env.push("HOST_CACHE_DIR=/var/lib/docker/volumes/term-challenge-cache/_data".to_string());
-        env.push("CACHE_DIR=/root/.cache/term-challenge".to_string());
-        env.push(
-            "HOST_BENCHMARK_RESULTS_DIR=/var/lib/docker/volumes/term-challenge-evals/_data"
-                .to_string(),
-        );
-        env.push("BENCHMARK_RESULTS_DIR=/tmp/term-challenge-evals".to_string());
+        env.push(format!("HOST_TASKS_DIR=/var/lib/docker/volumes/{}/_data", tasks_volume));
+        env.push(format!("HOST_CACHE_DIR=/var/lib/docker/volumes/{}/_data", dind_cache_volume));
+        env.push(format!("CACHE_DIR=/root/.cache/{}", challenge_slug));
+        env.push(format!("HOST_BENCHMARK_RESULTS_DIR=/var/lib/docker/volumes/{}/_data", evals_volume));
+        env.push(format!("BENCHMARK_RESULTS_DIR=/tmp/{}-evals", challenge_slug));
         // Pass through DEVELOPMENT_MODE for local image support
         if let Ok(dev_mode) = std::env::var("DEVELOPMENT_MODE") {
             env.push(format!("DEVELOPMENT_MODE={}", dev_mode));
