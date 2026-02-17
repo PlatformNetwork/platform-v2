@@ -9,7 +9,9 @@ pub struct EvaluationInput {
     pub challenge_id: String,
     pub params: Vec<u8>,
     pub submission: SubmissionMetadata,
-    pub tasks: Vec<TaskDefinition>,
+    pub tasks: Vec<EvalTaskDefinition>,
+    pub task_definition: Option<Vec<u8>>,
+    pub environment_config: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -24,7 +26,7 @@ pub struct SubmissionMetadata {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
-pub struct TaskDefinition {
+pub struct EvalTaskDefinition {
     pub task_id: String,
     pub name: String,
     pub difficulty: String,
@@ -33,7 +35,7 @@ pub struct TaskDefinition {
     pub test_timeout_secs: f64,
 }
 
-impl Default for TaskDefinition {
+impl Default for EvalTaskDefinition {
     fn default() -> Self {
         Self {
             task_id: String::new(),
@@ -108,6 +110,7 @@ pub struct EvaluationOutput {
     pub metrics: Vec<Metric>,
     pub task_results: Vec<TaskResult>,
     pub execution_time_ms: u64,
+    pub raw_metrics: Option<Vec<u8>>,
 }
 
 impl EvaluationOutput {
@@ -138,6 +141,11 @@ impl EvaluationOutput {
             tasks_total,
             ..Self::default()
         }
+    }
+
+    pub fn with_raw_metrics(mut self, metrics: Vec<u8>) -> Self {
+        self.raw_metrics = Some(metrics);
+        self
     }
 
     pub fn add_metric(&mut self, name: &str, value: f64) {
