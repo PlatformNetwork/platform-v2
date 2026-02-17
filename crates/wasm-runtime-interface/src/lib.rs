@@ -11,8 +11,14 @@ use std::str::FromStr;
 
 pub mod network;
 pub mod runtime;
+pub mod sandbox;
 pub mod storage;
 pub use network::{NetworkHostFunctions, NetworkState, NetworkStateError};
+pub use sandbox::{
+    LogLevel, SandboxError, SandboxExecRequest, SandboxExecResponse, SandboxHostFunctions,
+    SandboxPolicy, SandboxState, TimestampMode, HOST_GET_TIMESTAMP, HOST_LOG_MESSAGE,
+    HOST_SANDBOX_EXEC, HOST_SANDBOX_NAMESPACE,
+};
 pub use storage::{
     InMemoryStorageBackend, NoopStorageBackend, StorageAuditEntry, StorageAuditLogger,
     StorageBackend, StorageDeleteRequest, StorageGetRequest, StorageGetResponse, StorageHostConfig,

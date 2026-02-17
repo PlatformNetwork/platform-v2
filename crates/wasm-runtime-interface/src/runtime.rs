@@ -1,3 +1,4 @@
+use crate::sandbox::{SandboxPolicy, SandboxState, TimestampMode};
 use crate::{NetworkAuditLogger, NetworkPolicy, NetworkState};
 use std::sync::Arc;
 use thiserror::Error;
@@ -77,6 +78,10 @@ pub struct InstanceConfig {
     pub network_policy: NetworkPolicy,
     /// Optional audit logger for network calls.
     pub audit_logger: Option<Arc<dyn NetworkAuditLogger>>,
+    /// Sandbox policy enforced by sandbox host functions.
+    pub sandbox_policy: SandboxPolicy,
+    /// Timestamp mode for the sandbox (real time vs. deterministic).
+    pub timestamp_mode: TimestampMode,
     /// Wasm memory export name.
     pub memory_export: String,
     /// Identifier used in audit logs.
@@ -94,6 +99,8 @@ impl Default for InstanceConfig {
         Self {
             network_policy: NetworkPolicy::default(),
             audit_logger: None,
+            sandbox_policy: SandboxPolicy::default(),
+            timestamp_mode: TimestampMode::default(),
             memory_export: DEFAULT_WASM_MEMORY_NAME.to_string(),
             challenge_id: "unknown".to_string(),
             validator_id: "unknown".to_string(),
@@ -108,6 +115,8 @@ pub struct RuntimeState {
     pub network_policy: NetworkPolicy,
     /// Mutable network state enforcing policy.
     pub network_state: NetworkState,
+    /// Sandbox state enforcing sandbox policy.
+    pub sandbox_state: SandboxState,
     /// Wasm memory export name.
     pub memory_export: String,
     /// Identifier used in audit logs.
@@ -126,6 +135,7 @@ impl RuntimeState {
     pub fn new(
         network_policy: NetworkPolicy,
         network_state: NetworkState,
+        sandbox_state: SandboxState,
         memory_export: String,
         challenge_id: String,
         validator_id: String,
@@ -136,6 +146,7 @@ impl RuntimeState {
         Self {
             network_policy,
             network_state,
+            sandbox_state,
             memory_export,
             challenge_id,
             validator_id,
@@ -147,6 +158,10 @@ impl RuntimeState {
 
     pub fn reset_network_counters(&mut self) {
         self.network_state.reset_counters();
+    }
+
+    pub fn reset_sandbox_counters(&mut self) {
+        self.sandbox_state.reset_counters();
     }
 }
 
@@ -202,6 +217,16 @@ impl WasmRuntime {
         instance_config: InstanceConfig,
         registrar: Option<Arc<dyn HostFunctionRegistrar>>,
     ) -> Result<ChallengeInstance, WasmRuntimeError> {
+        let registrars: Vec<Arc<dyn HostFunctionRegistrar>> = registrar.into_iter().collect();
+        self.instantiate_with_registrars(module, instance_config, &registrars)
+    }
+
+    pub fn instantiate_with_registrars(
+        &self,
+        module: &WasmModule,
+        instance_config: InstanceConfig,
+        registrars: &[Arc<dyn HostFunctionRegistrar>],
+    ) -> Result<ChallengeInstance, WasmRuntimeError> {
         let mut limits = StoreLimitsBuilder::new();
         limits = limits.memory_size(self.config.max_memory_bytes as usize);
         limits = limits.instances(self.config.max_instances as usize);
@@ -212,9 +237,16 @@ impl WasmRuntime {
             instance_config.validator_id.clone(),
         )
         .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+        let sandbox_state = SandboxState::new(
+            instance_config.sandbox_policy.clone(),
+            instance_config.timestamp_mode,
+            instance_config.challenge_id.clone(),
+            instance_config.validator_id.clone(),
+        );
         let runtime_state = RuntimeState::new(
             instance_config.network_policy.clone(),
             network_state,
+            sandbox_state,
             instance_config.memory_export.clone(),
             instance_config.challenge_id.clone(),
             instance_config.validator_id.clone(),
@@ -235,7 +267,7 @@ impl WasmRuntime {
         store.limiter(|state| &mut state.limits);
 
         let mut linker = Linker::new(&self.engine);
-        if let Some(registrar) = registrar {
+        for registrar in registrars {
             registrar.register(&mut linker)?;
         }
 
