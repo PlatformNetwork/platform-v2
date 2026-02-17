@@ -1,20 +1,56 @@
 use anyhow::{Context, Result};
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
-    InstanceConfig, NetworkHostFunctions, NetworkPolicy, RuntimeConfig, WasmModule, WasmRuntime,
-    WasmRuntimeError,
+    InstanceConfig, NetworkHostFunctions, NetworkPolicy, RuntimeConfig, StorageHostConfig,
+    StorageHostState, WasmModule, WasmRuntime, WasmRuntimeError,
 };
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvaluationInput {
+    pub agent_data: Vec<u8>,
+    pub challenge_id: String,
+    pub params: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EvaluationOutput {
+    pub score: i64,
+    pub valid: bool,
+    pub message: String,
+}
+
+impl EvaluationOutput {
+    #[allow(dead_code)]
+    pub fn success(score: i64, message: &str) -> Self {
+        Self {
+            score,
+            valid: true,
+            message: String::from(message),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn failure(message: &str) -> Self {
+        Self {
+            score: 0,
+            valid: false,
+            message: String::from(message),
+        }
+    }
+}
 
 pub struct WasmExecutorConfig {
     pub module_dir: PathBuf,
     pub max_memory_bytes: u64,
     pub enable_fuel: bool,
     pub fuel_limit: Option<u64>,
+    pub storage_host_config: StorageHostConfig,
 }
 
 impl Default for WasmExecutorConfig {
@@ -24,6 +60,7 @@ impl Default for WasmExecutorConfig {
             max_memory_bytes: 512 * 1024 * 1024,
             enable_fuel: false,
             fuel_limit: None,
+            storage_host_config: StorageHostConfig::default(),
         }
     }
 }
@@ -71,13 +108,24 @@ impl WasmChallengeExecutor {
         &self,
         module_path: &str,
         network_policy: &NetworkPolicy,
-        input_data: &[u8],
-    ) -> Result<(i64, ExecutionMetrics)> {
+        agent_data: &[u8],
+        challenge_id: &str,
+        params: &[u8],
+    ) -> Result<(EvaluationOutput, ExecutionMetrics)> {
         let start = Instant::now();
 
         let module = self
             .load_module(module_path)
             .context("Failed to load WASM module")?;
+
+        let input = EvaluationInput {
+            agent_data: agent_data.to_vec(),
+            challenge_id: challenge_id.to_string(),
+            params: params.to_vec(),
+        };
+
+        let serialized =
+            bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
 
@@ -85,7 +133,7 @@ impl WasmChallengeExecutor {
             network_policy: network_policy.clone(),
             audit_logger: None,
             memory_export: "memory".to_string(),
-            challenge_id: module_path.to_string(),
+            challenge_id: challenge_id.to_string(),
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
@@ -96,14 +144,19 @@ impl WasmChallengeExecutor {
             .instantiate(&module, instance_config, Some(network_host_fns))
             .map_err(|e| anyhow::anyhow!("WASM instantiation failed: {}", e))?;
 
+        let _storage_state = StorageHostState::new(
+            challenge_id.to_string(),
+            self.config.storage_host_config.clone(),
+        );
+
         let initial_fuel = instance.fuel_remaining();
 
-        let alloc_result = instance.call_i32_i32_return_i32("allocate", input_data.len() as i32, 0);
+        let alloc_result = instance.call_i32_i32_return_i32("alloc", serialized.len() as i32, 0);
         let ptr = match alloc_result {
             Ok(p) => p,
             Err(_) => {
                 let mem_size = instance.memory().data_size(instance.store());
-                let offset = mem_size.saturating_sub(input_data.len() + 1024);
+                let offset = mem_size.saturating_sub(serialized.len() + 1024);
                 if offset == 0 {
                     return Err(anyhow::anyhow!(
                         "WASM module has insufficient memory for input data"
@@ -114,11 +167,11 @@ impl WasmChallengeExecutor {
         };
 
         instance
-            .write_memory(ptr as usize, input_data)
+            .write_memory(ptr as usize, &serialized)
             .map_err(|e| anyhow::anyhow!("Failed to write input data to WASM memory: {}", e))?;
 
-        let score = instance
-            .call_i32_i32_return_i64("evaluate", ptr, input_data.len() as i32)
+        let result = instance
+            .call_i32_i32_return_i64("evaluate", ptr, serialized.len() as i32)
             .map_err(|e| match &e {
                 WasmRuntimeError::FuelExhausted => {
                     anyhow::anyhow!("WASM execution exceeded fuel limit")
@@ -128,6 +181,24 @@ impl WasmChallengeExecutor {
                 }
                 _ => anyhow::anyhow!("WASM evaluate call failed: {}", e),
             })?;
+
+        let out_len = (result >> 32) as i32;
+        let out_ptr = result as i32;
+
+        if out_ptr == 0 && out_len == 0 {
+            return Err(anyhow::anyhow!(
+                "WASM evaluate returned null pointer, deserialization failed inside module"
+            ));
+        }
+
+        let output_bytes = instance
+            .read_memory(out_ptr as usize, out_len as usize)
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to read evaluation output from WASM memory: {}", e)
+            })?;
+
+        let output: EvaluationOutput = bincode::deserialize(&output_bytes)
+            .context("Failed to deserialize EvaluationOutput from WASM module")?;
 
         let fuel_consumed = match (initial_fuel, instance.fuel_remaining()) {
             (Some(initial), Some(remaining)) => Some(initial.saturating_sub(remaining)),
@@ -143,7 +214,10 @@ impl WasmChallengeExecutor {
 
         info!(
             module = module_path,
-            score,
+            challenge_id,
+            score = output.score,
+            valid = output.valid,
+            message = %output.message,
             execution_time_ms = metrics.execution_time_ms,
             memory_bytes = metrics.memory_used_bytes,
             network_requests = metrics.network_requests_made,
@@ -151,7 +225,7 @@ impl WasmChallengeExecutor {
             "WASM evaluation completed"
         );
 
-        Ok((score, metrics))
+        Ok((output, metrics))
     }
 
     #[allow(dead_code)]
@@ -159,7 +233,9 @@ impl WasmChallengeExecutor {
         &self,
         module_path: &str,
         network_policy: &NetworkPolicy,
-        input_data: &[u8],
+        agent_data: &[u8],
+        challenge_id: &str,
+        params: &[u8],
     ) -> Result<(bool, ExecutionMetrics)> {
         let start = Instant::now();
 
@@ -167,13 +243,22 @@ impl WasmChallengeExecutor {
             .load_module(module_path)
             .context("Failed to load WASM module")?;
 
+        let input = EvaluationInput {
+            agent_data: agent_data.to_vec(),
+            challenge_id: challenge_id.to_string(),
+            params: params.to_vec(),
+        };
+
+        let serialized =
+            bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
+
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
             audit_logger: None,
             memory_export: "memory".to_string(),
-            challenge_id: module_path.to_string(),
+            challenge_id: challenge_id.to_string(),
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
@@ -184,14 +269,19 @@ impl WasmChallengeExecutor {
             .instantiate(&module, instance_config, Some(network_host_fns))
             .map_err(|e| anyhow::anyhow!("WASM instantiation failed: {}", e))?;
 
+        let _storage_state = StorageHostState::new(
+            challenge_id.to_string(),
+            self.config.storage_host_config.clone(),
+        );
+
         let initial_fuel = instance.fuel_remaining();
 
-        let alloc_result = instance.call_i32_i32_return_i32("allocate", input_data.len() as i32, 0);
+        let alloc_result = instance.call_i32_i32_return_i32("alloc", serialized.len() as i32, 0);
         let ptr = match alloc_result {
             Ok(p) => p,
             Err(_) => {
                 let mem_size = instance.memory().data_size(instance.store());
-                let offset = mem_size.saturating_sub(input_data.len() + 1024);
+                let offset = mem_size.saturating_sub(serialized.len() + 1024);
                 if offset == 0 {
                     return Err(anyhow::anyhow!(
                         "WASM module has insufficient memory for input data"
@@ -202,11 +292,11 @@ impl WasmChallengeExecutor {
         };
 
         instance
-            .write_memory(ptr as usize, input_data)
+            .write_memory(ptr as usize, &serialized)
             .map_err(|e| anyhow::anyhow!("Failed to write input data to WASM memory: {}", e))?;
 
         let result = instance
-            .call_i32_i32_return_i32("validate", ptr, input_data.len() as i32)
+            .call_i32_i32_return_i32("validate", ptr, serialized.len() as i32)
             .map_err(|e| match &e {
                 WasmRuntimeError::FuelExhausted => {
                     anyhow::anyhow!("WASM execution exceeded fuel limit")
@@ -233,6 +323,7 @@ impl WasmChallengeExecutor {
 
         info!(
             module = module_path,
+            challenge_id,
             valid,
             execution_time_ms = metrics.execution_time_ms,
             memory_bytes = metrics.memory_used_bytes,

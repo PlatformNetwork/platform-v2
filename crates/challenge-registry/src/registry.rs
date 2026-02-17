@@ -60,6 +60,7 @@ impl WasmModuleMetadata {
 
 /// Entry for a registered challenge
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[allow(deprecated)]
 pub struct ChallengeEntry {
     /// Unique challenge ID
     pub id: ChallengeId,
@@ -68,6 +69,7 @@ pub struct ChallengeEntry {
     /// Current version
     pub version: ChallengeVersion,
     /// Docker image for the challenge
+    #[deprecated(note = "Use wasm_module instead")]
     #[serde(default)]
     pub docker_image: Option<String>,
     /// HTTP endpoint for evaluation
@@ -93,6 +95,7 @@ pub struct ChallengeEntry {
     pub metadata: serde_json::Value,
 }
 
+#[allow(deprecated)]
 impl ChallengeEntry {
     pub fn new(name: String, version: ChallengeVersion, docker_image: Option<String>) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
@@ -170,6 +173,7 @@ impl ChallengeRegistry {
     }
 
     /// Register a new challenge
+    #[allow(deprecated)]
     pub fn register(&self, entry: ChallengeEntry) -> RegistryResult<ChallengeId> {
         let mut challenges = self.challenges.write();
         let mut name_index = self.name_index.write();
@@ -204,6 +208,37 @@ impl ChallengeRegistry {
         self.emit_event(LifecycleEvent::Registered { challenge_id: id });
 
         Ok(id)
+    }
+
+    /// Register a WASM-primary challenge from a WASM file on disk
+    pub fn register_wasm_challenge(
+        &self,
+        name: String,
+        version: ChallengeVersion,
+        wasm_path: &std::path::Path,
+        entrypoint: String,
+        network_policy: NetworkPolicy,
+    ) -> RegistryResult<ChallengeId> {
+        if !wasm_path.exists() {
+            return Err(RegistryError::InvalidConfig(format!(
+                "WASM file not found: {}",
+                wasm_path.display()
+            )));
+        }
+
+        let wasm_bytes = std::fs::read(wasm_path)?;
+
+        use sha2::{Digest, Sha256};
+        let module_hash = hex::encode(Sha256::digest(&wasm_bytes));
+        let module_location = wasm_path.display().to_string();
+
+        let wasm_module =
+            WasmModuleMetadata::new(module_hash, module_location, entrypoint, network_policy);
+
+        #[allow(deprecated)]
+        let entry = ChallengeEntry::new(name, version, None).with_wasm_module(wasm_module);
+
+        self.register(entry)
     }
 
     /// Unregister a challenge
@@ -439,6 +474,7 @@ impl Default for ChallengeRegistry {
 mod tests {
     use super::*;
     #[test]
+    #[allow(deprecated)]
     fn test_register_challenge() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -453,6 +489,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_duplicate_registration() {
         let registry = ChallengeRegistry::new();
         let entry1 = ChallengeEntry::new(
@@ -472,6 +509,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_by_name() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -487,6 +525,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_unregister() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -503,6 +542,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_update_state() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -519,6 +559,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_update_version() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -539,6 +580,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_update_restart_config() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -569,6 +611,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_list_active() {
         let registry = ChallengeRegistry::new();
 
@@ -597,6 +640,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_entry_builders() {
         let entry = ChallengeEntry::new(
             "test".to_string(),
@@ -611,6 +655,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_state_store_access() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
