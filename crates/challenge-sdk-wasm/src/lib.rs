@@ -13,6 +13,9 @@ pub trait Challenge {
     fn version(&self) -> &'static str;
     fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput;
     fn validate(&self, input: EvaluationInput) -> bool;
+    fn challenge_id(&self) -> &'static str {
+        self.name()
+    }
 }
 
 /// Pack a pointer and length into a single i64 value.

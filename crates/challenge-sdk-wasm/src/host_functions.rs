@@ -118,3 +118,34 @@ pub fn host_storage_delete(key: &[u8]) -> Result<(), i32> {
     }
     Ok(())
 }
+
+#[link(wasm_import_module = "platform_exec")]
+extern "C" {
+    fn exec_command(cmd_ptr: i32, cmd_len: i32, resp_ptr: i32, resp_len: i32) -> i32;
+}
+
+pub fn host_exec_command(command: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut response_buf = vec![0u8; 65536];
+    let status = unsafe {
+        exec_command(
+            command.as_ptr() as i32,
+            command.len() as i32,
+            response_buf.as_mut_ptr() as i32,
+            response_buf.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    response_buf.truncate(status as usize);
+    Ok(response_buf)
+}
+
+#[link(wasm_import_module = "platform_time")]
+extern "C" {
+    fn get_timestamp() -> i64;
+}
+
+pub fn host_get_timestamp() -> i64 {
+    unsafe { get_timestamp() }
+}
