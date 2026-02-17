@@ -1,6 +1,6 @@
 use core::cell::UnsafeCell;
 
-const ARENA_SIZE: usize = 1024 * 1024; // 1 MiB
+const ARENA_SIZE: usize = 4 * 1024 * 1024; // 4 MiB
 
 struct BumpAllocator {
     arena: UnsafeCell<[u8; ARENA_SIZE]>,
