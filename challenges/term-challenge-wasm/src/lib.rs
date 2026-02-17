@@ -41,4 +41,4 @@ impl Challenge for TermChallenge {
     }
 }
 
-platform_challenge_sdk_wasm::register_challenge!(TermChallenge);
+platform_challenge_sdk_wasm::register_challenge!(TermChallenge, TermChallenge::new());
