@@ -6,6 +6,7 @@ description = "Decentralized P2P consensus for Platform Network validators"
 
 [dependencies]
 platform-core = { path = "../core" }
+wasm-runtime-interface = { path = "../wasm-runtime-interface" }
 
 # Networking
 libp2p = { version = "0.54", features = ["tokio", "gossipsub", "kad", "identify", "noise", "yamux", "tcp", "dns", "macros", "serde"] }

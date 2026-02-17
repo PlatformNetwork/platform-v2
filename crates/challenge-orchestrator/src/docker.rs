@@ -1,3 +1,8 @@
+//! # Deprecated
+//!
+//! Docker-based challenge execution is deprecated in favor of WASM runtime.
+//! This module is retained for test harness compatibility only.
+
 //! Docker client wrapper for container management
 //!
 //! Provides the low-level primitives required when the orchestrator is

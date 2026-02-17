@@ -94,6 +94,10 @@ pub struct ChallengeEntry {
 }
 
 impl ChallengeEntry {
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use new_wasm() for WASM-first challenge registration"
+    )]
     pub fn new(name: String, version: ChallengeVersion, docker_image: Option<String>) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
         Self {
@@ -103,6 +107,30 @@ impl ChallengeEntry {
             docker_image,
             endpoint: None,
             wasm_module: None,
+            restart_id: None,
+            config_version: 0,
+            lifecycle_state: LifecycleState::Registered,
+            health_status: HealthStatus::Unknown,
+            registered_at: now,
+            updated_at: now,
+            metadata: serde_json::Value::Null,
+        }
+    }
+
+    /// Create a new WASM-first challenge entry
+    pub fn new_wasm(
+        name: String,
+        version: ChallengeVersion,
+        wasm_module: WasmModuleMetadata,
+    ) -> Self {
+        let now = chrono::Utc::now().timestamp_millis();
+        Self {
+            id: ChallengeId::new(),
+            name,
+            version,
+            docker_image: None,
+            endpoint: None,
+            wasm_module: Some(wasm_module),
             restart_id: None,
             config_version: 0,
             lifecycle_state: LifecycleState::Registered,
@@ -186,6 +214,11 @@ impl ChallengeRegistry {
             ));
         }
 
+        // Warn about docker-only registrations
+        if entry.docker_image.is_some() && entry.wasm_module.is_none() {
+            warn!(name = %entry.name, "Docker-only challenge registration is deprecated; add a wasm_module for WASM-first execution");
+        }
+
         // Prefer WASM execution when available
         if entry.wasm_module.is_some() {
             info!(name = %entry.name, "WASM module available; preferring WASM execution over Docker");
@@ -253,6 +286,16 @@ impl ChallengeRegistry {
                 r.entry.lifecycle_state == LifecycleState::Running
                     && r.entry.health_status == HealthStatus::Healthy
             })
+            .map(|r| r.entry.clone())
+            .collect()
+    }
+
+    /// List challenges that have WASM modules configured
+    pub fn list_wasm_ready(&self) -> Vec<ChallengeEntry> {
+        self.challenges
+            .read()
+            .values()
+            .filter(|r| r.entry.wasm_module.is_some())
             .map(|r| r.entry.clone())
             .collect()
     }
@@ -439,6 +482,7 @@ impl Default for ChallengeRegistry {
 mod tests {
     use super::*;
     #[test]
+    #[allow(deprecated)]
     fn test_register_challenge() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -453,6 +497,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_duplicate_registration() {
         let registry = ChallengeRegistry::new();
         let entry1 = ChallengeEntry::new(
@@ -472,6 +517,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_get_by_name() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -487,6 +533,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_unregister() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -503,6 +550,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_update_state() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -519,6 +567,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_update_version() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -539,6 +588,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_update_restart_config() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -569,6 +619,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_list_active() {
         let registry = ChallengeRegistry::new();
 
@@ -597,6 +648,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_entry_builders() {
         let entry = ChallengeEntry::new(
             "test".to_string(),
@@ -611,6 +663,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_state_store_access() {
         let registry = ChallengeRegistry::new();
         let entry = ChallengeEntry::new(
@@ -622,5 +675,68 @@ mod tests {
         let id = registry.register(entry).unwrap();
         let store = registry.state_store(&id);
         assert!(store.is_some());
+    }
+
+    #[test]
+    fn test_new_wasm_constructor() {
+        let wasm_module = WasmModuleMetadata::new(
+            "hash123".to_string(),
+            "module.wasm".to_string(),
+            "evaluate".to_string(),
+            NetworkPolicy::default(),
+        );
+        let entry = ChallengeEntry::new_wasm(
+            "wasm-challenge".to_string(),
+            ChallengeVersion::new(1, 0, 0),
+            wasm_module,
+        );
+
+        assert_eq!(entry.name, "wasm-challenge");
+        assert_eq!(entry.version, ChallengeVersion::new(1, 0, 0));
+        assert!(entry.docker_image.is_none());
+        assert!(entry.endpoint.is_none());
+        assert!(entry.wasm_module.is_some());
+        assert!(entry.is_wasm_ready());
+        assert_eq!(entry.lifecycle_state, LifecycleState::Registered);
+        assert_eq!(entry.health_status, HealthStatus::Unknown);
+        assert_eq!(entry.config_version, 0);
+        assert!(entry.restart_id.is_none());
+        assert_eq!(entry.metadata, serde_json::Value::Null);
+
+        let wasm = entry.wasm_module.unwrap();
+        assert_eq!(wasm.module_hash, "hash123");
+        assert_eq!(wasm.module_location, "module.wasm");
+        assert_eq!(wasm.entrypoint, "evaluate");
+    }
+
+    #[test]
+    fn test_list_wasm_ready() {
+        let registry = ChallengeRegistry::new();
+
+        let wasm_module = WasmModuleMetadata::new(
+            "hash123".to_string(),
+            "module.wasm".to_string(),
+            "evaluate".to_string(),
+            NetworkPolicy::default(),
+        );
+        let wasm_entry = ChallengeEntry::new_wasm(
+            "wasm-challenge".to_string(),
+            ChallengeVersion::new(1, 0, 0),
+            wasm_module,
+        );
+
+        #[allow(deprecated)]
+        let docker_entry = ChallengeEntry::new(
+            "docker-challenge".to_string(),
+            ChallengeVersion::new(1, 0, 0),
+            Some("test:latest".to_string()),
+        );
+
+        registry.register(wasm_entry).unwrap();
+        registry.register(docker_entry).unwrap();
+
+        let wasm_ready = registry.list_wasm_ready();
+        assert_eq!(wasm_ready.len(), 1);
+        assert_eq!(wasm_ready[0].name, "wasm-challenge");
     }
 }

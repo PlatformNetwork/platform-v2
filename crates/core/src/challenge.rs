@@ -196,6 +196,30 @@ impl Default for ResourceLimits {
     }
 }
 
+/// Execution policy for WASM challenge modules
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExecPolicy {
+    /// Resource limits for execution
+    pub resource_limits: ResourceLimits,
+    /// Network policy for host functions
+    pub network_policy: NetworkPolicy,
+    /// Maximum number of concurrent instances
+    pub max_concurrent_instances: u32,
+    /// Whether deterministic execution is required
+    pub deterministic: bool,
+}
+
+impl Default for ExecPolicy {
+    fn default() -> Self {
+        Self {
+            resource_limits: ResourceLimits::default(),
+            network_policy: NetworkPolicy::default(),
+            max_concurrent_instances: 1,
+            deterministic: true,
+        }
+    }
+}
+
 /// WASM execution configuration
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -226,6 +250,9 @@ pub struct WasmChallengeConfig {
     pub module: WasmModuleMetadata,
     /// Challenge configuration
     pub config: ChallengeConfig,
+    /// Execution policy for WASM runtime
+    #[serde(default)]
+    pub exec_policy: ExecPolicy,
     /// Whether challenge is active
     pub is_active: bool,
 }
@@ -239,6 +266,7 @@ impl Default for WasmChallengeConfig {
             owner: Hotkey([0u8; 32]),
             module: WasmModuleMetadata::from_code_hash(String::new()),
             config: ChallengeConfig::default(),
+            exec_policy: ExecPolicy::default(),
             is_active: false,
         }
     }
@@ -253,6 +281,11 @@ impl From<&Challenge> for WasmChallengeConfig {
             owner: challenge.owner.clone(),
             module: challenge.wasm_metadata.clone(),
             config: challenge.config.clone(),
+            exec_policy: ExecPolicy {
+                resource_limits: challenge.wasm_metadata.resource_limits.clone(),
+                network_policy: challenge.wasm_metadata.network_policy.clone(),
+                ..ExecPolicy::default()
+            },
             is_active: challenge.is_active,
         }
     }

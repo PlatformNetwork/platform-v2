@@ -25,6 +25,8 @@
 //!
 //! Default broker socket: `/var/run/platform/broker.sock`
 
+#![deprecated(since = "0.2.0", note = "Docker-based orchestration is deprecated. Use WASM runtime via wasm-runtime-interface instead.")]
+
 pub mod backend;
 pub mod config;
 pub mod continuous;
@@ -44,7 +46,6 @@ pub use evaluator::*;
 pub use health::*;
 pub use lifecycle::*;
 use parking_lot::RwLock;
-pub use platform_core::ChallengeContainerConfig;
 use platform_core::ChallengeId;
 use std::collections::HashMap;
 use std::sync::Arc;

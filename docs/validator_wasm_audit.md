@@ -35,25 +35,40 @@ Reviewed: `bins/validator-node`, `crates/core`, `crates/p2p-consensus`, `crates/
 - No apparent recursion; resource caps are enforced via wasmtime `StoreLimits` and request limits.
 - No apparent integration with validator node yet (outside scope), but runtime interface is ready to be plumbed into execution path.
 
-## Cleanup / Follow-up Recommendations
+## Completed Refactoring
+
+1. **ExecPolicy added to core** (`crates/core/src/challenge.rs`)
+   - New `ExecPolicy` struct with `resource_limits`, `network_policy`, `max_concurrent_instances`, and `deterministic` fields.
+   - `WasmChallengeConfig` now includes `exec_policy: ExecPolicy` (with `#[serde(default)]` for backward compatibility).
+   - `From<&Challenge>` impl populates `exec_policy` from WASM metadata.
+
+2. **P2P consensus state updated** (`crates/p2p-consensus/src/state.rs`)
+   - `ChallengeConfig` now includes WASM fields: `wasm_module_hash`, `wasm_module_path`, `wasm_entrypoint`, `wasm_network_policy` (all `Option` with `#[serde(default)]`).
+
+3. **Registry is WASM-first** (`crates/challenge-registry/src/registry.rs`)
+   - `ChallengeEntry::new()` deprecated in favor of `ChallengeEntry::new_wasm()`.
+   - `ChallengeRegistry::register()` warns on Docker-only registrations.
+   - `ChallengeRegistry::list_wasm_ready()` filters for WASM-capable challenges.
+
+4. **Discovery computes WASM hashes** (`crates/challenge-registry/src/discovery.rs`)
+   - `DiscoveredChallenge` includes `wasm_module_hash: Option<String>`.
+   - `discover_from_wasm_dir()` computes SHA-256 hash of discovered `.wasm` files.
+
+5. **Validator node has WASM runtime dependency** (`bins/validator-node/Cargo.toml`)
+   - `wasm-runtime-interface` added as a dependency for future WASM execution integration.
+
+6. **Challenge orchestrator deprecated** (`crates/challenge-orchestrator/`)
+   - Module-level `#![deprecated]` annotation added to `lib.rs`.
+   - Docker module marked as deprecated in doc comments.
+   - Crate remains excluded from workspace (not compiled).
+
+## Remaining Follow-up Items
 
 1. **Remove Docker fallback in orchestrator**
-   - `backend.rs` should return error if broker is unavailable unless explicit dev mode. Today it falls back even when not in dev mode (`BackendMode::Fallback`).
-2. **Deprecate or remove docker-first flags/structs**
-   - `validator-node` `--docker-challenges` flag appears unused; remove or wire into explicit Docker-only flows.
-   - Evaluate removing `ChallengeContainerConfig` usage, `challenge-orchestrator` crate, and docker image references once WASM-first path is in place.
-3. **Unify challenge configs**
-   - Collapse legacy Docker configs in `core::ChainState` and `p2p-consensus::ChainState` to WASM-only representations with `WasmChallengeConfig` metadata and network policy.
-4. **Registry must become WASM-first**
-   - `ChallengeEntry` should store WASM module metadata as primary, with docker fields removed or optional legacy for migration.
-   - `discovery` should focus on WASM module registry or signed P2P announcements instead of docker registry scanning.
-5. **Remove hardcoded challenge Docker names**
-   - `cleanup_stale_task_containers` in `challenge-orchestrator` has hardcoded `term-challenge-` and should be removed or generalized.
-6. **Consensus state challenge metadata**
-   - Replace `p2p-consensus::ChallengeConfig` docker image with WASM module metadata (hash/path/entrypoint/policy) to support WASM-only evaluation.
-
-## Suggested Next Steps
-
-- Determine removal strategy for Docker orchestrator (remove or gate behind dev-only compile feature).
-- Integrate WASM runtime execution into validator flow and consensus state.
-- Align registry and core state to store WASM metadata only, with migration of existing state.
+   - `backend.rs` should return error if broker is unavailable unless explicit dev mode.
+2. **Integrate WASM execution into validator node**
+   - Wire `wasm-runtime-interface` into the validator evaluation flow.
+3. **Remove hardcoded challenge Docker names**
+   - `cleanup_stale_task_containers` in `challenge-orchestrator` has hardcoded `term-challenge-` prefixes.
+4. **Full Docker removal**
+   - Once WASM-first is validated in production, remove `docker_image` fields from `ChallengeEntry` and `DiscoveredChallenge`.

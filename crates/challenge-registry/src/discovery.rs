@@ -29,6 +29,8 @@ pub struct DiscoveredChallenge {
     pub metadata: ChallengeMetadata,
     /// Source of discovery
     pub source: DiscoverySource,
+    /// SHA-256 hash of the WASM module (if available)
+    pub wasm_module_hash: Option<String>,
 }
 
 /// Metadata about a challenge
@@ -194,6 +196,7 @@ impl ChallengeDiscovery {
                     evaluation_endpoint: None,
                     metadata: ChallengeMetadata::default(),
                     source: DiscoverySource::LocalFilesystem(path.clone()),
+                    wasm_module_hash: None,
                 });
             } else if cargo_toml.exists() {
                 // Extract name from Cargo.toml
@@ -212,6 +215,7 @@ impl ChallengeDiscovery {
                     evaluation_endpoint: None,
                     metadata: ChallengeMetadata::default(),
                     source: DiscoverySource::LocalFilesystem(path.clone()),
+                    wasm_module_hash: None,
                 });
             }
         }
@@ -244,6 +248,17 @@ impl ChallengeDiscovery {
                             .unwrap_or("unknown")
                             .to_string();
 
+                        let wasm_module_hash = match std::fs::read(&entry_path) {
+                            Ok(bytes) => {
+                                use sha2::{Digest, Sha256};
+                                Some(hex::encode(Sha256::digest(&bytes)))
+                            }
+                            Err(e) => {
+                                tracing::warn!(path = ?entry_path, error = %e, "Failed to read WASM file for hashing");
+                                None
+                            }
+                        };
+
                         challenges.push(DiscoveredChallenge {
                             name,
                             version: ChallengeVersion::default(),
@@ -253,6 +268,7 @@ impl ChallengeDiscovery {
                             evaluation_endpoint: None,
                             metadata: ChallengeMetadata::default(),
                             source: DiscoverySource::WasmDirectory(entry_path),
+                            wasm_module_hash,
                         });
                     }
                 }
@@ -318,6 +334,7 @@ mod tests {
                 ..Default::default()
             },
             source: DiscoverySource::Manual,
+            wasm_module_hash: None,
         };
 
         assert_eq!(challenge.name, "test-challenge");
@@ -339,12 +356,34 @@ mod tests {
             evaluation_endpoint: None,
             metadata: ChallengeMetadata::default(),
             source: DiscoverySource::Manual,
+            wasm_module_hash: None,
         });
 
         assert_eq!(discovery.get_discovered().len(), 1);
 
         discovery.clear_discovered();
         assert!(discovery.get_discovered().is_empty());
+    }
+
+    #[test]
+    fn test_wasm_discovery_computes_hash() {
+        use sha2::{Digest, Sha256};
+
+        let dir = tempfile::tempdir().unwrap();
+        let wasm_bytes = b"\x00asm\x01\x00\x00\x00";
+        let wasm_path = dir.path().join("my-challenge.wasm");
+        std::fs::write(&wasm_path, wasm_bytes).unwrap();
+
+        let expected_hash = hex::encode(Sha256::digest(wasm_bytes));
+
+        let discovery = ChallengeDiscovery::new();
+        let challenges = discovery
+            .discover_from_wasm_dir(&dir.path().to_path_buf())
+            .unwrap();
+
+        assert_eq!(challenges.len(), 1);
+        assert_eq!(challenges[0].name, "my-challenge");
+        assert_eq!(challenges[0].wasm_module_hash, Some(expected_hash));
     }
 
     #[test]

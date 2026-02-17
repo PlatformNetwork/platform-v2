@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, info, warn};
+use wasm_runtime_interface::NetworkPolicy;
 
 /// Errors related to state operations
 #[derive(Error, Debug)]
@@ -80,6 +81,18 @@ pub struct ChallengeConfig {
     pub creator: Hotkey,
     /// Creation timestamp
     pub created_at: i64,
+    /// WASM module hash (SHA-256)
+    #[serde(default)]
+    pub wasm_module_hash: Option<String>,
+    /// WASM module path or URL
+    #[serde(default)]
+    pub wasm_module_path: Option<String>,
+    /// WASM entrypoint function name
+    #[serde(default)]
+    pub wasm_entrypoint: Option<String>,
+    /// Network policy for WASM execution
+    #[serde(default)]
+    pub wasm_network_policy: Option<NetworkPolicy>,
 }
 
 /// Weight votes for epoch finalization
@@ -797,6 +810,10 @@ mod tests {
             is_active: true,
             creator: Hotkey([0u8; 32]),
             created_at: chrono::Utc::now().timestamp_millis(),
+            wasm_module_hash: None,
+            wasm_module_path: None,
+            wasm_entrypoint: None,
+            wasm_network_policy: None,
         };
 
         let id = config.id;

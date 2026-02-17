@@ -5236,6 +5236,7 @@ dependencies = [
  "tokio",
  "tokio-test",
  "tracing",
+ "wasm-runtime-interface",
 ]
 
 [[package]]
@@ -8737,6 +8738,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.22",
  "uuid",
+ "wasm-runtime-interface",
 ]
 
 [[package]]
