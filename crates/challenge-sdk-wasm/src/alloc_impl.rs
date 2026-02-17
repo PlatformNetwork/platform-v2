@@ -1,6 +1,10 @@
 use core::cell::UnsafeCell;
 
-const ARENA_SIZE: usize = 4 * 1024 * 1024; // 4 MiB
+#[cfg(feature = "large-arena")]
+const ARENA_SIZE: usize = 4 * 1024 * 1024;
+
+#[cfg(not(feature = "large-arena"))]
+const ARENA_SIZE: usize = 1024 * 1024;
 
 struct BumpAllocator {
     arena: UnsafeCell<[u8; ARENA_SIZE]>,
@@ -48,6 +52,11 @@ pub extern "C" fn alloc(size: i32) -> i32 {
     } else {
         ptr as i32
     }
+}
+
+#[no_mangle]
+pub extern "C" fn allocate(size: i32, _align: i32) -> i32 {
+    alloc(size)
 }
 
 pub fn sdk_alloc(size: usize) -> *mut u8 {
