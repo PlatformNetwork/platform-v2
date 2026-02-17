@@ -4,8 +4,10 @@ extern crate alloc;
 
 pub mod alloc_impl;
 pub mod host_functions;
+pub mod term_types;
 pub mod types;
 
+pub use term_types::*;
 pub use types::{EvaluationInput, EvaluationOutput};
 
 pub trait Challenge {
@@ -13,6 +15,14 @@ pub trait Challenge {
     fn version(&self) -> &'static str;
     fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput;
     fn validate(&self, input: EvaluationInput) -> bool;
+
+    fn generate_task(&self, _params: &[u8]) -> alloc::vec::Vec<u8> {
+        alloc::vec::Vec::new()
+    }
+
+    fn setup_environment(&self, _config: &[u8]) -> bool {
+        true
+    }
 }
 
 /// Pack a pointer and length into a single i64 value.
@@ -25,7 +35,8 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 }
 
 /// Register a [`Challenge`] implementation and export the required WASM ABI
-/// functions (`evaluate`, `validate`, `get_name`, `get_version`, and `alloc`).
+/// functions (`evaluate`, `validate`, `get_name`, `get_version`,
+/// `generate_task`, `setup_environment`, and `alloc`).
 ///
 /// The type must provide a `const fn new() -> Self` constructor so that the
 /// challenge instance can be placed in a `static`.
@@ -50,10 +61,20 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 ///
 /// platform_challenge_sdk_wasm::register_challenge!(MyChallenge);
 /// ```
+///
+/// A custom const initializer can be supplied when `Default::default()` is not
+/// const-evaluable:
+///
+/// ```ignore
+/// platform_challenge_sdk_wasm::register_challenge!(MyChallenge, MyChallenge::new());
+/// ```
 #[macro_export]
 macro_rules! register_challenge {
     ($ty:ty) => {
-        static _CHALLENGE: $ty = <$ty>::new();
+        $crate::register_challenge!($ty, <$ty as Default>::default());
+    };
+    ($ty:ty, $init:expr) => {
+        static _CHALLENGE: $ty = $init;
 
         #[no_mangle]
         pub extern "C" fn evaluate(agent_ptr: i32, agent_len: i32) -> i64 {
@@ -125,6 +146,37 @@ macro_rules! register_challenge {
                 core::ptr::copy_nonoverlapping(ver.as_ptr(), ptr.add(4), ver.len());
             }
             ptr as i32
+        }
+
+        #[no_mangle]
+        pub extern "C" fn generate_task(params_ptr: i32, params_len: i32) -> i64 {
+            let slice = unsafe {
+                core::slice::from_raw_parts(params_ptr as *const u8, params_len as usize)
+            };
+            let output = <$ty as $crate::Challenge>::generate_task(&_CHALLENGE, slice);
+            if output.is_empty() {
+                return $crate::pack_ptr_len(0, 0);
+            }
+            let ptr = $crate::alloc_impl::sdk_alloc(output.len());
+            if ptr.is_null() {
+                return $crate::pack_ptr_len(0, 0);
+            }
+            unsafe {
+                core::ptr::copy_nonoverlapping(output.as_ptr(), ptr, output.len());
+            }
+            $crate::pack_ptr_len(ptr as i32, output.len() as i32)
+        }
+
+        #[no_mangle]
+        pub extern "C" fn setup_environment(config_ptr: i32, config_len: i32) -> i32 {
+            let slice = unsafe {
+                core::slice::from_raw_parts(config_ptr as *const u8, config_len as usize)
+            };
+            if <$ty as $crate::Challenge>::setup_environment(&_CHALLENGE, slice) {
+                1
+            } else {
+                0
+            }
         }
     };
 }
