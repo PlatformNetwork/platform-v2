@@ -2,7 +2,7 @@
 name = "term-challenge-wasm"
 version.workspace = true
 edition.workspace = true
-description = "Terminal Benchmark Challenge compiled to wasm32-unknown-unknown"
+description = "Terminal Benchmark Challenge ported to WASM (wasm32-unknown-unknown)"
 
 [lib]
 crate-type = ["cdylib"]
