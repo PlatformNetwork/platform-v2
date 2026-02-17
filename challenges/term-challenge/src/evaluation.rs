@@ -48,6 +48,7 @@ pub fn evaluate(input: EvaluationInput) -> EvaluationOutput {
         valid: true,
         message,
         metrics: None,
+        details: None,
     }
 }
 
