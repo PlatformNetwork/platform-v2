@@ -18,7 +18,7 @@ members = [
     "bins/utils",
     "bins/mock-subtensor",
     "tests",
-    # Challenge crates
+    "challenges/term-challenge",
     "challenges/term-challenge-wasm",
 ]
 # Note: Challenges are in separate repositories and import platform-challenge-sdk as a git dependency

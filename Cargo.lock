@@ -7913,8 +7913,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "term-challenge"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "platform-challenge-sdk-wasm",
+ "serde",
+]
+
+[[package]]
 name = "term-challenge-wasm"
-version = "0.2.3"
+version = "0.1.0"
 dependencies = [
  "bincode",
  "platform-challenge-sdk-wasm",
@@ -9003,8 +9012,10 @@ dependencies = [
  "bincode",
  "chrono",
  "ipnet",
+ "platform-challenge-sdk-wasm",
  "reqwest 0.12.25",
  "serde",
+ "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.17",
  "tracing",

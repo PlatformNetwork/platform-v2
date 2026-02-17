@@ -2,124 +2,55 @@
 
 extern crate alloc;
 
+mod scoring;
+mod types;
+
 use alloc::string::String;
 use alloc::vec::Vec;
+use platform_challenge_sdk_wasm::host_functions::host_http_post;
 use platform_challenge_sdk_wasm::{Challenge, EvaluationInput, EvaluationOutput};
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
-struct TaskResultEntry {
-    task_id: String,
-    passed: bool,
-    score: f64,
-    execution_time_ms: u64,
-    error: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct AgentData {
-    agent_hash: String,
-    miner_hotkey: String,
-    miner_uid: u16,
-    task_results: Vec<TaskResultEntry>,
-    total_execution_time_ms: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ChallengeParams {
-    total_tasks: u32,
-    max_execution_time_ms: u64,
-    epoch: u64,
-}
-
-impl Default for ChallengeParams {
-    fn default() -> Self {
-        Self {
-            total_tasks: 20,
-            max_execution_time_ms: 600_000,
-            epoch: 0,
-        }
-    }
-}
+use crate::scoring::{calculate_aggregate, format_summary, to_weight};
+use crate::types::{ChallengeParams, LlmJudgeRequest, LlmJudgeResponse, Submission, TaskResult};
 
 pub struct TermChallenge;
+
+impl Default for TermChallenge {
+    fn default() -> Self {
+        Self
+    }
+}
 
 impl TermChallenge {
     const fn new() -> Self {
         Self
     }
-}
 
-impl Default for TermChallenge {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TermChallenge {
-    fn compute_score(agent_data: &AgentData, params: &ChallengeParams) -> (i64, String) {
-        if agent_data.task_results.is_empty() {
-            return (0, String::from("no task results"));
-        }
-
-        let tasks_evaluated = agent_data.task_results.len() as u32;
-        let tasks_passed = agent_data.task_results.iter().filter(|t| t.passed).count() as u32;
-
-        let denominator = if params.total_tasks > 0 && params.total_tasks >= tasks_evaluated {
-            params.total_tasks
-        } else {
-            tasks_evaluated
+    fn try_llm_judge(url: &str, result: &TaskResult, instruction: &str) -> Option<f64> {
+        let request = LlmJudgeRequest {
+            task_id: result.task_id.clone(),
+            instruction: String::from(instruction),
+            agent_output: result.agent_output.clone(),
+            test_output: result.test_output.clone(),
         };
 
-        let score_f64 = if denominator > 0 {
-            (tasks_passed as f64) / (denominator as f64)
-        } else {
-            0.0
+        let url_bytes = url.as_bytes();
+        let body = match bincode::serialize(&request) {
+            Ok(b) => b,
+            Err(_) => return None,
         };
 
-        let score_i64 = (score_f64 * 10000.0) as i64;
+        let response_bytes = match host_http_post(url_bytes, &body) {
+            Ok(b) => b,
+            Err(_) => return None,
+        };
 
-        let mut msg = String::from("passed ");
-        push_u32(&mut msg, tasks_passed);
-        msg.push('/');
-        push_u32(&mut msg, denominator);
-        msg.push_str(" tasks");
+        let judge_resp: LlmJudgeResponse = match bincode::deserialize(&response_bytes) {
+            Ok(r) => r,
+            Err(_) => return None,
+        };
 
-        (score_i64, msg)
-    }
-
-    fn validate_agent_data(agent_data: &AgentData, params: &ChallengeParams) -> bool {
-        if agent_data.agent_hash.is_empty() {
-            return false;
-        }
-
-        if agent_data.miner_hotkey.is_empty() {
-            return false;
-        }
-
-        if agent_data.task_results.is_empty() {
-            return false;
-        }
-
-        if params.max_execution_time_ms > 0
-            && agent_data.total_execution_time_ms > params.max_execution_time_ms
-        {
-            return false;
-        }
-
-        for entry in &agent_data.task_results {
-            if entry.task_id.is_empty() {
-                return false;
-            }
-            if entry.passed && entry.score < 0.999 {
-                return false;
-            }
-            if !entry.passed && entry.score > 0.001 {
-                return false;
-            }
-        }
-
-        true
+        Some(judge_resp.score.clamp(0.0, 1.0))
     }
 }
 
@@ -129,72 +60,86 @@ impl Challenge for TermChallenge {
     }
 
     fn version(&self) -> &'static str {
-        "0.2.3"
+        "2.0.0"
     }
 
     fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput {
-        let agent_data: AgentData = match bincode::deserialize(&input.agent_data) {
-            Ok(v) => v,
-            Err(_) => return EvaluationOutput::failure("failed to deserialize agent_data"),
+        let submission: Submission = match bincode::deserialize(&input.agent_data) {
+            Ok(s) => s,
+            Err(_) => return EvaluationOutput::failure("failed to deserialize submission"),
         };
 
-        let params: ChallengeParams = if input.params.is_empty() {
-            ChallengeParams::default()
-        } else {
-            match bincode::deserialize(&input.params) {
-                Ok(v) => v,
-                Err(_) => return EvaluationOutput::failure("failed to deserialize params"),
+        let params: ChallengeParams = match bincode::deserialize(&input.params) {
+            Ok(p) => p,
+            Err(_) => return EvaluationOutput::failure("failed to deserialize challenge params"),
+        };
+
+        if submission.task_results.is_empty() {
+            return EvaluationOutput::failure("submission contains no task results");
+        }
+
+        if submission.task_results.len() != params.tasks.len() {
+            return EvaluationOutput::failure("task result count does not match task definitions");
+        }
+
+        let mut results: Vec<TaskResult> = submission.task_results;
+
+        if let Some(ref url) = params.llm_judge_url {
+            for (result, task) in results.iter_mut().zip(params.tasks.iter()) {
+                if !result.passed {
+                    continue;
+                }
+                if let Some(llm_score) = Self::try_llm_judge(url, result, &task.name) {
+                    result.score = llm_score;
+                    if llm_score < 0.5 {
+                        result.passed = false;
+                    }
+                }
             }
-        };
-
-        if !Self::validate_agent_data(&agent_data, &params) {
-            return EvaluationOutput::failure("agent_data validation failed");
         }
 
-        let (score, message) = Self::compute_score(&agent_data, &params);
+        let aggregate = calculate_aggregate(&params.tasks, &results);
+        let weight = to_weight(&aggregate);
+        let score = (weight * 10000.0) as i64;
+        let message = format_summary(&aggregate);
 
-        EvaluationOutput {
-            score,
-            valid: true,
-            message,
-        }
+        EvaluationOutput::success(score, &message)
     }
 
     fn validate(&self, input: EvaluationInput) -> bool {
-        let agent_data: AgentData = match bincode::deserialize(&input.agent_data) {
-            Ok(v) => v,
+        let submission: Submission = match bincode::deserialize(&input.agent_data) {
+            Ok(s) => s,
             Err(_) => return false,
         };
 
-        let params: ChallengeParams = if input.params.is_empty() {
-            ChallengeParams::default()
-        } else {
-            match bincode::deserialize(&input.params) {
-                Ok(v) => v,
-                Err(_) => return false,
-            }
+        let params: ChallengeParams = match bincode::deserialize(&input.params) {
+            Ok(p) => p,
+            Err(_) => return false,
         };
 
-        Self::validate_agent_data(&agent_data, &params)
+        if submission.agent_hash.is_empty() || submission.miner_hotkey.is_empty() {
+            return false;
+        }
+
+        if submission.task_results.is_empty() {
+            return false;
+        }
+
+        if submission.task_results.len() != params.tasks.len() {
+            return false;
+        }
+
+        for result in &submission.task_results {
+            if result.task_id.is_empty() {
+                return false;
+            }
+            if !(0.0..=1.0).contains(&result.score) {
+                return false;
+            }
+        }
+
+        true
     }
 }
 
-fn push_u32(s: &mut String, mut n: u32) {
-    if n == 0 {
-        s.push('0');
-        return;
-    }
-    let mut buf = [0u8; 10];
-    let mut i = 0;
-    while n > 0 {
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-        i += 1;
-    }
-    while i > 0 {
-        i -= 1;
-        s.push(buf[i] as char);
-    }
-}
-
-platform_challenge_sdk_wasm::register_challenge!(TermChallenge);
+platform_challenge_sdk_wasm::register_challenge!(TermChallenge, TermChallenge::new());
