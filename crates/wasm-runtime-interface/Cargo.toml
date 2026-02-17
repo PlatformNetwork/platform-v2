@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
@@ -15,3 +16,4 @@ bincode = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "rustls-tls"] }
 trust-dns-resolver = "0.23.2"
 sha2 = { workspace = true }
+platform-challenge-sdk-wasm = { path = "../challenge-sdk-wasm" }
