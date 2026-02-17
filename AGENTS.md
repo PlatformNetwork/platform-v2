@@ -85,7 +85,7 @@ Validators aggregate scores across the P2P network:
 
 At epoch end (~72 minutes), weights are submitted to Bittensor:
 - Higher scores = higher weights = more TAO rewards
-- Weights are normalized using softmax
+- Weights are normalized by sum (each weight divided by total)
 
 ---
 
