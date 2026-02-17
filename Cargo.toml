@@ -13,6 +13,7 @@ members = [
     "crates/secure-container-runtime",
     "crates/p2p-consensus",
     "crates/wasm-runtime-interface",
+    "crates/challenge-sdk-wasm",
     "bins/validator-node",
     "bins/utils",
     "bins/mock-subtensor",
