@@ -6,8 +6,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
-    ExecPolicy, InstanceConfig, NetworkHostFunctions, NetworkPolicy, RuntimeConfig,
-    SandboxHostFunctions, SandboxPolicy, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
+    ExecPolicy, InMemoryStorageBackend, InstanceConfig, NetworkHostFunctions, NetworkPolicy,
+    RuntimeConfig, SandboxHostFunctions, SandboxPolicy, StorageHostConfig, TimePolicy, WasmModule,
+    WasmRuntime, WasmRuntimeError,
 };
 
 pub struct WasmExecutorConfig {
@@ -108,6 +109,7 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
@@ -187,6 +189,7 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
@@ -290,6 +293,9 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            storage_host_config: StorageHostConfig::default(),
+            storage_backend: Arc::new(InMemoryStorageBackend::new()),
+            fixed_timestamp_ms: None,
         };
 
         let mut instance = self
@@ -367,6 +373,9 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            storage_host_config: StorageHostConfig::default(),
+            storage_backend: Arc::new(InMemoryStorageBackend::new()),
+            fixed_timestamp_ms: None,
         };
 
         let mut instance = self

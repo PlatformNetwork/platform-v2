@@ -24,7 +24,9 @@ pub use exec::{
     ExecError, ExecHostFunction, ExecHostFunctions, ExecPolicy, ExecRequest, ExecResponse,
     ExecState,
 };
-pub use network::{NetworkHostFunctions, NetworkState, NetworkStateError};
+pub use network::{
+    NetworkHostFunctions, NetworkState, NetworkStateError, HOST_GET_TIMESTAMP, HOST_LOG_MESSAGE,
+};
 pub use sandbox::{
     SandboxHostFunctions, HOST_SANDBOX_CONFIGURE, HOST_SANDBOX_EXEC, HOST_SANDBOX_GET_TASKS,
     HOST_SANDBOX_NAMESPACE, HOST_SANDBOX_STATUS,
@@ -32,7 +34,7 @@ pub use sandbox::{
 pub use storage::{
     InMemoryStorageBackend, NoopStorageBackend, StorageAuditEntry, StorageAuditLogger,
     StorageBackend, StorageDeleteRequest, StorageGetRequest, StorageGetResponse, StorageHostConfig,
-    StorageHostError, StorageHostState, StorageHostStatus, StorageOperation,
+    StorageHostError, StorageHostFunctions, StorageHostState, StorageHostStatus, StorageOperation,
     StorageProposeWriteRequest, StorageProposeWriteResponse,
 };
 
@@ -48,7 +50,7 @@ pub use runtime::{
 };
 pub use storage::{
     HOST_STORAGE_ALLOC, HOST_STORAGE_DELETE, HOST_STORAGE_GET, HOST_STORAGE_GET_RESULT,
-    HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE,
+    HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE, HOST_STORAGE_SET,
 };
 pub use time::{TimeError, TimeHostFunction, TimeHostFunctions, TimeMode, TimePolicy, TimeState};
 
