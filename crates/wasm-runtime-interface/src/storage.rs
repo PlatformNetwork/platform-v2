@@ -5,20 +5,19 @@
 //!
 //! # Host Functions
 //!
-//! - `storage_get(key_ptr, key_len) -> i64` - Read from storage
+//! - `storage_get(key_ptr, key_len, value_ptr, value_len) -> i32` - Read from storage
+//! - `storage_set(key_ptr, key_len, value_ptr, value_len) -> i32` - Write to storage
 //! - `storage_propose_write(key_ptr, key_len, value_ptr, value_len) -> i64` - Propose a write
 //! - `storage_delete(key_ptr, key_len) -> i32` - Delete from storage (requires consensus)
 //!
-//! # Memory Layout
+//! # ABI Convention
 //!
-//! Return values use a packed i64 format:
-//! - High 32 bits: status code (0 = success, negative = error)
-//! - Low 32 bits: result pointer or length
-//!
-//! For `storage_get`:
-//! - Success: returns pointer to result buffer in WASM memory
-//! - Not found: returns 0
-//! - Error: returns negative status code
+//! All functions use pointer+length pairs for both input and output buffers.
+//! Return values are i32 status codes:
+//! - Positive: number of bytes written to the output buffer
+//! - Zero: success with no data (e.g. storage_set)
+//! - 1: not found (storage_get)
+//! - Negative: error code (see `StorageHostStatus`)
 
 #![allow(dead_code, unused_variables, unused_imports)]
 
@@ -28,9 +27,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tracing::{debug, info, warn};
+use wasmtime::{Caller, Linker, Memory};
+
+use crate::runtime::{HostFunctionRegistrar, RuntimeState, WasmRuntimeError};
 
 pub const HOST_STORAGE_NAMESPACE: &str = "platform_storage";
 pub const HOST_STORAGE_GET: &str = "storage_get";
+pub const HOST_STORAGE_SET: &str = "storage_set";
 pub const HOST_STORAGE_PROPOSE_WRITE: &str = "storage_propose_write";
 pub const HOST_STORAGE_DELETE: &str = "storage_delete";
 pub const HOST_STORAGE_GET_RESULT: &str = "storage_get_result";
@@ -393,6 +396,214 @@ pub struct NoopStorageAuditLogger;
 
 impl StorageAuditLogger for NoopStorageAuditLogger {
     fn record(&self, _entry: StorageAuditEntry) {}
+}
+
+#[derive(Clone)]
+pub struct StorageHostFunctions {
+    pub backend: Arc<dyn StorageBackend>,
+    pub config: StorageHostConfig,
+}
+
+impl std::fmt::Debug for StorageHostFunctions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StorageHostFunctions")
+            .field("config", &self.config)
+            .finish()
+    }
+}
+
+impl StorageHostFunctions {
+    pub fn new(backend: Arc<dyn StorageBackend>, config: StorageHostConfig) -> Self {
+        Self { backend, config }
+    }
+
+    pub fn noop() -> Self {
+        Self {
+            backend: Arc::new(NoopStorageBackend),
+            config: StorageHostConfig::default(),
+        }
+    }
+}
+
+impl HostFunctionRegistrar for StorageHostFunctions {
+    fn register(&self, linker: &mut Linker<RuntimeState>) -> Result<(), WasmRuntimeError> {
+        let backend = self.backend.clone();
+        let config = self.config.clone();
+
+        let get_backend = backend.clone();
+        let get_config = config.clone();
+        linker
+            .func_wrap(
+                HOST_STORAGE_NAMESPACE,
+                HOST_STORAGE_GET,
+                move |mut caller: Caller<RuntimeState>,
+                      key_ptr: i32,
+                      key_len: i32,
+                      value_ptr: i32,
+                      value_len: i32|
+                      -> i32 {
+                    handle_storage_get(
+                        &mut caller,
+                        &get_backend,
+                        &get_config,
+                        key_ptr,
+                        key_len,
+                        value_ptr,
+                        value_len,
+                    )
+                },
+            )
+            .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+
+        let set_backend = backend.clone();
+        let set_config = config.clone();
+        linker
+            .func_wrap(
+                HOST_STORAGE_NAMESPACE,
+                HOST_STORAGE_SET,
+                move |mut caller: Caller<RuntimeState>,
+                      key_ptr: i32,
+                      key_len: i32,
+                      value_ptr: i32,
+                      value_len: i32|
+                      -> i32 {
+                    handle_storage_set(
+                        &mut caller,
+                        &set_backend,
+                        &set_config,
+                        key_ptr,
+                        key_len,
+                        value_ptr,
+                        value_len,
+                    )
+                },
+            )
+            .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+
+        Ok(())
+    }
+}
+
+fn handle_storage_get(
+    caller: &mut Caller<RuntimeState>,
+    backend: &Arc<dyn StorageBackend>,
+    config: &StorageHostConfig,
+    key_ptr: i32,
+    key_len: i32,
+    value_ptr: i32,
+    value_len: i32,
+) -> i32 {
+    let key = match read_guest_memory(caller, key_ptr, key_len) {
+        Ok(k) => k,
+        Err(_) => return StorageHostStatus::InternalError.to_i32(),
+    };
+
+    if let Err(e) = config.validate_key(&key) {
+        return StorageHostStatus::from(e).to_i32();
+    }
+
+    let challenge_id = caller.data().challenge_id.clone();
+    match backend.get(&challenge_id, &key) {
+        Ok(Some(data)) => write_guest_memory(caller, value_ptr, value_len, &data),
+        Ok(None) => StorageHostStatus::NotFound.to_i32(),
+        Err(e) => StorageHostStatus::from(e).to_i32(),
+    }
+}
+
+fn handle_storage_set(
+    caller: &mut Caller<RuntimeState>,
+    backend: &Arc<dyn StorageBackend>,
+    config: &StorageHostConfig,
+    key_ptr: i32,
+    key_len: i32,
+    value_ptr: i32,
+    value_len: i32,
+) -> i32 {
+    let key = match read_guest_memory(caller, key_ptr, key_len) {
+        Ok(k) => k,
+        Err(_) => return StorageHostStatus::InternalError.to_i32(),
+    };
+
+    let value = match read_guest_memory(caller, value_ptr, value_len) {
+        Ok(v) => v,
+        Err(_) => return StorageHostStatus::InternalError.to_i32(),
+    };
+
+    if let Err(e) = config.validate_key(&key) {
+        return StorageHostStatus::from(e).to_i32();
+    }
+    if let Err(e) = config.validate_value(&value) {
+        return StorageHostStatus::from(e).to_i32();
+    }
+
+    let challenge_id = caller.data().challenge_id.clone();
+    match backend.propose_write(&challenge_id, &key, &value) {
+        Ok(_) => StorageHostStatus::Success.to_i32(),
+        Err(e) => StorageHostStatus::from(e).to_i32(),
+    }
+}
+
+fn read_guest_memory(
+    caller: &mut Caller<RuntimeState>,
+    ptr: i32,
+    len: i32,
+) -> Result<Vec<u8>, String> {
+    if ptr < 0 || len < 0 {
+        return Err("negative pointer/length".to_string());
+    }
+    let ptr = ptr as usize;
+    let len = len as usize;
+    let memory = get_memory(caller).ok_or_else(|| "memory export not found".to_string())?;
+    let data = memory.data(caller);
+    let end = ptr
+        .checked_add(len)
+        .ok_or_else(|| "pointer overflow".to_string())?;
+    if end > data.len() {
+        return Err("memory read out of bounds".to_string());
+    }
+    Ok(data[ptr..end].to_vec())
+}
+
+fn write_guest_memory(
+    caller: &mut Caller<RuntimeState>,
+    resp_ptr: i32,
+    resp_len: i32,
+    bytes: &[u8],
+) -> i32 {
+    if resp_ptr < 0 || resp_len < 0 {
+        return StorageHostStatus::InternalError.to_i32();
+    }
+    if bytes.len() > i32::MAX as usize {
+        return StorageHostStatus::InternalError.to_i32();
+    }
+    let resp_len = resp_len as usize;
+    if bytes.len() > resp_len {
+        return StorageHostStatus::InternalError.to_i32();
+    }
+
+    let memory = match get_memory(caller) {
+        Some(memory) => memory,
+        None => return StorageHostStatus::InternalError.to_i32(),
+    };
+
+    let ptr = resp_ptr as usize;
+    let end = match ptr.checked_add(bytes.len()) {
+        Some(end) => end,
+        None => return StorageHostStatus::InternalError.to_i32(),
+    };
+    let data = memory.data_mut(caller);
+    if end > data.len() {
+        return StorageHostStatus::InternalError.to_i32();
+    }
+    data[ptr..end].copy_from_slice(bytes);
+    bytes.len() as i32
+}
+
+fn get_memory(caller: &mut Caller<RuntimeState>) -> Option<Memory> {
+    let memory_export = caller.data().memory_export.clone();
+    caller
+        .get_export(&memory_export)
+        .and_then(|export| export.into_memory())
 }
 
 #[cfg(test)]
