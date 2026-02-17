@@ -162,6 +162,8 @@ mod tests {
             agent_data: vec![1, 2, 3],
             challenge_id: "test".into(),
             params: vec![4, 5, 6],
+            task_definition: None,
+            environment_config: None,
         };
 
         let bytes = input_to_bytes(&input).unwrap();
