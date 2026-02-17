@@ -16,6 +16,9 @@ platform-bittensor = { path = "../../crates/bittensor-integration" }
 platform-p2p-consensus = { path = "../../crates/p2p-consensus" }
 platform-distributed-storage = { path = "../../crates/distributed-storage" }
 platform-challenge-sdk = { path = "../../crates/challenge-sdk" }
+platform-challenge-sdk-wasm = { path = "../../crates/challenge-sdk-wasm" }
+platform-challenge-registry = { path = "../../crates/challenge-registry" }
+wasm-runtime-interface = { path = "../../crates/wasm-runtime-interface" }
 secure-container-runtime = { path = "../../crates/secure-container-runtime" }
 
 # Bittensor
@@ -44,3 +47,5 @@ parking_lot = { workspace = true }
 sp-core = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+bincode = { workspace = true }
+wasmtime = "41.0.3"

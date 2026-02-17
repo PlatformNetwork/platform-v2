@@ -4,6 +4,8 @@
 //! Uses libp2p for gossipsub consensus and Kademlia DHT for storage.
 //! Submits weights to Bittensor at epoch boundaries.
 
+mod wasm_challenge;
+
 use anyhow::Result;
 use bittensor_rs::chain::{signer_from_seed, BittensorSigner, ExtrinsicWait};
 use clap::Parser;
@@ -155,6 +157,10 @@ struct Args {
     /// Disable Bittensor (for testing)
     #[arg(long)]
     no_bittensor: bool,
+
+    /// Directory containing WASM challenge modules
+    #[arg(long, env = "WASM_MODULE_DIR")]
+    wasm_dir: Option<PathBuf>,
 }
 
 // ==================== Main ====================
@@ -338,6 +344,32 @@ async fn main() -> Result<()> {
         bittensor_client_for_metagraph = None;
     }
 
+    // Initialize WASM challenge executor
+    let wasm_dir = args
+        .wasm_dir
+        .clone()
+        .unwrap_or_else(|| data_dir.join("wasm_modules"));
+    let wasm_executor = match wasm_challenge::WasmChallengeExecutor::new(
+        wasm_dir.clone(),
+        validator_hotkey.clone(),
+    ) {
+        Ok(executor) => {
+            info!("WASM challenge executor initialized (dir: {:?})", wasm_dir);
+            Some(Arc::new(parking_lot::RwLock::new(executor)))
+        }
+        Err(e) => {
+            warn!(
+                "Failed to initialize WASM executor: {}. WASM challenges disabled.",
+                e
+            );
+            None
+        }
+    };
+
+    // Initialize challenge registry
+    let challenge_registry = Arc::new(platform_challenge_registry::ChallengeRegistry::new());
+    info!("Challenge registry initialized");
+
     // Initialize shutdown handler for graceful checkpoint persistence
     let mut shutdown_handler =
         match ShutdownHandler::new(&data_dir, state_manager.clone(), args.netuid) {
@@ -363,6 +395,7 @@ async fn main() -> Result<()> {
     let mut stale_check_interval = tokio::time::interval(Duration::from_secs(60));
     let mut state_persist_interval = tokio::time::interval(Duration::from_secs(60));
     let mut checkpoint_interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+    let mut wasm_eval_interval = tokio::time::interval(Duration::from_secs(30));
 
     loop {
         tokio::select! {
@@ -436,6 +469,39 @@ async fn main() -> Result<()> {
             _ = stale_check_interval.tick() => {
                 validator_set.mark_stale_validators();
                 debug!("Active validators: {}", validator_set.active_count());
+            }
+
+            // WASM challenge evaluation
+            _ = wasm_eval_interval.tick() => {
+                if let Some(ref executor) = wasm_executor {
+                    let pending: Vec<_> = state_manager.read(|state| {
+                        state.pending_evaluations.values().cloned().collect()
+                    });
+                    if !pending.is_empty() {
+                        let challenges_with_wasm: Vec<_> = {
+                            let exec = executor.read();
+                            state_manager.read(|state| {
+                                state.challenges.keys()
+                                    .filter(|id| exec.has_module(id))
+                                    .copied()
+                                    .collect()
+                            })
+                        };
+                        for challenge_id in challenges_with_wasm {
+                            let policy = challenge_registry
+                                .get(&challenge_id)
+                                .and_then(|r| r.entry.wasm_module.as_ref().map(|w| w.network_policy.clone()))
+                                .unwrap_or_default();
+                            executor.read().evaluate_submissions(
+                                &challenge_id,
+                                &pending,
+                                policy,
+                                &keypair,
+                                &state_manager,
+                            );
+                        }
+                    }
+                }
             }
 
             // Periodic checkpoint
