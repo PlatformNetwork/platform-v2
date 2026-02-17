@@ -8,11 +8,15 @@ pub mod types;
 
 pub use types::{EvaluationInput, EvaluationOutput};
 
-pub trait Challenge {
+pub trait Challenge: ConstDefault {
     fn name(&self) -> &'static str;
     fn version(&self) -> &'static str;
     fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput;
     fn validate(&self, input: EvaluationInput) -> bool;
+}
+
+pub trait ConstDefault: Default {
+    const DEFAULT: Self;
 }
 
 /// Pack a pointer and length into a single i64 value.
@@ -32,6 +36,14 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 /// ```ignore
 /// struct MyChallenge;
 ///
+/// impl Default for MyChallenge {
+///     fn default() -> Self { Self }
+/// }
+///
+/// impl platform_challenge_sdk_wasm::ConstDefault for MyChallenge {
+///     const DEFAULT: Self = Self;
+/// }
+///
 /// impl platform_challenge_sdk_wasm::Challenge for MyChallenge {
 ///     fn name(&self) -> &'static str { "my-challenge" }
 ///     fn version(&self) -> &'static str { "0.1.0" }
@@ -46,7 +58,7 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 #[macro_export]
 macro_rules! register_challenge {
     ($ty:ty) => {
-        static _CHALLENGE: $ty = <$ty as Default>::default();
+        static _CHALLENGE: $ty = <$ty as $crate::ConstDefault>::DEFAULT;
 
         #[no_mangle]
         pub extern "C" fn evaluate(agent_ptr: i32, agent_len: i32) -> i64 {
