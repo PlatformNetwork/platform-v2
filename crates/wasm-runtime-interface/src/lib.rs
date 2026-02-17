@@ -12,11 +12,13 @@ use std::str::FromStr;
 pub mod network;
 pub mod runtime;
 pub mod storage;
-pub use network::{NetworkHostFunctions, NetworkState, NetworkStateError};
+pub use network::{
+    NetworkHostFunctions, NetworkState, NetworkStateError, HOST_GET_TIMESTAMP, HOST_LOG_MESSAGE,
+};
 pub use storage::{
     InMemoryStorageBackend, NoopStorageBackend, StorageAuditEntry, StorageAuditLogger,
     StorageBackend, StorageDeleteRequest, StorageGetRequest, StorageGetResponse, StorageHostConfig,
-    StorageHostError, StorageHostState, StorageHostStatus, StorageOperation,
+    StorageHostError, StorageHostFunctions, StorageHostState, StorageHostStatus, StorageOperation,
     StorageProposeWriteRequest, StorageProposeWriteResponse,
 };
 
@@ -32,7 +34,7 @@ pub use runtime::{
 };
 pub use storage::{
     HOST_STORAGE_ALLOC, HOST_STORAGE_DELETE, HOST_STORAGE_GET, HOST_STORAGE_GET_RESULT,
-    HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE,
+    HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE, HOST_STORAGE_SET,
 };
 
 /// Host functions that may be exposed to WASM challenges.

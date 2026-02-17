@@ -89,6 +89,7 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
@@ -177,6 +178,7 @@ impl WasmChallengeExecutor {
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
