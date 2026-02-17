@@ -1,24 +1,125 @@
-use crate::tasks::Difficulty;
+use alloc::string::String;
+use core::fmt::Write as _;
 
-const SCORE_SCALE: i64 = 10_000;
+use crate::types::{Difficulty, DifficultyStats, TaskDefinition, TaskResult};
 
-pub fn calculate_score(results: &[(Difficulty, bool)]) -> (i64, bool) {
-    if results.is_empty() {
-        return (0, false);
+#[allow(dead_code)]
+pub struct AggregateScore {
+    pub tasks_passed: u32,
+    pub tasks_failed: u32,
+    pub pass_rate: f64,
+    pub normalized_score: f64,
+    pub total_execution_time_ms: u64,
+    pub easy_stats: DifficultyStats,
+    pub medium_stats: DifficultyStats,
+    pub hard_stats: DifficultyStats,
+}
+
+impl AggregateScore {
+    pub fn total_tasks(&self) -> u32 {
+        self.tasks_passed + self.tasks_failed
     }
+}
 
-    let mut passed: usize = 0;
-    let total = results.len();
+#[allow(dead_code)]
+pub fn score_task(result: &TaskResult) -> f64 {
+    if result.passed {
+        1.0
+    } else {
+        0.0
+    }
+}
 
-    for &(_, task_passed) in results {
-        if task_passed {
+pub fn calculate_aggregate(tasks: &[TaskDefinition], results: &[TaskResult]) -> AggregateScore {
+    let mut passed: u32 = 0;
+    let mut failed: u32 = 0;
+    let mut total_execution_time_ms: u64 = 0;
+    let mut easy = DifficultyStats {
+        total: 0,
+        passed: 0,
+    };
+    let mut medium = DifficultyStats {
+        total: 0,
+        passed: 0,
+    };
+    let mut hard = DifficultyStats {
+        total: 0,
+        passed: 0,
+    };
+
+    for (task, result) in tasks.iter().zip(results.iter()) {
+        if result.passed {
             passed += 1;
+        } else {
+            failed += 1;
+        }
+
+        total_execution_time_ms = total_execution_time_ms.saturating_add(result.execution_time_ms);
+
+        let stats = match task.difficulty {
+            Difficulty::Easy => &mut easy,
+            Difficulty::Medium => &mut medium,
+            Difficulty::Hard => &mut hard,
+        };
+        stats.total += 1;
+        if result.passed {
+            stats.passed += 1;
         }
     }
 
-    let pass_rate = passed as f64 / total as f64;
-    let score = (pass_rate * SCORE_SCALE as f64) as i64;
-    let all_passed = passed == total;
+    let total = passed + failed;
+    let pass_rate = if total > 0 {
+        passed as f64 / total as f64
+    } else {
+        0.0
+    };
 
-    (score, all_passed)
+    AggregateScore {
+        tasks_passed: passed,
+        tasks_failed: failed,
+        pass_rate,
+        normalized_score: pass_rate,
+        total_execution_time_ms,
+        easy_stats: easy,
+        medium_stats: medium,
+        hard_stats: hard,
+    }
+}
+
+pub fn to_weight(score: &AggregateScore) -> f64 {
+    score.pass_rate.clamp(0.0, 1.0)
+}
+
+pub fn format_summary(score: &AggregateScore) -> String {
+    let mut msg = String::new();
+    let _ = write!(
+        msg,
+        "passed={}/{} rate={:.2}%",
+        score.tasks_passed,
+        score.total_tasks(),
+        score.pass_rate * 100.0,
+    );
+    if score.easy_stats.total > 0 {
+        let _ = write!(
+            msg,
+            " easy={}/{}",
+            score.easy_stats.passed, score.easy_stats.total,
+        );
+    }
+    if score.medium_stats.total > 0 {
+        let _ = write!(
+            msg,
+            " med={}/{}",
+            score.medium_stats.passed, score.medium_stats.total,
+        );
+    }
+    if score.hard_stats.total > 0 {
+        let _ = write!(
+            msg,
+            " hard={}/{}",
+            score.hard_stats.passed, score.hard_stats.total,
+        );
+    }
+    let _ = write!(msg, " time={}ms", score.total_execution_time_ms);
+    msg
 }

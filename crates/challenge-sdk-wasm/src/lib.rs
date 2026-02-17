@@ -38,7 +38,8 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 /// functions (`evaluate`, `validate`, `get_name`, `get_version`,
 /// `generate_task`, `setup_environment`, and `alloc`).
 ///
-/// The type must provide a `const fn new() -> Self` constructor.
+/// The type must provide a `const fn new() -> Self` constructor so that the
+/// challenge instance can be placed in a `static`.
 ///
 /// # Usage
 ///
