@@ -6,8 +6,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
-    InstanceConfig, NetworkHostFunctions, NetworkPolicy, RuntimeConfig, WasmModule, WasmRuntime,
-    WasmRuntimeError,
+    ExecPolicy, InstanceConfig, NetworkHostFunctions, NetworkPolicy, RuntimeConfig, TimePolicy,
+    WasmModule, WasmRuntime, WasmRuntimeError,
 };
 
 pub struct WasmExecutorConfig {
@@ -83,12 +83,15 @@ impl WasmChallengeExecutor {
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
+            exec_policy: ExecPolicy::default(),
+            time_policy: TimePolicy::default(),
             audit_logger: None,
             memory_export: "memory".to_string(),
             challenge_id: module_path.to_string(),
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
@@ -171,12 +174,15 @@ impl WasmChallengeExecutor {
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
+            exec_policy: ExecPolicy::default(),
+            time_policy: TimePolicy::default(),
             audit_logger: None,
             memory_export: "memory".to_string(),
             challenge_id: module_path.to_string(),
             validator_id: "validator".to_string(),
             restart_id: String::new(),
             config_version: 0,
+            ..Default::default()
         };
 
         let mut instance = self
