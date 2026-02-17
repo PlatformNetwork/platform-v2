@@ -3,12 +3,16 @@
 extern crate alloc;
 
 pub mod alloc_impl;
+pub mod error;
 pub mod host_functions;
 pub mod term_types;
 pub mod types;
 
+pub use error::ChallengeError;
 pub use term_types::*;
-pub use types::{EvaluationInput, EvaluationOutput};
+pub use types::{
+    DetailedScore, EvaluationInput, EvaluationOutput, HttpRequest, HttpResponse, TaskResult,
+};
 
 pub trait Challenge {
     fn name(&self) -> &'static str;

@@ -76,6 +76,11 @@ pub fn request_to_input(
         agent_data,
         challenge_id: challenge_id.to_string(),
         params,
+        submission_id: None,
+        participant_id: None,
+        epoch: None,
+        metadata: Vec::new(),
+        task_definitions: Vec::new(),
         task_definition: None,
         environment_config: None,
     })
@@ -162,6 +167,11 @@ mod tests {
             agent_data: vec![1, 2, 3],
             challenge_id: "test".into(),
             params: vec![4, 5, 6],
+            submission_id: None,
+            participant_id: None,
+            epoch: None,
+            metadata: Vec::new(),
+            task_definitions: Vec::new(),
             task_definition: None,
             environment_config: None,
         };
