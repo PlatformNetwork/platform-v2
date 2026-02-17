@@ -1,0 +1,12 @@
+[package]
+name = "term-challenge-wasm"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+platform-challenge-sdk-wasm = { path = "../../crates/challenge-sdk-wasm" }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+bincode = { version = "1.3", default-features = false }

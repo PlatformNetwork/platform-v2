@@ -25,3 +25,4 @@ Thumbs.db
 
 # Data directories (runtime data)
 /data/
+.term-challenge-ref/
