@@ -1,5 +1,9 @@
+use crate::bridge::{self, BridgeError, EvalRequest, EvalResponse};
+use crate::exec::{ExecPolicy, ExecState};
+use crate::time::{TimePolicy, TimeState};
 use crate::{NetworkAuditLogger, NetworkPolicy, NetworkState, SandboxPolicy};
 use std::sync::Arc;
+use std::time::Instant;
 use thiserror::Error;
 use tracing::info;
 use wasmtime::{
@@ -29,6 +33,8 @@ pub enum WasmRuntimeError {
     FuelExhausted,
     #[error("policy violation: {0}")]
     PolicyViolation(String),
+    #[error("bridge error: {0}")]
+    Bridge(String),
 }
 
 impl From<WasmtimeError> for WasmRuntimeError {
@@ -45,6 +51,12 @@ impl From<WasmtimeError> for WasmRuntimeError {
 impl From<std::io::Error> for WasmRuntimeError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err.to_string())
+    }
+}
+
+impl From<BridgeError> for WasmRuntimeError {
+    fn from(err: BridgeError) -> Self {
+        Self::Bridge(err.to_string())
     }
 }
 
@@ -77,6 +89,10 @@ pub struct InstanceConfig {
     pub network_policy: NetworkPolicy,
     /// Sandbox policy for term-challenge execution.
     pub sandbox_policy: SandboxPolicy,
+    /// Exec policy enforced by host functions.
+    pub exec_policy: ExecPolicy,
+    /// Time policy enforced by host functions.
+    pub time_policy: TimePolicy,
     /// Optional audit logger for network calls.
     pub audit_logger: Option<Arc<dyn NetworkAuditLogger>>,
     /// Wasm memory export name.
@@ -96,6 +112,8 @@ impl Default for InstanceConfig {
         Self {
             network_policy: NetworkPolicy::default(),
             sandbox_policy: SandboxPolicy::default(),
+            exec_policy: ExecPolicy::default(),
+            time_policy: TimePolicy::default(),
             audit_logger: None,
             memory_export: DEFAULT_WASM_MEMORY_NAME.to_string(),
             challenge_id: "unknown".to_string(),
@@ -113,6 +131,10 @@ pub struct RuntimeState {
     pub sandbox_policy: SandboxPolicy,
     /// Mutable network state enforcing policy.
     pub network_state: NetworkState,
+    /// Mutable exec state enforcing policy.
+    pub exec_state: ExecState,
+    /// Time state for deterministic or real timestamps.
+    pub time_state: TimeState,
     /// Wasm memory export name.
     pub memory_export: String,
     /// Identifier used in audit logs.
@@ -132,6 +154,8 @@ impl RuntimeState {
         network_policy: NetworkPolicy,
         sandbox_policy: SandboxPolicy,
         network_state: NetworkState,
+        exec_state: ExecState,
+        time_state: TimeState,
         memory_export: String,
         challenge_id: String,
         validator_id: String,
@@ -143,6 +167,8 @@ impl RuntimeState {
             network_policy,
             sandbox_policy,
             network_state,
+            exec_state,
+            time_state,
             memory_export,
             challenge_id,
             validator_id,
@@ -154,6 +180,10 @@ impl RuntimeState {
 
     pub fn reset_network_counters(&mut self) {
         self.network_state.reset_counters();
+    }
+
+    pub fn reset_exec_counters(&mut self) {
+        self.exec_state.reset_counters();
     }
 }
 
@@ -219,10 +249,22 @@ impl WasmRuntime {
             instance_config.validator_id.clone(),
         )
         .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+        let exec_state = ExecState::new(
+            instance_config.exec_policy.clone(),
+            instance_config.challenge_id.clone(),
+            instance_config.validator_id.clone(),
+        );
+        let time_state = TimeState::new(
+            instance_config.time_policy.clone(),
+            instance_config.challenge_id.clone(),
+            instance_config.validator_id.clone(),
+        );
         let runtime_state = RuntimeState::new(
             instance_config.network_policy.clone(),
             instance_config.sandbox_policy.clone(),
             network_state,
+            exec_state,
+            time_state,
             instance_config.memory_export.clone(),
             instance_config.challenge_id.clone(),
             instance_config.validator_id.clone(),
@@ -417,6 +459,58 @@ impl ChallengeInstance {
 
     pub fn validator_id(&self) -> &str {
         &self.store.data().validator_id
+    }
+
+    pub fn exec_executions(&self) -> u32 {
+        self.store.data().exec_state.executions()
+    }
+
+    pub fn reset_exec_state(&mut self) {
+        self.store.data_mut().reset_exec_counters();
+    }
+
+    pub fn evaluate_request(&mut self, req: EvalRequest) -> Result<EvalResponse, WasmRuntimeError> {
+        let start = Instant::now();
+        let request_id = req.request_id.clone();
+        let challenge_id = self.store.data().challenge_id.clone();
+
+        let input = bridge::request_to_input(&req, &challenge_id)?;
+        let input_bytes = bridge::input_to_bytes(&input)?;
+
+        let alloc_func = self
+            .instance
+            .get_typed_func::<i32, i32>(&mut self.store, "alloc")
+            .map_err(|_| WasmRuntimeError::MissingExport("alloc".to_string()))?;
+
+        let ptr = alloc_func
+            .call(&mut self.store, input_bytes.len() as i32)
+            .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))?;
+
+        if ptr == 0 {
+            return Err(WasmRuntimeError::Memory(
+                "alloc returned null pointer".to_string(),
+            ));
+        }
+
+        self.write_memory(ptr as usize, &input_bytes)?;
+
+        let packed = self.call_i32_i32_return_i64("evaluate", ptr, input_bytes.len() as i32)?;
+
+        let out_len = (packed >> 32) as i32;
+        let out_ptr = (packed & 0xFFFF_FFFF) as i32;
+
+        if out_ptr == 0 && out_len == 0 {
+            return Ok(
+                EvalResponse::error(&request_id, "WASM evaluate returned null")
+                    .with_time(start.elapsed().as_millis() as i64),
+            );
+        }
+
+        let output_bytes = self.read_memory(out_ptr as usize, out_len as usize)?;
+        let output = bridge::bytes_to_output(&output_bytes)?;
+
+        let elapsed_ms = start.elapsed().as_millis() as i64;
+        Ok(bridge::output_to_response(&output, &request_id, elapsed_ms))
     }
 
     pub fn with_state<F, T>(&mut self, func: F) -> Result<T, WasmRuntimeError>
