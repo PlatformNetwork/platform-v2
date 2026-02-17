@@ -13,11 +13,12 @@ Each challenge defines:
 - Submission formats and requirements
 - Scoring algorithms
 
-The `term-challenge` crate lives in-tree at `challenges/term-challenge/` and is compiled to WASM for production evaluation. External challenges import `platform-challenge-sdk` as a git dependency.
+The `term-challenge` and `term-challenge-wasm` crates live in-tree under `challenges/` and are compiled to WASM for production evaluation. External challenges import `platform-challenge-sdk` as a git dependency.
 
 | Challenge | Location | Description |
 |-----------|----------|-------------|
 | Terminal Bench | [`challenges/term-challenge/`](challenges/term-challenge/) | Terminal task benchmark (WASM evaluation module) |
+| Terminal Bench v2 | [`challenges/term-challenge-wasm/`](challenges/term-challenge-wasm/) | WASM adapter for term-challenge v2 evaluation logic |
 | *(others)* | *(external repos or `challenges/` subdirectories)* | *(challenge-specific)* |
 
 ---
@@ -53,11 +54,17 @@ use platform_challenge_sdk_wasm::{Challenge, EvaluationInput, EvaluationOutput};
 
 pub struct TermChallenge;
 
+impl TermChallenge {
+    const fn new() -> Self { Self }
+}
+
 impl Challenge for TermChallenge {
     fn name(&self) -> &'static str { "term-challenge" }
     fn version(&self) -> &'static str { "0.1.0" }
     fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput { /* ... */ }
     fn validate(&self, input: EvaluationInput) -> bool { /* ... */ }
+    // Optional: fn generate_task(&self, params: &[u8]) -> Vec<u8> { ... }
+    // Optional: fn setup_environment(&self, config: &[u8]) -> bool { ... }
 }
 
 platform_challenge_sdk_wasm::register_challenge!(TermChallenge, TermChallenge::new());
@@ -161,7 +168,8 @@ flowchart TB
     Platform --> Validator[validator-node]
     Platform --> Runtime[wasm-runtime-interface]
     Platform --> P2P[p2p-consensus]
-    Platform --> Challenges[challenges/term-challenge]
+    Platform --> TC[challenges/term-challenge]
+    Platform --> TCW[challenges/term-challenge-wasm]
 ```
 
 **Workspace crates** (from `Cargo.toml`):
@@ -182,6 +190,7 @@ flowchart TB
 - `bins/utils` — CLI utilities
 - `bins/mock-subtensor` — mock Bittensor node for testing
 - `challenges/term-challenge` — Terminal Bench WASM challenge
+- `challenges/term-challenge-wasm` — WASM adapter for term-challenge v2 evaluation
 - `tests` — integration tests
 
 **Note:** Platform is fully decentralized—there is no central server. All validators communicate directly via libp2p (gossipsub + DHT).
