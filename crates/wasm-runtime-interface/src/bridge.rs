@@ -76,6 +76,8 @@ pub fn request_to_input(
         agent_data,
         challenge_id: challenge_id.to_string(),
         params,
+        task_definition: None,
+        environment_config: None,
     })
 }
 
