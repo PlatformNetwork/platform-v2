@@ -18,6 +18,7 @@ The `term-challenge` crate lives in-tree at `challenges/term-challenge/` and is 
 | Challenge | Location | Description |
 |-----------|----------|-------------|
 | Terminal Bench | [`challenges/term-challenge/`](challenges/term-challenge/) | Terminal task benchmark (WASM evaluation module) |
+| Terminal Bench WASM | [`challenges/term-challenge-wasm/`](challenges/term-challenge-wasm/) | Terminal benchmark ported to `wasm32-unknown-unknown` with LLM-judge scoring |
 | *(others)* | *(external repos or `challenges/` subdirectories)* | *(challenge-specific)* |
 
 ---
@@ -161,7 +162,8 @@ flowchart TB
     Platform --> Validator[validator-node]
     Platform --> Runtime[wasm-runtime-interface]
     Platform --> P2P[p2p-consensus]
-    Platform --> Challenges[challenges/term-challenge]
+    Platform --> TC[challenges/term-challenge]
+    Platform --> TCW[challenges/term-challenge-wasm]
 ```
 
 **Workspace crates** (from `Cargo.toml`):
@@ -182,6 +184,7 @@ flowchart TB
 - `bins/utils` — CLI utilities
 - `bins/mock-subtensor` — mock Bittensor node for testing
 - `challenges/term-challenge` — Terminal Bench WASM challenge
+- `challenges/term-challenge-wasm` — Terminal Bench WASM challenge (wasm32-unknown-unknown port with LLM-judge scoring)
 - `tests` — integration tests
 
 **Note:** Platform is fully decentralized—there is no central server. All validators communicate directly via libp2p (gossipsub + DHT).
