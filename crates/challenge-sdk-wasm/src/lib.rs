@@ -27,10 +27,17 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 /// Register a [`Challenge`] implementation and export the required WASM ABI
 /// functions (`evaluate`, `validate`, `get_name`, `get_version`, and `alloc`).
 ///
+/// The type must provide a `const fn new() -> Self` constructor so that the
+/// challenge instance can be placed in a `static`.
+///
 /// # Usage
 ///
 /// ```ignore
 /// struct MyChallenge;
+///
+/// impl MyChallenge {
+///     pub const fn new() -> Self { Self }
+/// }
 ///
 /// impl platform_challenge_sdk_wasm::Challenge for MyChallenge {
 ///     fn name(&self) -> &'static str { "my-challenge" }
@@ -46,7 +53,7 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 #[macro_export]
 macro_rules! register_challenge {
     ($ty:ty) => {
-        static _CHALLENGE: $ty = <$ty as Default>::default();
+        static _CHALLENGE: $ty = <$ty>::new();
 
         #[no_mangle]
         pub extern "C" fn evaluate(agent_ptr: i32, agent_len: i32) -> i64 {
