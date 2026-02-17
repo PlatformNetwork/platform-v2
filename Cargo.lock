@@ -8725,6 +8725,7 @@ name = "validator-node"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "bittensor-rs",
  "chrono",
  "clap",
@@ -8746,6 +8747,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.22",
  "uuid",
+ "wasm-runtime-interface",
 ]
 
 [[package]]
