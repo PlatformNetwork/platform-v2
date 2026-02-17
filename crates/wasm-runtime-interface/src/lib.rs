@@ -9,10 +9,21 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
+pub mod bridge;
+pub mod exec;
 pub mod network;
 pub mod runtime;
 pub mod sandbox;
 pub mod storage;
+pub mod time;
+pub use bridge::{
+    bytes_to_output, input_to_bytes, output_to_response, request_to_input, BridgeError,
+    EvalRequest, EvalResponse,
+};
+pub use exec::{
+    ExecError, ExecHostFunction, ExecHostFunctions, ExecPolicy, ExecRequest, ExecResponse,
+    ExecState,
+};
 pub use network::{NetworkHostFunctions, NetworkState, NetworkStateError};
 pub use sandbox::{
     LogLevel, SandboxError, SandboxExecRequest, SandboxExecResponse, SandboxHostFunctions,
@@ -40,6 +51,7 @@ pub use storage::{
     HOST_STORAGE_ALLOC, HOST_STORAGE_DELETE, HOST_STORAGE_GET, HOST_STORAGE_GET_RESULT,
     HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE,
 };
+pub use time::{TimeError, TimeHostFunction, TimeHostFunctions, TimeMode, TimePolicy, TimeState};
 
 /// Host functions that may be exposed to WASM challenges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
