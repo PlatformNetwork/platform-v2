@@ -8,6 +8,10 @@ pub mod term_types;
 pub mod types;
 
 pub use term_types::*;
+pub use types::{
+    score_f64_scaled, SandboxExecRequest, SandboxExecResponse, TaskDefinition, TaskResult,
+    TermEvaluationParams,
+};
 pub use types::{EvaluationInput, EvaluationOutput};
 
 pub trait Challenge {
@@ -23,6 +27,12 @@ pub trait Challenge {
     fn setup_environment(&self, _config: &[u8]) -> bool {
         true
     }
+
+    fn tasks(&self) -> alloc::vec::Vec<u8> {
+        alloc::vec::Vec::new()
+    }
+
+    fn configure(&self, _config: &[u8]) {}
 }
 
 /// Pack a pointer and length into a single i64 value.
@@ -36,7 +46,7 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 
 /// Register a [`Challenge`] implementation and export the required WASM ABI
 /// functions (`evaluate`, `validate`, `get_name`, `get_version`,
-/// `generate_task`, `setup_environment`, and `alloc`).
+/// `generate_task`, `setup_environment`, `get_tasks`, `configure`, and `alloc`).
 ///
 /// The type must provide a `const fn new() -> Self` constructor so that the
 /// challenge instance can be placed in a `static`.
@@ -177,6 +187,31 @@ macro_rules! register_challenge {
             } else {
                 0
             }
+        }
+
+        #[no_mangle]
+        pub extern "C" fn get_tasks() -> i64 {
+            let output = <$ty as $crate::Challenge>::tasks(&_CHALLENGE);
+            if output.is_empty() {
+                return $crate::pack_ptr_len(0, 0);
+            }
+            let ptr = $crate::alloc_impl::sdk_alloc(output.len());
+            if ptr.is_null() {
+                return $crate::pack_ptr_len(0, 0);
+            }
+            unsafe {
+                core::ptr::copy_nonoverlapping(output.as_ptr(), ptr, output.len());
+            }
+            $crate::pack_ptr_len(ptr as i32, output.len() as i32)
+        }
+
+        #[no_mangle]
+        pub extern "C" fn configure(config_ptr: i32, config_len: i32) -> i32 {
+            let slice = unsafe {
+                core::slice::from_raw_parts(config_ptr as *const u8, config_len as usize)
+            };
+            <$ty as $crate::Challenge>::configure(&_CHALLENGE, slice);
+            1
         }
     };
 }

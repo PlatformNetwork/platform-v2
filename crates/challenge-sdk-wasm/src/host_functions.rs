@@ -183,3 +183,35 @@ pub fn host_random_seed(buf: &mut [u8]) -> Result<(), i32> {
     }
     Ok(())
 }
+
+#[link(wasm_import_module = "platform_sandbox")]
+extern "C" {
+    fn sandbox_exec(req_ptr: i32, req_len: i32, resp_ptr: i32, resp_len: i32) -> i32;
+    fn get_timestamp() -> i64;
+    fn log_message(level: i32, msg_ptr: i32, msg_len: i32);
+}
+
+pub fn host_sandbox_exec(request: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut response_buf = vec![0u8; 262144];
+    let status = unsafe {
+        sandbox_exec(
+            request.as_ptr() as i32,
+            request.len() as i32,
+            response_buf.as_mut_ptr() as i32,
+            response_buf.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    response_buf.truncate(status as usize);
+    Ok(response_buf)
+}
+
+pub fn host_get_timestamp() -> i64 {
+    unsafe { get_timestamp() }
+}
+
+pub fn host_log(level: u8, msg: &str) {
+    unsafe { log_message(level as i32, msg.as_ptr() as i32, msg.len() as i32) }
+}

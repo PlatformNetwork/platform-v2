@@ -17,6 +17,7 @@ pub struct EvaluationOutput {
     pub valid: bool,
     pub message: String,
     pub metrics: Option<Vec<u8>>,
+    pub details: Option<Vec<u8>>,
 }
 
 impl EvaluationOutput {
@@ -26,6 +27,7 @@ impl EvaluationOutput {
             valid: true,
             message: String::from(message),
             metrics: None,
+            details: None,
         }
     }
 
@@ -35,6 +37,7 @@ impl EvaluationOutput {
             valid: false,
             message: String::from(message),
             metrics: None,
+            details: None,
         }
     }
 
@@ -42,4 +45,86 @@ impl EvaluationOutput {
         self.metrics = Some(metrics);
         self
     }
+
+    pub fn with_details(mut self, details: Vec<u8>) -> Self {
+        self.details = Some(details);
+        self
+    }
+}
+
+pub fn score_f64_scaled(value: f64) -> i64 {
+    (value * 10_000.0) as i64
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskDefinition {
+    pub task_id: String,
+    pub description: String,
+    pub command: String,
+    pub expected_output: Option<String>,
+    pub timeout_ms: u64,
+    pub scoring_criteria: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SandboxExecRequest {
+    pub command: String,
+    pub args: Vec<String>,
+    pub env_vars: Vec<(String, String)>,
+    pub working_dir: Option<String>,
+    pub stdin: Option<Vec<u8>>,
+    pub timeout_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SandboxExecResponse {
+    pub exit_code: i32,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub duration_ms: u64,
+}
+
+impl SandboxExecResponse {
+    pub fn is_success(&self) -> bool {
+        self.exit_code == 0
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TaskResult {
+    pub task_id: String,
+    pub passed: bool,
+    pub score: f64,
+    pub output: Option<String>,
+    pub metrics: Option<Vec<u8>>,
+}
+
+impl TaskResult {
+    pub fn success(task_id: &str, score: f64) -> Self {
+        Self {
+            task_id: String::from(task_id),
+            passed: true,
+            score,
+            output: None,
+            metrics: None,
+        }
+    }
+
+    pub fn failure(task_id: &str, output: &str) -> Self {
+        Self {
+            task_id: String::from(task_id),
+            passed: false,
+            score: 0.0,
+            output: Some(String::from(output)),
+            metrics: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TermEvaluationParams {
+    pub challenge_id: String,
+    pub task_definitions: Vec<TaskDefinition>,
+    pub timeout_ms: u64,
+    pub environment_config: Option<Vec<u8>>,
 }
