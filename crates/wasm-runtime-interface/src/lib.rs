@@ -23,7 +23,9 @@ pub use exec::{
     ExecError, ExecHostFunction, ExecHostFunctions, ExecPolicy, ExecRequest, ExecResponse,
     ExecState,
 };
-pub use network::{NetworkHostFunctions, NetworkState, NetworkStateError};
+pub use network::{
+    NetworkHostFunctions, NetworkState, NetworkStateError, HOST_GET_TIMESTAMP, HOST_LOG_MESSAGE,
+};
 pub use storage::{
     InMemoryStorageBackend, NoopStorageBackend, StorageAuditEntry, StorageAuditLogger,
     StorageBackend, StorageDeleteRequest, StorageGetRequest, StorageGetResponse, StorageHostConfig,
