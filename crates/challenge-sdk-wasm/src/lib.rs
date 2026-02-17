@@ -48,10 +48,17 @@ pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
 /// functions (`evaluate`, `validate`, `get_name`, `get_version`,
 /// `generate_task`, `setup_environment`, `get_tasks`, `configure`, and `alloc`).
 ///
+/// The type must provide a `const fn new() -> Self` constructor so that the
+/// challenge instance can be placed in a `static`.
+///
 /// # Usage
 ///
 /// ```ignore
 /// struct MyChallenge;
+///
+/// impl MyChallenge {
+///     pub const fn new() -> Self { Self }
+/// }
 ///
 /// impl platform_challenge_sdk_wasm::Challenge for MyChallenge {
 ///     fn name(&self) -> &'static str { "my-challenge" }
