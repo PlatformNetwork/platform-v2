@@ -86,10 +86,9 @@ impl HostFunctionRegistrar for NetworkHostFunctions {
                     |mut caller: Caller<RuntimeState>,
                      req_ptr: i32,
                      req_len: i32,
-                     resp_ptr: i32,
-                     resp_len: i32|
+                     resp_ptr: i32|
                      -> i32 {
-                        handle_http_get(&mut caller, req_ptr, req_len, resp_ptr, resp_len)
+                        handle_http_get(&mut caller, req_ptr, req_len, resp_ptr)
                     },
                 )
                 .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
@@ -104,9 +103,10 @@ impl HostFunctionRegistrar for NetworkHostFunctions {
                      req_ptr: i32,
                      req_len: i32,
                      resp_ptr: i32,
-                     resp_len: i32|
+                     resp_len: i32,
+                     extra: i32|
                      -> i32 {
-                        handle_http_post(&mut caller, req_ptr, req_len, resp_ptr, resp_len)
+                        handle_http_post(&mut caller, req_ptr, req_len, resp_ptr, resp_len, extra)
                     },
                 )
                 .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
@@ -120,10 +120,9 @@ impl HostFunctionRegistrar for NetworkHostFunctions {
                     |mut caller: Caller<RuntimeState>,
                      req_ptr: i32,
                      req_len: i32,
-                     resp_ptr: i32,
-                     resp_len: i32|
+                     resp_ptr: i32|
                      -> i32 {
-                        handle_dns_request(&mut caller, req_ptr, req_len, resp_ptr, resp_len)
+                        handle_dns_request(&mut caller, req_ptr, req_len, resp_ptr)
                     },
                 )
                 .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
@@ -578,17 +577,15 @@ fn handle_http_get(
     req_ptr: i32,
     req_len: i32,
     resp_ptr: i32,
-    resp_len: i32,
 ) -> i32 {
     let enforcement = "http_get";
     let request_bytes = match read_memory(caller, req_ptr, req_len) {
         Ok(bytes) => bytes,
         Err(err) => {
             warn!(challenge_id = %caller.data().challenge_id, validator_id = %caller.data().validator_id, function = enforcement, error = %err, "host memory read failed");
-            return write_result::<HttpResponse>(
+            return write_result_unbounded::<HttpResponse>(
                 caller,
                 resp_ptr,
-                resp_len,
                 Err(NetworkError::HttpFailure(err)),
             );
         }
@@ -598,10 +595,9 @@ fn handle_http_get(
         Ok(req) => req,
         Err(err) => {
             warn!(challenge_id = %caller.data().challenge_id, validator_id = %caller.data().validator_id, function = enforcement, error = %err, "host request decode failed");
-            return write_result::<HttpResponse>(
+            return write_result_unbounded::<HttpResponse>(
                 caller,
                 resp_ptr,
-                resp_len,
                 Err(NetworkError::HttpFailure(format!(
                     "invalid http get payload: {err}"
                 ))),
@@ -620,7 +616,7 @@ fn handle_http_get(
     if let Err(ref err) = result {
         warn!(challenge_id = %caller.data().challenge_id, validator_id = %caller.data().validator_id, function = enforcement, error = %err, "host request denied");
     }
-    write_result(caller, resp_ptr, resp_len, result)
+    write_result_unbounded(caller, resp_ptr, result)
 }
 
 fn handle_http_post(
@@ -629,6 +625,7 @@ fn handle_http_post(
     req_len: i32,
     resp_ptr: i32,
     resp_len: i32,
+    _extra: i32,
 ) -> i32 {
     let enforcement = "http_post";
     let request_bytes = match read_memory(caller, req_ptr, req_len) {
@@ -678,17 +675,15 @@ fn handle_dns_request(
     req_ptr: i32,
     req_len: i32,
     resp_ptr: i32,
-    resp_len: i32,
 ) -> i32 {
     let enforcement = "dns_resolve";
     let request_bytes = match read_memory(caller, req_ptr, req_len) {
         Ok(bytes) => bytes,
         Err(err) => {
             warn!(challenge_id = %caller.data().challenge_id, validator_id = %caller.data().validator_id, function = enforcement, error = %err, "host memory read failed");
-            return write_result::<DnsResponse>(
+            return write_result_unbounded::<DnsResponse>(
                 caller,
                 resp_ptr,
-                resp_len,
                 Err(NetworkError::DnsFailure(err)),
             );
         }
@@ -698,10 +693,9 @@ fn handle_dns_request(
         Ok(req) => req,
         Err(err) => {
             warn!(challenge_id = %caller.data().challenge_id, validator_id = %caller.data().validator_id, function = enforcement, error = %err, "host request decode failed");
-            return write_result::<DnsResponse>(
+            return write_result_unbounded::<DnsResponse>(
                 caller,
                 resp_ptr,
-                resp_len,
                 Err(NetworkError::DnsFailure(format!(
                     "invalid dns request payload: {err}"
                 ))),
@@ -713,7 +707,7 @@ fn handle_dns_request(
     if let Err(ref err) = result {
         warn!(challenge_id = %caller.data().challenge_id, validator_id = %caller.data().validator_id, function = enforcement, error = %err, "host request denied");
     }
-    write_result(caller, resp_ptr, resp_len, result)
+    write_result_unbounded(caller, resp_ptr, result)
 }
 
 fn resolve_dns(
@@ -927,6 +921,22 @@ fn write_result<T: serde::Serialize>(
     write_bytes(caller, resp_ptr, resp_len, &response_bytes)
 }
 
+fn write_result_unbounded<T: serde::Serialize>(
+    caller: &mut Caller<RuntimeState>,
+    resp_ptr: i32,
+    result: Result<T, NetworkError>,
+) -> i32 {
+    let response_bytes = match bincode::serialize(&result) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(error = %err, "failed to serialize response");
+            return -1;
+        }
+    };
+
+    write_bytes_unbounded(caller, resp_ptr, &response_bytes)
+}
+
 fn write_bytes(
     caller: &mut Caller<RuntimeState>,
     resp_ptr: i32,
@@ -957,6 +967,36 @@ fn write_bytes(
     let data = memory.data_mut(caller);
     if end > data.len() {
         return -1;
+    }
+    data[ptr..end].copy_from_slice(bytes);
+    bytes.len() as i32
+}
+
+fn write_bytes_unbounded(
+    caller: &mut Caller<RuntimeState>,
+    resp_ptr: i32,
+    bytes: &[u8],
+) -> i32 {
+    if resp_ptr < 0 {
+        return -1;
+    }
+    if bytes.len() > i32::MAX as usize {
+        return -1;
+    }
+
+    let memory = match get_memory(caller) {
+        Some(memory) => memory,
+        None => return -1,
+    };
+
+    let ptr = resp_ptr as usize;
+    let end = match ptr.checked_add(bytes.len()) {
+        Some(end) => end,
+        None => return -1,
+    };
+    let data = memory.data_mut(caller);
+    if end > data.len() {
+        return -(bytes.len() as i32);
     }
     data[ptr..end].copy_from_slice(bytes);
     bytes.len() as i32
