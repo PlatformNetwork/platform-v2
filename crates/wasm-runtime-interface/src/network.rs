@@ -972,11 +972,7 @@ fn write_bytes(
     bytes.len() as i32
 }
 
-fn write_bytes_unbounded(
-    caller: &mut Caller<RuntimeState>,
-    resp_ptr: i32,
-    bytes: &[u8],
-) -> i32 {
+fn write_bytes_unbounded(caller: &mut Caller<RuntimeState>, resp_ptr: i32, bytes: &[u8]) -> i32 {
     if resp_ptr < 0 {
         return -1;
     }

@@ -28,6 +28,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tracing::{debug, info, warn};
+use wasmtime::{Caller, Linker, Memory};
+
+use crate::runtime::{HostFunctionRegistrar, RuntimeState, WasmRuntimeError};
 
 pub const HOST_STORAGE_NAMESPACE: &str = "platform_storage";
 pub const HOST_STORAGE_GET: &str = "storage_get";
@@ -35,6 +38,7 @@ pub const HOST_STORAGE_PROPOSE_WRITE: &str = "storage_propose_write";
 pub const HOST_STORAGE_DELETE: &str = "storage_delete";
 pub const HOST_STORAGE_GET_RESULT: &str = "storage_get_result";
 pub const HOST_STORAGE_ALLOC: &str = "storage_alloc";
+pub const HOST_STORAGE_SET: &str = "storage_set";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
@@ -222,6 +226,7 @@ pub struct StorageHostState {
     pub bytes_read: u64,
     pub bytes_written: u64,
     pub operations_count: u32,
+    pub data: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl StorageHostState {
@@ -234,6 +239,7 @@ impl StorageHostState {
             bytes_read: 0,
             bytes_written: 0,
             operations_count: 0,
+            data: HashMap::new(),
         }
     }
 
@@ -393,6 +399,198 @@ pub struct NoopStorageAuditLogger;
 
 impl StorageAuditLogger for NoopStorageAuditLogger {
     fn record(&self, _entry: StorageAuditEntry) {}
+}
+
+#[derive(Clone, Debug)]
+pub struct StorageHostFunctions;
+
+impl StorageHostFunctions {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for StorageHostFunctions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HostFunctionRegistrar for StorageHostFunctions {
+    fn register(&self, linker: &mut Linker<RuntimeState>) -> Result<(), WasmRuntimeError> {
+        linker
+            .func_wrap(
+                HOST_STORAGE_NAMESPACE,
+                HOST_STORAGE_GET,
+                |mut caller: Caller<RuntimeState>,
+                 key_ptr: i32,
+                 key_len: i32,
+                 value_ptr: i32|
+                 -> i32 {
+                    handle_storage_get(&mut caller, key_ptr, key_len, value_ptr)
+                },
+            )
+            .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+
+        linker
+            .func_wrap(
+                HOST_STORAGE_NAMESPACE,
+                HOST_STORAGE_SET,
+                |mut caller: Caller<RuntimeState>,
+                 key_ptr: i32,
+                 key_len: i32,
+                 value_ptr: i32,
+                 value_len: i32|
+                 -> i32 {
+                    handle_storage_set(&mut caller, key_ptr, key_len, value_ptr, value_len)
+                },
+            )
+            .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
+
+        Ok(())
+    }
+}
+
+fn handle_storage_get(
+    caller: &mut Caller<RuntimeState>,
+    key_ptr: i32,
+    key_len: i32,
+    value_ptr: i32,
+) -> i32 {
+    let key = match read_memory(caller, key_ptr, key_len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(error = %err, "storage_get: memory read failed");
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    let storage_state = match caller.data().storage_state.as_ref() {
+        Some(state) => state,
+        None => {
+            warn!("storage_get: storage state not initialized");
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    if let Err(err) = storage_state.config.validate_key(&key) {
+        let status: StorageHostStatus = err.into();
+        return status.to_i32();
+    }
+
+    let value = storage_state.data.get(&key).cloned();
+
+    let storage_state = caller.data_mut().storage_state.as_mut().unwrap();
+    storage_state.operations_count = storage_state.operations_count.saturating_add(1);
+
+    match value {
+        Some(val) => {
+            if let Err(err) = write_to_memory(caller, value_ptr, &val) {
+                warn!(error = %err, "storage_get: memory write failed");
+                return StorageHostStatus::InternalError.to_i32();
+            }
+            let len = val.len();
+            let storage_state = caller.data_mut().storage_state.as_mut().unwrap();
+            storage_state.bytes_read = storage_state.bytes_read.saturating_add(len as u64);
+            len as i32
+        }
+        None => StorageHostStatus::NotFound.to_i32(),
+    }
+}
+
+fn handle_storage_set(
+    caller: &mut Caller<RuntimeState>,
+    key_ptr: i32,
+    key_len: i32,
+    value_ptr: i32,
+    value_len: i32,
+) -> i32 {
+    let key = match read_memory(caller, key_ptr, key_len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(error = %err, "storage_set: key memory read failed");
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    let value = match read_memory(caller, value_ptr, value_len) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(error = %err, "storage_set: value memory read failed");
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    let storage_state = match caller.data().storage_state.as_ref() {
+        Some(state) => state,
+        None => {
+            warn!("storage_set: storage state not initialized");
+            return StorageHostStatus::InternalError.to_i32();
+        }
+    };
+
+    if let Err(err) = storage_state.config.validate_key(&key) {
+        let status: StorageHostStatus = err.into();
+        return status.to_i32();
+    }
+
+    if let Err(err) = storage_state.config.validate_value(&value) {
+        let status: StorageHostStatus = err.into();
+        return status.to_i32();
+    }
+
+    let val_len = value.len() as u64;
+    let storage_state = caller.data_mut().storage_state.as_mut().unwrap();
+    storage_state.data.insert(key, value);
+    storage_state.bytes_written = storage_state.bytes_written.saturating_add(val_len);
+    storage_state.operations_count = storage_state.operations_count.saturating_add(1);
+
+    StorageHostStatus::Success.to_i32()
+}
+
+fn get_memory(caller: &mut Caller<RuntimeState>) -> Option<Memory> {
+    let memory_export = caller.data().memory_export.clone();
+    caller
+        .get_export(&memory_export)
+        .and_then(|export| export.into_memory())
+}
+
+fn read_memory(caller: &mut Caller<RuntimeState>, ptr: i32, len: i32) -> Result<Vec<u8>, String> {
+    if ptr < 0 || len < 0 {
+        return Err("negative pointer/length".to_string());
+    }
+    let ptr = ptr as usize;
+    let len = len as usize;
+    let memory = get_memory(caller).ok_or_else(|| "memory export not found".to_string())?;
+    let data = memory.data(caller);
+    let end = ptr
+        .checked_add(len)
+        .ok_or_else(|| "pointer overflow".to_string())?;
+    if end > data.len() {
+        return Err("memory read out of bounds".to_string());
+    }
+    Ok(data[ptr..end].to_vec())
+}
+
+fn write_to_memory(
+    caller: &mut Caller<RuntimeState>,
+    ptr: i32,
+    bytes: &[u8],
+) -> Result<(), String> {
+    if ptr < 0 {
+        return Err("negative pointer".to_string());
+    }
+    let ptr = ptr as usize;
+    let memory = get_memory(caller).ok_or_else(|| "memory export not found".to_string())?;
+    let end = ptr
+        .checked_add(bytes.len())
+        .ok_or_else(|| "pointer overflow".to_string())?;
+    let data = memory.data_mut(caller);
+    if end > data.len() {
+        return Err("memory write out of bounds".to_string());
+    }
+    data[ptr..end].copy_from_slice(bytes);
+    Ok(())
 }
 
 #[cfg(test)]
