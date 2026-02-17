@@ -1,0 +1,123 @@
+#![no_std]
+
+extern crate alloc;
+
+pub mod alloc_impl;
+pub mod host_functions;
+pub mod types;
+
+pub use types::{EvaluationInput, EvaluationOutput};
+
+pub trait Challenge {
+    fn name(&self) -> &'static str;
+    fn version(&self) -> &'static str;
+    fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput;
+    fn validate(&self, input: EvaluationInput) -> bool;
+}
+
+/// Pack a pointer and length into a single i64 value.
+///
+/// The high 32 bits hold the length and the low 32 bits hold the pointer.
+/// The host runtime uses this convention to locate serialized data in WASM
+/// linear memory.
+pub fn pack_ptr_len(ptr: i32, len: i32) -> i64 {
+    ((len as i64) << 32) | ((ptr as u32) as i64)
+}
+
+/// Register a [`Challenge`] implementation and export the required WASM ABI
+/// functions (`evaluate`, `validate`, `get_name`, `get_version`, and `alloc`).
+///
+/// # Usage
+///
+/// ```ignore
+/// struct MyChallenge;
+///
+/// impl platform_challenge_sdk_wasm::Challenge for MyChallenge {
+///     fn name(&self) -> &'static str { "my-challenge" }
+///     fn version(&self) -> &'static str { "0.1.0" }
+///     fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput {
+///         EvaluationOutput::success(100, "ok")
+///     }
+///     fn validate(&self, input: EvaluationInput) -> bool { true }
+/// }
+///
+/// platform_challenge_sdk_wasm::register_challenge!(MyChallenge);
+/// ```
+#[macro_export]
+macro_rules! register_challenge {
+    ($ty:ty) => {
+        static _CHALLENGE: $ty = <$ty as Default>::default();
+
+        #[no_mangle]
+        pub extern "C" fn evaluate(agent_ptr: i32, agent_len: i32) -> i64 {
+            let slice =
+                unsafe { core::slice::from_raw_parts(agent_ptr as *const u8, agent_len as usize) };
+            let input: $crate::EvaluationInput = match bincode::deserialize(slice) {
+                Ok(v) => v,
+                Err(_) => {
+                    return $crate::pack_ptr_len(0, 0);
+                }
+            };
+            let output = <$ty as $crate::Challenge>::evaluate(&_CHALLENGE, input);
+            let encoded = match bincode::serialize(&output) {
+                Ok(v) => v,
+                Err(_) => {
+                    return $crate::pack_ptr_len(0, 0);
+                }
+            };
+            let ptr = $crate::alloc_impl::sdk_alloc(encoded.len());
+            if ptr.is_null() {
+                return $crate::pack_ptr_len(0, 0);
+            }
+            unsafe {
+                core::ptr::copy_nonoverlapping(encoded.as_ptr(), ptr, encoded.len());
+            }
+            $crate::pack_ptr_len(ptr as i32, encoded.len() as i32)
+        }
+
+        #[no_mangle]
+        pub extern "C" fn validate(agent_ptr: i32, agent_len: i32) -> i32 {
+            let slice =
+                unsafe { core::slice::from_raw_parts(agent_ptr as *const u8, agent_len as usize) };
+            let input: $crate::EvaluationInput = match bincode::deserialize(slice) {
+                Ok(v) => v,
+                Err(_) => return 0,
+            };
+            if <$ty as $crate::Challenge>::validate(&_CHALLENGE, input) {
+                1
+            } else {
+                0
+            }
+        }
+
+        #[no_mangle]
+        pub extern "C" fn get_name() -> i32 {
+            let name = <$ty as $crate::Challenge>::name(&_CHALLENGE);
+            let ptr = $crate::alloc_impl::sdk_alloc(4 + name.len());
+            if ptr.is_null() {
+                return 0;
+            }
+            let len_bytes = (name.len() as u32).to_le_bytes();
+            unsafe {
+                core::ptr::copy_nonoverlapping(len_bytes.as_ptr(), ptr, 4);
+                core::ptr::copy_nonoverlapping(name.as_ptr(), ptr.add(4), name.len());
+            }
+            ptr as i32
+        }
+
+        #[no_mangle]
+        pub extern "C" fn get_version() -> i32 {
+            let ver = <$ty as $crate::Challenge>::version(&_CHALLENGE);
+            let ptr = $crate::alloc_impl::sdk_alloc(4 + ver.len());
+            if ptr.is_null() {
+                return 0;
+            }
+            let len_bytes = (ver.len() as u32).to_le_bytes();
+            unsafe {
+                core::ptr::copy_nonoverlapping(len_bytes.as_ptr(), ptr, 4);
+                core::ptr::copy_nonoverlapping(ver.as_ptr(), ptr.add(4), ver.len());
+            }
+            ptr as i32
+        }
+    };
+}
