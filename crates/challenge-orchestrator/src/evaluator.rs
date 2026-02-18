@@ -28,7 +28,10 @@ impl ChallengeEvaluator {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(3600))
             .build()
-            .expect("Failed to create HTTP client");
+            .unwrap_or_else(|e| {
+                warn!("Failed to create HTTP client with custom config: {e}; using defaults");
+                reqwest::Client::new()
+            });
 
         Self { challenges, client }
     }

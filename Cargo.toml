@@ -100,7 +100,7 @@ w3f-bls = { git = "https://github.com/opentensor/bls", branch = "fix-no-std" }
 too_many_arguments = "allow"
 large_enum_variant = "allow"
 type_complexity = "allow"
-await_holding_lock = "warn"  # TODO: Fix async lock issues properly
+await_holding_lock = "warn"
 collapsible_match = "allow"
 collapsible_if = "allow"
 
