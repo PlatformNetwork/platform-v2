@@ -14,6 +14,8 @@ use wasm_runtime_interface::{
 };
 
 const MAX_EVALUATION_OUTPUT_SIZE: u64 = 64 * 1024 * 1024;
+const MAX_ROUTE_OUTPUT_SIZE: u64 = 16 * 1024 * 1024;
+const MAX_TASK_OUTPUT_SIZE: u64 = 16 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvaluationInput {
@@ -470,6 +472,14 @@ impl WasmChallengeExecutor {
         let out_len = (result >> 32) as i32;
         let out_ptr = (result & 0xFFFF_FFFF) as i32;
 
+        if out_len > 0 && out_len as u64 > MAX_TASK_OUTPUT_SIZE {
+            return Err(anyhow::anyhow!(
+                "WASM get_tasks output size {} exceeds maximum allowed {}",
+                out_len,
+                MAX_TASK_OUTPUT_SIZE
+            ));
+        }
+
         let result_data = if out_ptr > 0 && out_len > 0 {
             instance
                 .read_memory(out_ptr as usize, out_len as usize)
@@ -632,6 +642,14 @@ impl WasmChallengeExecutor {
         let out_len = (result >> 32) as i32;
         let out_ptr = (result & 0xFFFF_FFFF) as i32;
 
+        if out_len > 0 && out_len as u64 > MAX_ROUTE_OUTPUT_SIZE {
+            return Err(anyhow::anyhow!(
+                "WASM get_routes output size {} exceeds maximum allowed {}",
+                out_len,
+                MAX_ROUTE_OUTPUT_SIZE
+            ));
+        }
+
         let result_data = if out_ptr > 0 && out_len > 0 {
             instance
                 .read_memory(out_ptr as usize, out_len as usize)
@@ -734,6 +752,14 @@ impl WasmChallengeExecutor {
 
         let out_len = (result >> 32) as i32;
         let out_ptr = (result & 0xFFFF_FFFF) as i32;
+
+        if out_len > 0 && out_len as u64 > MAX_ROUTE_OUTPUT_SIZE {
+            return Err(anyhow::anyhow!(
+                "WASM handle_route output size {} exceeds maximum allowed {}",
+                out_len,
+                MAX_ROUTE_OUTPUT_SIZE
+            ));
+        }
 
         let result_data = if out_ptr > 0 && out_len > 0 {
             instance
