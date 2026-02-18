@@ -3,10 +3,11 @@
 //! Defines all message types used for inter-validator communication
 //! over the libp2p gossipsub network.
 
+use bincode::Options;
 use platform_core::{ChallengeId, Hotkey};
 use serde::{Deserialize, Serialize};
 
-const MAX_P2P_MESSAGE_SIZE: u64 = 16 * 1024 * 1024;
+pub const MAX_P2P_MESSAGE_SIZE: u64 = 16 * 1024 * 1024;
 
 /// Unique identifier for a consensus round
 pub type RoundId = u64;
@@ -75,7 +76,11 @@ impl P2PMessage {
                 MAX_P2P_MESSAGE_SIZE
             ))));
         }
-        bincode::deserialize(bytes)
+        bincode::DefaultOptions::new()
+            .with_limit(MAX_P2P_MESSAGE_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(bytes)
     }
 
     /// Get the message type name for logging

@@ -72,6 +72,21 @@ pub struct WasmExecutorConfig {
     pub chutes_api_key: Option<String>,
 }
 
+impl std::fmt::Debug for WasmExecutorConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WasmExecutorConfig")
+            .field("module_dir", &self.module_dir)
+            .field("max_memory_bytes", &self.max_memory_bytes)
+            .field("enable_fuel", &self.enable_fuel)
+            .field("fuel_limit", &self.fuel_limit)
+            .field(
+                "chutes_api_key",
+                &self.chutes_api_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
+}
+
 impl Default for WasmExecutorConfig {
     fn default() -> Self {
         Self {

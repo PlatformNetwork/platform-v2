@@ -4,6 +4,7 @@
 //! evaluations, weights, and validator information.
 
 use crate::messages::{MerkleNode, MerkleProof, SequenceNumber};
+use bincode::Options;
 use parking_lot::RwLock;
 use platform_core::{hash_data, ChallengeId, Hotkey, SignedMessage};
 use serde::{Deserialize, Serialize};
@@ -329,7 +330,12 @@ impl ChainState {
                 MAX_STATE_DESERIALIZATION_SIZE
             )));
         }
-        bincode::deserialize(bytes).map_err(|e| StateError::Serialization(e.to_string()))
+        bincode::DefaultOptions::new()
+            .with_limit(MAX_STATE_DESERIALIZATION_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(bytes)
+            .map_err(|e| StateError::Serialization(e.to_string()))
     }
 
     /// Add or update a validator

@@ -14,6 +14,7 @@
 use crate::types::{
     NamespaceStats, StorageChange, StorageEntry, StorageKey, StorageStats, StorageValue,
 };
+use bincode::Options;
 use parking_lot::RwLock;
 use platform_core::{ChallengeId, Hotkey, MiniChainError, Result};
 use sled::Tree;
@@ -21,6 +22,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::{info, trace};
+
+const MAX_STORAGE_ENTRY_SIZE: u64 = 64 * 1024 * 1024;
+
+fn bincode_options_storage() -> impl Options {
+    bincode::DefaultOptions::new()
+        .with_limit(MAX_STORAGE_ENTRY_SIZE)
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+}
 
 /// Dynamic storage manager
 #[allow(clippy::type_complexity)]
@@ -116,7 +126,8 @@ impl DynamicStorage {
             .map_err(|e| MiniChainError::Storage(e.to_string()))?
         {
             Some(data) => {
-                let entry: StorageEntry = bincode::deserialize(&data)
+                let entry: StorageEntry = bincode_options_storage()
+                    .deserialize(&data)
                     .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
 
                 // Check expiry
@@ -355,7 +366,8 @@ impl DynamicStorage {
         for item in self.tree.scan_prefix(&prefix) {
             let (key_bytes, data) = item.map_err(|e| MiniChainError::Storage(e.to_string()))?;
 
-            let entry: StorageEntry = bincode::deserialize(&data)
+            let entry: StorageEntry = bincode_options_storage()
+                .deserialize(&data)
                 .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
 
             if entry.is_expired() {
@@ -411,7 +423,7 @@ impl DynamicStorage {
         for item in self.tree.iter() {
             let (key, data) = item.map_err(|e| MiniChainError::Storage(e.to_string()))?;
 
-            if let Ok(entry) = bincode::deserialize::<StorageEntry>(&data) {
+            if let Ok(entry) = bincode_options_storage().deserialize::<StorageEntry>(&data) {
                 if entry.is_expired() {
                     to_remove.push(key.to_vec());
                 }

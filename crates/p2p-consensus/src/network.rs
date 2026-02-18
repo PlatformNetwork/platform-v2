@@ -4,8 +4,9 @@
 //! Provides the networking foundation for PBFT consensus.
 
 use crate::config::P2PConfig;
-use crate::messages::{P2PMessage, SignedP2PMessage, WeightVoteMessage};
+use crate::messages::{P2PMessage, SignedP2PMessage, WeightVoteMessage, MAX_P2P_MESSAGE_SIZE};
 use crate::validator::ValidatorSet;
+use bincode::Options;
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity, MessageId, ValidationMode},
     identify,
@@ -443,8 +444,12 @@ impl P2PNetwork {
         source: PeerId,
         data: &[u8],
     ) -> Result<P2PMessage, NetworkError> {
-        let signed: SignedP2PMessage =
-            bincode::deserialize(data).map_err(|e| NetworkError::Serialization(e.to_string()))?;
+        let signed: SignedP2PMessage = bincode::DefaultOptions::new()
+            .with_limit(MAX_P2P_MESSAGE_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(data)
+            .map_err(|e| NetworkError::Serialization(e.to_string()))?;
 
         // Verify signature first
         if !self.verify_message(&signed) {
