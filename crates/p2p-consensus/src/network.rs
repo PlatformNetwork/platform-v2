@@ -711,6 +711,9 @@ fn expected_signer(message: &P2PMessage) -> Option<&Hotkey> {
         P2PMessage::ChallengeUpdate(msg) => Some(&msg.updater),
         P2PMessage::StorageProposal(msg) => Some(&msg.proposer),
         P2PMessage::StorageVote(msg) => Some(&msg.voter),
+        P2PMessage::ReviewAssignment(msg) => Some(&msg.assigner),
+        P2PMessage::ReviewDecline(msg) => Some(&msg.validator),
+        P2PMessage::ReviewResult(msg) => Some(&msg.validator),
     }
 }
 

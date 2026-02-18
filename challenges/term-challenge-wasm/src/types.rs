@@ -9,22 +9,14 @@ pub enum Difficulty {
     Hard,
 }
 
-#[allow(dead_code)]
-impl Difficulty {
-    pub fn weight(self) -> f64 {
-        match self {
-            Difficulty::Easy => 1.0,
-            Difficulty::Medium => 2.0,
-            Difficulty::Hard => 3.0,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskDefinition {
     pub id: String,
     pub name: String,
+    pub repo: String,
+    pub base_commit: String,
     pub difficulty: Difficulty,
+    pub timeout_secs: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -42,12 +34,20 @@ pub struct TaskResult {
 pub struct ChallengeParams {
     pub tasks: Vec<TaskDefinition>,
     pub llm_judge_url: Option<String>,
+    pub decay_params: Option<DecayParams>,
+    pub active_dataset: Option<Vec<TaskDefinition>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Submission {
     pub agent_hash: String,
     pub miner_hotkey: String,
+    pub signature: Vec<u8>,
+    pub epoch: u64,
+    pub package_zip: Vec<u8>,
+    pub basilica_instance: String,
+    pub executor_url: String,
+    pub executor_token: String,
     pub task_results: Vec<TaskResult>,
 }
 
@@ -55,17 +55,6 @@ pub struct Submission {
 pub struct DifficultyStats {
     pub total: u32,
     pub passed: u32,
-}
-
-#[allow(dead_code)]
-impl DifficultyStats {
-    pub fn pass_rate(&self) -> f64 {
-        if self.total > 0 {
-            self.passed as f64 / self.total as f64
-        } else {
-            0.0
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -80,4 +69,35 @@ pub struct LlmJudgeRequest {
 pub struct LlmJudgeResponse {
     pub score: f64,
     pub reasoning: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DecayParams {
+    pub grace_period_hours: u64,
+    pub half_life_hours: u64,
+    pub min_multiplier: f64,
+}
+
+impl Default for DecayParams {
+    fn default() -> Self {
+        Self {
+            grace_period_hours: 72,
+            half_life_hours: 24,
+            min_multiplier: 0.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DatasetSelection {
+    pub tasks: Vec<TaskDefinition>,
+    pub selected_at_epoch: u64,
+    pub dataset_hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RouteDefinition {
+    pub method: String,
+    pub path: String,
+    pub description: String,
 }

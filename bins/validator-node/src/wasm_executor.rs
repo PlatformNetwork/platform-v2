@@ -7,9 +7,10 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
-    ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, NetworkHostFunctions,
-    NetworkPolicy, RuntimeConfig, SandboxHostFunctions, SandboxPolicy, StorageBackend,
-    StorageHostConfig, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
+    ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, LlmPolicy,
+    NetworkHostFunctions, NetworkPolicy, RuntimeConfig, SandboxHostFunctions, SandboxPolicy,
+    StorageBackend, StorageHostConfig, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime,
+    WasmRuntimeError,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,6 +66,7 @@ pub struct WasmExecutorConfig {
     pub fuel_limit: Option<u64>,
     pub storage_host_config: StorageHostConfig,
     pub storage_backend: Arc<dyn StorageBackend>,
+    pub chutes_api_key: Option<String>,
 }
 
 impl Default for WasmExecutorConfig {
@@ -76,6 +78,7 @@ impl Default for WasmExecutorConfig {
             fuel_limit: None,
             storage_host_config: StorageHostConfig::default(),
             storage_backend: Arc::new(InMemoryStorageBackend::new()),
+            chutes_api_key: None,
         }
     }
 }
@@ -186,6 +189,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 
@@ -309,6 +316,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 
@@ -419,6 +430,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 
@@ -498,6 +513,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 

@@ -183,6 +183,27 @@ pub struct ChainState {
     /// Storage roots per challenge
     #[serde(default)]
     pub challenge_storage_roots: HashMap<ChallengeId, [u8; 32]>,
+    /// Review assignments per submission
+    #[serde(default)]
+    pub review_assignments: HashMap<String, Vec<ReviewRecord>>,
+}
+
+/// Record of a review assignment
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReviewRecord {
+    pub submission_id: String,
+    pub review_type: crate::messages::ReviewType,
+    pub assigned_validators: Vec<Hotkey>,
+    pub results: HashMap<Hotkey, ReviewResultEntry>,
+    pub created_at: i64,
+}
+
+/// Single review result entry
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReviewResultEntry {
+    pub score: f64,
+    pub details: String,
+    pub timestamp: i64,
 }
 
 impl Default for ChainState {
@@ -206,6 +227,7 @@ impl Default for ChainState {
             active_jobs: HashMap::new(),
             task_progress: HashMap::new(),
             challenge_storage_roots: HashMap::new(),
+            review_assignments: HashMap::new(),
         }
     }
 }
@@ -682,6 +704,44 @@ impl ChainState {
             self.increment_sequence();
         }
         removed
+    }
+
+    pub fn assign_review(&mut self, record: ReviewRecord) {
+        self.review_assignments
+            .entry(record.submission_id.clone())
+            .or_default()
+            .push(record);
+        self.increment_sequence();
+    }
+
+    pub fn add_review_result(
+        &mut self,
+        submission_id: &str,
+        validator: &Hotkey,
+        score: f64,
+        details: String,
+    ) -> bool {
+        if let Some(reviews) = self.review_assignments.get_mut(submission_id) {
+            for review in reviews.iter_mut() {
+                if review.assigned_validators.contains(validator) {
+                    review.results.insert(
+                        validator.clone(),
+                        ReviewResultEntry {
+                            score,
+                            details,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                        },
+                    );
+                    self.update_hash();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn get_review_status(&self, submission_id: &str) -> Option<&Vec<ReviewRecord>> {
+        self.review_assignments.get(submission_id)
     }
 }
 

@@ -377,6 +377,7 @@ async fn main() -> Result<()> {
         fuel_limit: args.wasm_fuel_limit,
         storage_host_config: wasm_runtime_interface::StorageHostConfig::default(),
         storage_backend: std::sync::Arc::new(wasm_runtime_interface::InMemoryStorageBackend::new()),
+        chutes_api_key: None,
     }) {
         Ok(executor) => {
             info!(
@@ -950,6 +951,30 @@ async fn handle_network_event(
                     voter = %vote.voter.to_hex(),
                     approve = vote.approve,
                     "Received storage vote"
+                );
+            }
+            P2PMessage::ReviewAssignment(msg) => {
+                debug!(
+                    submission_id = %msg.submission_id,
+                    assigner = %msg.assigner.to_hex(),
+                    assigned_count = msg.assigned_validators.len(),
+                    "Received review assignment"
+                );
+            }
+            P2PMessage::ReviewDecline(msg) => {
+                debug!(
+                    submission_id = %msg.submission_id,
+                    validator = %msg.validator.to_hex(),
+                    reason = %msg.reason,
+                    "Received review decline"
+                );
+            }
+            P2PMessage::ReviewResult(msg) => {
+                debug!(
+                    submission_id = %msg.submission_id,
+                    validator = %msg.validator.to_hex(),
+                    score = msg.score,
+                    "Received review result"
                 );
             }
         },
