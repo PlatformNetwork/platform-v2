@@ -24,7 +24,7 @@ pub fn get_active_dataset() -> Option<Vec<TaskDefinition>> {
 }
 
 pub fn store_dataset(selection: &DatasetSelection) -> bool {
-    let data = match bincode::serialize(selection) {
+    let data = match bincode_options_dataset().serialize(selection) {
         Ok(d) => d,
         Err(_) => return false,
     };
@@ -50,7 +50,7 @@ fn append_dataset_history(selection: &DatasetSelection) -> bool {
     if history.len() > MAX_DATASET_HISTORY {
         history.drain(0..history.len() - MAX_DATASET_HISTORY);
     }
-    let data = match bincode::serialize(&history) {
+    let data = match bincode_options_dataset().serialize(&history) {
         Ok(d) => d,
         Err(_) => return false,
     };

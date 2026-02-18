@@ -41,6 +41,7 @@ const STATE_STORAGE_KEY: &str = "chain_state";
 
 /// Maximum length for user-provided strings logged from P2P messages
 const MAX_LOG_FIELD_LEN: usize = 256;
+const JOB_TIMEOUT_MS: i64 = 300_000;
 
 /// Sanitize a user-provided string for safe logging.
 ///
@@ -889,7 +890,7 @@ async fn handle_network_event(
                     challenge_id: assignment.challenge_id,
                     assigned_validator: assignment.assigned_validator,
                     assigned_at: assignment.timestamp,
-                    timeout_at: assignment.timestamp + 300_000,
+                    timeout_at: assignment.timestamp + JOB_TIMEOUT_MS,
                     status: JobStatus::Pending,
                 };
                 state_manager.apply(|state| {

@@ -170,7 +170,6 @@ pub struct P2PNetwork {
     /// Peer mapping
     peer_mapping: Arc<PeerMapping>,
     /// Reference to validator set
-    #[allow(dead_code)]
     validator_set: Arc<ValidatorSet>,
     /// Event sender
     #[allow(dead_code)]

@@ -7,14 +7,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
-
-const MAX_EVALUATION_OUTPUT_SIZE: u64 = 64 * 1024 * 1024;
 use wasm_runtime_interface::{
     ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, LlmPolicy,
-    NetworkHostFunctions, NetworkPolicy, RuntimeConfig, SandboxHostFunctions, SandboxPolicy,
-    StorageBackend, StorageHostConfig, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime,
-    WasmRuntimeError,
+    NetworkHostFunctions, NetworkPolicy, RuntimeConfig, SandboxPolicy, StorageBackend,
+    StorageHostConfig, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
 };
+
+const MAX_EVALUATION_OUTPUT_SIZE: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvaluationInput {
@@ -185,7 +184,6 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
-        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
@@ -316,7 +314,6 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
-        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
@@ -476,7 +473,9 @@ impl WasmChallengeExecutor {
         let result_data = if out_ptr > 0 && out_len > 0 {
             instance
                 .read_memory(out_ptr as usize, out_len as usize)
-                .unwrap_or_default()
+                .map_err(|e| {
+                    anyhow::anyhow!("failed to read WASM memory for get_tasks output: {}", e)
+                })?
         } else {
             Vec::new()
         };

@@ -25,6 +25,8 @@ const MAX_PARAMS_SIZE: u64 = 4 * 1024 * 1024;
 const MAX_LLM_RESPONSE_SIZE: u64 = 1024 * 1024;
 const MAX_TASKS: usize = 256;
 const EPOCH_RATE_LIMIT: u64 = 3;
+const LLM_JUDGE_PASS_THRESHOLD: f64 = 0.5;
+const SCORE_SCALE_FACTOR: f64 = 10_000.0;
 
 fn bincode_options_submission() -> impl Options {
     bincode::DefaultOptions::new()
@@ -100,7 +102,7 @@ impl TermChallengeWasm {
             test_output: result.test_output.clone(),
         };
         let url_bytes = url.as_bytes();
-        let body = match bincode::serialize(&request) {
+        let body = match bincode_options_llm().serialize(&request) {
             Ok(b) => b,
             Err(_) => return None,
         };
@@ -163,7 +165,7 @@ impl Challenge for TermChallengeWasm {
                 }
                 if let Some(llm_score) = Self::try_llm_judge(url, result, &task.name) {
                     result.score = llm_score;
-                    if llm_score < 0.5 {
+                    if llm_score < LLM_JUDGE_PASS_THRESHOLD {
                         result.passed = false;
                     }
                 }
@@ -171,7 +173,7 @@ impl Challenge for TermChallengeWasm {
         }
         let aggregate = calculate_aggregate(&params.tasks, &results);
         let weight = to_weight(&aggregate);
-        let score = (weight * 10_000.0) as i64;
+        let score = (weight * SCORE_SCALE_FACTOR) as i64;
         let message = format_summary(&aggregate);
         set_last_submission_epoch(&submission.miner_hotkey, submission.epoch);
         EvaluationOutput::success(score, &message)
@@ -230,7 +232,9 @@ impl Challenge for TermChallengeWasm {
 
     fn tasks(&self) -> Vec<u8> {
         match tasks::get_active_dataset() {
-            Some(task_defs) => bincode::serialize(&task_defs).unwrap_or_default(),
+            Some(task_defs) => bincode_options_params()
+                .serialize(&task_defs)
+                .unwrap_or_default(),
             None => Vec::new(),
         }
     }
