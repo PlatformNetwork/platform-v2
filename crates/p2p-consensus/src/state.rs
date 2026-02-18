@@ -189,6 +189,15 @@ pub struct ChainState {
     /// Review assignments per submission
     #[serde(default)]
     pub review_assignments: HashMap<String, Vec<ReviewRecord>>,
+    /// Agent logs awaiting consensus (submission_id -> validator_hotkey -> serialized logs)
+    #[serde(default)]
+    pub agent_log_proposals: HashMap<String, HashMap<Hotkey, Vec<u8>>>,
+    /// Consensus-validated agent logs (submission_id -> validated logs)
+    #[serde(default)]
+    pub validated_agent_logs: HashMap<String, Vec<u8>>,
+    /// Stored agent code registry (miner_hotkey -> latest agent code entry)
+    #[serde(default)]
+    pub agent_code_registry: HashMap<Hotkey, AgentCodeEntry>,
 }
 
 /// Record of a review assignment
@@ -207,6 +216,15 @@ pub struct ReviewResultEntry {
     pub score: f64,
     pub details: String,
     pub timestamp: i64,
+}
+
+/// Registry entry for stored agent code
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentCodeEntry {
+    pub agent_hash: String,
+    pub code_size: u64,
+    pub epoch: u64,
+    pub stored_at: i64,
 }
 
 impl Default for ChainState {
@@ -231,6 +249,9 @@ impl Default for ChainState {
             task_progress: HashMap::new(),
             challenge_storage_roots: HashMap::new(),
             review_assignments: HashMap::new(),
+            agent_log_proposals: HashMap::new(),
+            validated_agent_logs: HashMap::new(),
+            agent_code_registry: HashMap::new(),
         }
     }
 }
@@ -765,6 +786,71 @@ impl ChainState {
 
     pub fn get_review_status(&self, submission_id: &str) -> Option<&Vec<ReviewRecord>> {
         self.review_assignments.get(submission_id)
+    }
+
+    /// Propose agent logs from a validator
+    pub fn propose_agent_logs(
+        &mut self,
+        submission_id: &str,
+        validator: Hotkey,
+        logs_data: Vec<u8>,
+    ) {
+        self.agent_log_proposals
+            .entry(submission_id.to_string())
+            .or_default()
+            .insert(validator, logs_data);
+        self.update_hash();
+    }
+
+    /// Finalize agent logs by consensus (>50% agreement by hash)
+    pub fn finalize_agent_logs(&mut self, submission_id: &str) -> bool {
+        let proposals = match self.agent_log_proposals.get(submission_id) {
+            Some(p) if !p.is_empty() => p,
+            _ => return false,
+        };
+
+        let total_proposals = proposals.len();
+
+        let mut hash_counts: HashMap<[u8; 32], usize> = HashMap::new();
+        let mut hash_to_data: HashMap<[u8; 32], &Vec<u8>> = HashMap::new();
+
+        for (_validator, logs_data) in proposals {
+            let mut hasher = Sha256::new();
+            hasher.update(logs_data);
+            let hash: [u8; 32] = hasher.finalize().into();
+
+            *hash_counts.entry(hash).or_default() += 1;
+            hash_to_data.entry(hash).or_insert(logs_data);
+        }
+
+        let (best_hash, best_count) = hash_counts
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .map(|(h, c)| (*h, *c))
+            .unwrap_or(([0u8; 32], 0));
+
+        if best_count > total_proposals / 2 {
+            if let Some(data) = hash_to_data.get(&best_hash) {
+                self.validated_agent_logs
+                    .insert(submission_id.to_string(), (*data).clone());
+            }
+            self.agent_log_proposals.remove(submission_id);
+            self.increment_sequence();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Register agent code entry
+    pub fn register_agent_code(&mut self, miner: Hotkey, entry: AgentCodeEntry) {
+        self.agent_code_registry.insert(miner, entry);
+        self.increment_sequence();
+    }
+
+    /// Get agent code entry for a miner
+    pub fn get_agent_code_entry(&self, miner: &Hotkey) -> Option<&AgentCodeEntry> {
+        self.agent_code_registry.get(miner)
     }
 }
 
