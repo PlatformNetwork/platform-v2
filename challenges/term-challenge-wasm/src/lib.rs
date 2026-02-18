@@ -237,7 +237,7 @@ impl Challenge for TermChallengeWasm {
 
     fn configure(&self, config: &[u8]) {
         if let Ok(selection) = bincode_options_params().deserialize::<DatasetSelection>(config) {
-            tasks::store_dataset(&selection);
+            let _ = tasks::store_dataset(&selection);
         }
     }
 }
