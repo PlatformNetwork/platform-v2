@@ -164,7 +164,7 @@ impl ChallengeDatabase {
 
         for result in self.get_all_results()? {
             let existing = latest.get(&result.agent_hash);
-            if existing.is_none() || existing.unwrap().timestamp < result.timestamp {
+            if existing.is_none_or(|e| e.timestamp < result.timestamp) {
                 latest.insert(result.agent_hash.clone(), result);
             }
         }

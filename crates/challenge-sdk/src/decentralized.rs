@@ -275,9 +275,7 @@ async fn evaluate_submission<C: ServerChallenge>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::{
-        EvaluationResponse, ServerChallenge, ValidationRequest, ValidationResponse,
-    };
+    use crate::server::{EvaluationResponse, ServerChallenge};
     use async_trait::async_trait;
     use serde_json::json;
 

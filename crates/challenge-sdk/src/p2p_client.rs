@@ -693,7 +693,7 @@ mod tests {
     #[tokio::test]
     async fn test_request_submissions_sends_message() {
         let (tx, mut rx) = mpsc::channel(100);
-        let (response_tx, response_rx) = mpsc::channel(100);
+        let (_response_tx, response_rx) = mpsc::channel(100);
 
         let config = P2PChallengeConfig {
             challenge_id: "test-challenge".to_string(),
@@ -731,7 +731,7 @@ mod tests {
     #[tokio::test]
     async fn test_request_weights_sends_message() {
         let (tx, mut rx) = mpsc::channel(100);
-        let (response_tx, response_rx) = mpsc::channel(100);
+        let (_response_tx, response_rx) = mpsc::channel(100);
 
         let config = P2PChallengeConfig {
             challenge_id: "test-challenge".to_string(),
