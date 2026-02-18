@@ -13,6 +13,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, info};
 
+/// UID of the subnet owner (always the first registered neuron).
+const SUBNET_OWNER_UID: u16 = 0;
+
 /// Validator info from Bittensor metagraph
 #[derive(Clone, Debug)]
 pub struct MetagraphValidator {
@@ -91,11 +94,14 @@ impl ValidatorSync {
         // Parse validators and all hotkeys from metagraph
         let (bt_validators, all_hotkeys) = self.parse_metagraph(metagraph)?;
 
-        // Extract UID 0 hotkey before dropping client borrow
-        let uid0_hotkey = metagraph.neurons.get(&0).map(|neuron| {
-            let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
-            Hotkey(*hotkey_bytes)
-        });
+        // Extract subnet owner hotkey before dropping client borrow
+        let uid0_hotkey = metagraph
+            .neurons
+            .get(&(SUBNET_OWNER_UID as u64))
+            .map(|neuron| {
+                let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
+                Hotkey(*hotkey_bytes)
+            });
 
         drop(client); // Release lock
 

@@ -35,10 +35,17 @@ pub trait Challenge {
 
     fn configure(&self, _config: &[u8]) {}
 
+    /// Return serialized [`WasmRouteDefinition`]s describing the HTTP routes
+    /// this challenge exposes. The default implementation returns an empty
+    /// vector (no custom routes).
     fn routes(&self) -> alloc::vec::Vec<u8> {
         alloc::vec::Vec::new()
     }
 
+    /// Handle an incoming route request and return a serialized
+    /// [`WasmRouteResponse`]. The `request` parameter is a bincode-encoded
+    /// [`WasmRouteRequest`]. The default implementation returns an empty
+    /// vector.
     fn handle_route(&self, _request: &[u8]) -> alloc::vec::Vec<u8> {
         alloc::vec::Vec::new()
     }
