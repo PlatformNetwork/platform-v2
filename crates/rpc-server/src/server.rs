@@ -227,11 +227,31 @@ async fn challenge_route_handler(
     headers: axum::http::HeaderMap,
     body: Value,
 ) -> impl IntoResponse {
+    if !RpcHandler::validate_challenge_id(&challenge_id) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "invalid_challenge_id",
+                "message": "Invalid challenge ID: must be 1-256 characters, alphanumeric/dash/underscore/dot only"
+            })),
+        );
+    }
+
     let path = if path.is_empty() {
         "/".to_string()
     } else {
         format!("/{}", path)
     };
+
+    if !RpcHandler::validate_path(&path) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "invalid_path",
+                "message": "Invalid path: must start with '/', must not contain '..', null bytes, or encoded traversal sequences"
+            })),
+        );
+    }
 
     trace!("Challenge route: {} {} {}", challenge_id, method, path);
 
@@ -304,6 +324,17 @@ async fn challenge_route_handler(
         if let Ok(v) = value.to_str() {
             headers_map.insert(key.as_str().to_string(), v.to_string());
         }
+    }
+
+    // Enforce authentication for routes that require it
+    if route.requires_auth {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": "unauthorized",
+                "message": "This route requires authentication"
+            })),
+        );
     }
 
     let request = RouteRequest {

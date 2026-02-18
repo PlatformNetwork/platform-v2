@@ -1110,18 +1110,39 @@ impl RpcHandler {
     /// Maximum path length for challenge_call
     const MAX_PATH_LEN: usize = 2048;
 
+    /// Maximum challenge ID length
+    const MAX_CHALLENGE_ID_LEN: usize = 256;
+
     /// Maximum number of query parameters for challenge_call
     const MAX_QUERY_PARAMS: usize = 100;
 
     /// Maximum body size in bytes (1 MB) for challenge_call
     const MAX_BODY_SIZE: usize = 1_048_576;
 
-    /// Validate that a path has no traversal sequences and starts with '/'
-    fn validate_path(path: &str) -> bool {
+    /// Validate that a challenge ID has safe length and characters.
+    /// Allows alphanumeric, dashes, underscores, and dots only.
+    pub(crate) fn validate_challenge_id(id: &str) -> bool {
+        if id.is_empty() || id.len() > Self::MAX_CHALLENGE_ID_LEN {
+            return false;
+        }
+        id.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    }
+
+    /// Validate that a path has no traversal sequences and starts with '/'.
+    /// Also rejects null bytes and percent-encoded traversal patterns.
+    pub(crate) fn validate_path(path: &str) -> bool {
         if path.len() > Self::MAX_PATH_LEN {
             return false;
         }
         if !path.starts_with('/') {
+            return false;
+        }
+        if path.contains('\0') {
+            return false;
+        }
+        let lower = path.to_ascii_lowercase();
+        if lower.contains("%2e%2e") || lower.contains("%2e.") || lower.contains(".%2e") {
             return false;
         }
         for segment in path.split('/') {
@@ -1144,6 +1165,17 @@ impl RpcHandler {
                 )
             }
         };
+
+        if !Self::validate_challenge_id(&challenge_id) {
+            return JsonRpcResponse::error(
+                id,
+                INVALID_PARAMS,
+                format!(
+                    "Invalid challengeId: must be 1-{} characters, alphanumeric/dash/underscore/dot only",
+                    Self::MAX_CHALLENGE_ID_LEN
+                ),
+            );
+        }
 
         let method = self
             .get_param_str(&params, 1, "method")
@@ -1212,10 +1244,12 @@ impl RpcHandler {
             );
         }
 
-        // Verify the challenge has registered routes
+        // Verify the challenge has registered routes and check auth requirements
         {
             let routes = self.challenge_routes.read();
-            if !routes.contains_key(&challenge_id) {
+            let challenge_routes = routes.get(&challenge_id);
+
+            if challenge_routes.is_none() {
                 // Try to find by name
                 let chain = self.chain_state.read();
                 let found = chain.challenges.values().any(|c| c.name == challenge_id);
@@ -1225,6 +1259,18 @@ impl RpcHandler {
                         CHALLENGE_NOT_FOUND,
                         format!("Challenge '{}' not found or has no routes", challenge_id),
                     );
+                }
+            }
+
+            if let Some(registered_routes) = challenge_routes {
+                for route in registered_routes {
+                    if route.matches(&method, &path).is_some() && route.requires_auth {
+                        return JsonRpcResponse::error(
+                            id,
+                            UNAUTHORIZED,
+                            "This route requires authentication",
+                        );
+                    }
                 }
             }
         }
