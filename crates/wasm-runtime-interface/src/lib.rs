@@ -18,6 +18,7 @@ pub mod network;
 pub mod runtime;
 pub mod sandbox;
 pub mod storage;
+pub mod llm;
 pub mod terminal;
 pub mod time;
 pub use bridge::{
@@ -73,6 +74,9 @@ pub use storage::{
 pub use terminal::{
     TerminalHostFunctions, TerminalHostStatus, TerminalPolicy, TerminalState,
     HOST_TERMINAL_NAMESPACE,
+};
+pub use llm::{
+    LlmHostFunctions, LlmHostStatus, LlmPolicy, LlmState, HOST_LLM_NAMESPACE,
 };
 pub use time::{TimeError, TimeHostFunction, TimeHostFunctions, TimeMode, TimePolicy, TimeState};
 

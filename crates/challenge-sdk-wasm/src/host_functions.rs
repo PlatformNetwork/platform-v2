@@ -216,6 +216,33 @@ pub fn host_log(level: u8, msg: &str) {
     unsafe { log_message(level as i32, msg.as_ptr() as i32, msg.len() as i32) }
 }
 
+#[link(wasm_import_module = "platform_llm")]
+extern "C" {
+    fn llm_chat_completion(req_ptr: i32, req_len: i32, resp_ptr: i32, resp_len: i32) -> i32;
+    fn llm_is_available() -> i32;
+}
+
+pub fn host_llm_chat_completion(request: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut response_buf = vec![0u8; 262144];
+    let status = unsafe {
+        llm_chat_completion(
+            request.as_ptr() as i32,
+            request.len() as i32,
+            response_buf.as_mut_ptr() as i32,
+            response_buf.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    response_buf.truncate(status as usize);
+    Ok(response_buf)
+}
+
+pub fn host_llm_is_available() -> bool {
+    unsafe { llm_is_available() == 1 }
+}
+
 #[link(wasm_import_module = "platform_consensus")]
 extern "C" {
     fn consensus_get_epoch() -> i64;
