@@ -520,6 +520,7 @@ pub struct ValidatedDnsPolicy {
     pub block_private_ranges: bool,
 }
 
+/// A normalized host pattern used for matching against request hosts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedHostPattern {
     pattern: String,

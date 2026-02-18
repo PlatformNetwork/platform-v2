@@ -31,11 +31,18 @@ use wasmtime::{Caller, Linker, Memory};
 
 use crate::runtime::{HostFunctionRegistrar, RuntimeState, WasmRuntimeError};
 
+/// WASM host function namespace for storage operations.
 pub const HOST_STORAGE_NAMESPACE: &str = "platform_storage";
+/// WASM host function name for reading a storage key.
 pub const HOST_STORAGE_GET: &str = "storage_get";
+/// WASM host function name for writing a storage key.
 pub const HOST_STORAGE_SET: &str = "storage_set";
+/// WASM host function name for proposing a consensus write.
 pub const HOST_STORAGE_PROPOSE_WRITE: &str = "storage_propose_write";
+/// WASM host function name for deleting a storage key.
 pub const HOST_STORAGE_DELETE: &str = "storage_delete";
+
+/// Status codes returned by storage host functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum StorageHostStatus {
@@ -53,10 +60,12 @@ pub enum StorageHostStatus {
 }
 
 impl StorageHostStatus {
+    /// Convert the status to its `i32` wire representation.
     pub fn to_i32(self) -> i32 {
         self as i32
     }
 
+    /// Parse an `i32` wire value into a `StorageHostStatus`.
     pub fn from_i32(code: i32) -> Self {
         match code {
             0 => Self::Success,
@@ -74,6 +83,7 @@ impl StorageHostStatus {
     }
 }
 
+/// Errors that can occur during storage host operations.
 #[derive(Debug, Error)]
 pub enum StorageHostError {
     #[error("key too large: {0} bytes (max {1})")]
@@ -124,6 +134,7 @@ impl From<StorageHostError> for StorageHostStatus {
     }
 }
 
+/// Configuration for storage host function limits and behaviour.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StorageHostConfig {
     pub max_key_size: usize,
@@ -150,6 +161,7 @@ impl Default for StorageHostConfig {
 }
 
 impl StorageHostConfig {
+    /// Permissive configuration for local development.
     pub fn permissive() -> Self {
         Self {
             max_key_size: 4096,
@@ -162,6 +174,7 @@ impl StorageHostConfig {
         }
     }
 
+    /// Validate a storage key against size and content constraints.
     pub fn validate_key(&self, key: &[u8]) -> Result<(), StorageHostError> {
         if key.is_empty() {
             return Err(StorageHostError::InvalidKey(
@@ -179,6 +192,7 @@ impl StorageHostConfig {
         Ok(())
     }
 
+    /// Validate a storage value against the configured size limit.
     pub fn validate_value(&self, value: &[u8]) -> Result<(), StorageHostError> {
         if value.len() > self.max_value_size {
             return Err(StorageHostError::ValueTooLarge(
@@ -190,6 +204,7 @@ impl StorageHostConfig {
     }
 }
 
+/// Mutable per-instance state for storage host functions.
 pub struct StorageHostState {
     pub config: StorageHostConfig,
     pub challenge_id: String,
@@ -202,6 +217,7 @@ pub struct StorageHostState {
 }
 
 impl StorageHostState {
+    /// Create a new storage state with the given challenge identifier, config, and backend.
     pub fn new(
         challenge_id: String,
         config: StorageHostConfig,
@@ -219,6 +235,7 @@ impl StorageHostState {
         }
     }
 
+    /// Store a result buffer and return its identifier.
     pub fn store_result(&mut self, data: Vec<u8>) -> u32 {
         let id = self.next_result_id;
         self.next_result_id = self.next_result_id.wrapping_add(1);
@@ -226,10 +243,12 @@ impl StorageHostState {
         id
     }
 
+    /// Remove and return the result buffer for the given identifier.
     pub fn take_result(&mut self, id: u32) -> Option<Vec<u8>> {
         self.pending_results.remove(&id)
     }
 
+    /// Reset per-execution I/O and operation counters.
     pub fn reset_counters(&mut self) {
         self.bytes_read = 0;
         self.bytes_written = 0;
@@ -237,21 +256,26 @@ impl StorageHostState {
     }
 }
 
+/// Pack a status code and a 32-bit value into a single `i64` return value.
 pub fn pack_result(status: StorageHostStatus, value: u32) -> i64 {
     let status_bits = (status.to_i32() as i64) << 32;
     let value_bits = value as i64;
     status_bits | value_bits
 }
 
+/// Unpack a packed `i64` into a status code and a 32-bit value.
 pub fn unpack_result(packed: i64) -> (StorageHostStatus, u32) {
     let status = StorageHostStatus::from_i32((packed >> 32) as i32);
     let value = (packed & 0xFFFFFFFF) as u32;
     (status, value)
 }
 
+/// Backend trait for key-value storage accessed from WASM host functions.
 pub trait StorageBackend: Send + Sync {
+    /// Read the value for `key` scoped to `challenge_id`.
     fn get(&self, challenge_id: &str, key: &[u8]) -> Result<Option<Vec<u8>>, StorageHostError>;
 
+    /// Propose a write of `value` for `key`, returning a 32-byte proposal hash.
     fn propose_write(
         &self,
         challenge_id: &str,
@@ -259,9 +283,11 @@ pub trait StorageBackend: Send + Sync {
         value: &[u8],
     ) -> Result<[u8; 32], StorageHostError>;
 
+    /// Delete the entry for `key`, returning whether a value was removed.
     fn delete(&self, challenge_id: &str, key: &[u8]) -> Result<bool, StorageHostError>;
 }
 
+/// Storage backend that returns empty results and rejects writes.
 pub struct NoopStorageBackend;
 
 impl StorageBackend for NoopStorageBackend {
@@ -285,11 +311,13 @@ impl StorageBackend for NoopStorageBackend {
 
 type StorageMap = HashMap<String, HashMap<Vec<u8>, Vec<u8>>>;
 
+/// In-memory storage backend for testing and development.
 pub struct InMemoryStorageBackend {
     data: RwLock<StorageMap>,
 }
 
 impl InMemoryStorageBackend {
+    /// Create a new empty in-memory storage backend.
     pub fn new() -> Self {
         Self {
             data: RwLock::new(HashMap::new()),
@@ -350,10 +378,12 @@ impl StorageBackend for InMemoryStorageBackend {
     }
 }
 
+/// Registrar that binds storage host functions into a WASM linker.
 #[derive(Clone, Debug)]
 pub struct StorageHostFunctions;
 
 impl StorageHostFunctions {
+    /// Create a new `StorageHostFunctions` registrar.
     pub fn new() -> Self {
         Self
     }

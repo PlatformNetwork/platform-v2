@@ -12,6 +12,7 @@ use wasm_runtime_interface::{
     TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
 };
 
+/// Input payload sent to a WASM challenge module for evaluation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvaluationInput {
     pub agent_data: Vec<u8>,
@@ -23,6 +24,7 @@ pub struct EvaluationInput {
     pub environment_config: Option<Vec<u8>>,
 }
 
+/// Output returned by a WASM challenge module after evaluation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvaluationOutput {
     pub score: i64,
@@ -35,6 +37,7 @@ pub struct EvaluationOutput {
 }
 
 impl EvaluationOutput {
+    /// Create a successful evaluation output with the given score and message.
     #[allow(dead_code)]
     pub fn success(score: i64, message: &str) -> Self {
         Self {
@@ -46,6 +49,7 @@ impl EvaluationOutput {
         }
     }
 
+    /// Create a failed evaluation output with a zero score.
     #[allow(dead_code)]
     pub fn failure(message: &str) -> Self {
         Self {
@@ -58,6 +62,7 @@ impl EvaluationOutput {
     }
 }
 
+/// Configuration for the WASM challenge executor.
 pub struct WasmExecutorConfig {
     pub module_dir: PathBuf,
     pub max_memory_bytes: u64,
@@ -80,6 +85,7 @@ impl Default for WasmExecutorConfig {
     }
 }
 
+/// Metrics collected during a single WASM evaluation or validation run.
 pub struct ExecutionMetrics {
     pub execution_time_ms: u128,
     pub memory_used_bytes: u64,
@@ -87,6 +93,7 @@ pub struct ExecutionMetrics {
     pub fuel_consumed: Option<u64>,
 }
 
+/// Executor that loads, caches, and runs WASM challenge modules.
 pub struct WasmChallengeExecutor {
     runtime: WasmRuntime,
     config: WasmExecutorConfig,
@@ -94,6 +101,7 @@ pub struct WasmChallengeExecutor {
 }
 
 impl WasmChallengeExecutor {
+    /// Create a new executor with the given configuration.
     pub fn new(config: WasmExecutorConfig) -> Result<Self> {
         let runtime_config = RuntimeConfig {
             max_memory_bytes: config.max_memory_bytes,
@@ -119,6 +127,7 @@ impl WasmChallengeExecutor {
         })
     }
 
+    /// Run a WASM evaluation with the default sandbox policy.
     pub fn execute_evaluation(
         &self,
         module_path: &str,
@@ -137,6 +146,7 @@ impl WasmChallengeExecutor {
         )
     }
 
+    /// Run a WASM evaluation with the given sandbox policy.
     pub fn execute_evaluation_with_sandbox(
         &self,
         module_path: &str,
@@ -259,6 +269,7 @@ impl WasmChallengeExecutor {
         Ok((output, metrics))
     }
 
+    /// Run a WASM validation call and return whether the submission is valid.
     #[allow(dead_code)]
     pub fn execute_validation(
         &self,
@@ -386,6 +397,7 @@ impl WasmChallengeExecutor {
         Ok(offset as i32)
     }
 
+    /// Call the WASM module's `get_tasks` export and return the raw result bytes.
     #[allow(dead_code)]
     pub fn execute_get_tasks(
         &self,
@@ -464,6 +476,7 @@ impl WasmChallengeExecutor {
         Ok((result_data, metrics))
     }
 
+    /// Call the WASM module's `configure` export with the given configuration data.
     #[allow(dead_code)]
     pub fn execute_configure(
         &self,
@@ -614,6 +627,7 @@ impl WasmChallengeExecutor {
         Ok(module)
     }
 
+    /// Remove a single module from the cache.
     #[allow(dead_code)]
     pub fn invalidate_cache(&self, module_path: &str) {
         let mut cache = self.module_cache.write();
@@ -622,6 +636,7 @@ impl WasmChallengeExecutor {
         }
     }
 
+    /// Clear the entire module cache.
     #[allow(dead_code)]
     pub fn clear_cache(&self) {
         let mut cache = self.module_cache.write();
@@ -630,15 +645,18 @@ impl WasmChallengeExecutor {
         info!(cleared = count, "WASM module cache cleared");
     }
 
+    /// Return the number of modules currently in the cache.
     #[allow(dead_code)]
     pub fn cached_module_count(&self) -> usize {
         self.module_cache.read().len()
     }
 
+    /// Resolve a relative module path against the configured module directory.
     pub fn resolve_module_path(&self, module_path: &str) -> PathBuf {
         self.config.module_dir.join(module_path)
     }
 
+    /// Check whether a WASM module file exists at the given relative path.
     pub fn module_exists(&self, module_path: &str) -> bool {
         if Self::validate_module_path(module_path).is_err() {
             return false;

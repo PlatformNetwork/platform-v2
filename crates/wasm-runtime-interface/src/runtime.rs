@@ -20,8 +20,10 @@ use wasmtime::{
     ResourceLimiter, Store, StoreLimits, StoreLimitsBuilder, Val,
 };
 
+/// Default name for the WASM linear memory export.
 pub const DEFAULT_WASM_MEMORY_NAME: &str = "memory";
 
+/// Errors produced by the WASM runtime during compilation, instantiation, or execution.
 #[derive(Debug, Error)]
 pub enum WasmRuntimeError {
     #[error("module compile failed: {0}")]
@@ -69,10 +71,12 @@ impl From<BridgeError> for WasmRuntimeError {
     }
 }
 
+/// Trait for registering host functions into a WASM linker.
 pub trait HostFunctionRegistrar: Send + Sync {
     fn register(&self, linker: &mut Linker<RuntimeState>) -> Result<(), WasmRuntimeError>;
 }
 
+/// Configuration for the WASM engine and resource limits.
 #[derive(Clone)]
 pub struct RuntimeConfig {
     pub max_memory_bytes: u64,
@@ -157,6 +161,7 @@ impl Default for InstanceConfig {
     }
 }
 
+/// Per-instance mutable state accessible from WASM host functions.
 pub struct RuntimeState {
     /// Network policy available to host functions.
     pub network_policy: NetworkPolicy,
@@ -194,6 +199,7 @@ pub struct RuntimeState {
 }
 
 impl RuntimeState {
+    /// Construct a new `RuntimeState` with all sub-states.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         network_policy: NetworkPolicy,
@@ -235,22 +241,27 @@ impl RuntimeState {
         }
     }
 
+    /// Reset per-execution network counters.
     pub fn reset_network_counters(&mut self) {
         self.network_state.reset_counters();
     }
 
+    /// Reset per-execution storage counters.
     pub fn reset_storage_counters(&mut self) {
         self.storage_state.reset_counters();
     }
 
+    /// Reset per-execution exec counters.
     pub fn reset_exec_counters(&mut self) {
         self.exec_state.reset_counters();
     }
 
+    /// Reset per-execution container counters.
     pub fn reset_container_counters(&mut self) {
         self.container_state.reset_counters();
     }
 
+    /// Reset per-execution data read counters.
     pub fn reset_data_counters(&mut self) {
         self.data_state.reset_counters();
     }
@@ -276,12 +287,14 @@ impl ResourceLimiter for RuntimeState {
     }
 }
 
+/// WASM runtime engine that compiles modules and creates challenge instances.
 pub struct WasmRuntime {
     engine: Engine,
     config: RuntimeConfig,
 }
 
 impl WasmRuntime {
+    /// Create a new WASM runtime with the given configuration.
     pub fn new(config: RuntimeConfig) -> Result<Self, WasmRuntimeError> {
         let mut engine_config = Config::new();
         if config.allow_fuel {
@@ -292,16 +305,19 @@ impl WasmRuntime {
         Ok(Self { engine, config })
     }
 
+    /// Wrap an existing `wasmtime::Engine` with the given configuration.
     pub fn from_engine(engine: Engine, config: RuntimeConfig) -> Self {
         Self { engine, config }
     }
 
+    /// Compile raw WASM bytes into a reusable module.
     pub fn compile_module(&self, wasm: &[u8]) -> Result<WasmModule, WasmRuntimeError> {
         let module = Module::from_binary(&self.engine, wasm)
             .map_err(|err: WasmtimeError| WasmRuntimeError::Compile(err.to_string()))?;
         Ok(WasmModule { module })
     }
 
+    /// Instantiate a compiled module with the given instance configuration and optional registrar.
     pub fn instantiate(
         &self,
         module: &WasmModule,
@@ -440,16 +456,19 @@ impl WasmRuntime {
     }
 }
 
+/// A compiled WASM module ready for instantiation.
 pub struct WasmModule {
     module: Module,
 }
 
 impl WasmModule {
+    /// Access the underlying `wasmtime::Module`.
     pub fn module(&self) -> &Module {
         &self.module
     }
 }
 
+/// A live WASM challenge instance with its store, instance handle, and memory.
 pub struct ChallengeInstance {
     store: Store<RuntimeState>,
     instance: Instance,
@@ -457,24 +476,29 @@ pub struct ChallengeInstance {
 }
 
 impl ChallengeInstance {
+    /// Borrow the underlying store.
     pub fn store(&self) -> &Store<RuntimeState> {
         &self.store
     }
 
+    /// Mutably borrow the underlying store.
     pub fn store_mut(&mut self) -> &mut Store<RuntimeState> {
         &mut self.store
     }
 
+    /// Access the WASM linear memory.
     pub fn memory(&self) -> &Memory {
         &self.memory
     }
 
+    /// Look up an exported function by name.
     pub fn get_func(&mut self, name: &str) -> Result<Func, WasmRuntimeError> {
         self.instance
             .get_func(&mut self.store, name)
             .ok_or_else(|| WasmRuntimeError::MissingExport(name.to_string()))
     }
 
+    /// Call an exported function by name with the given parameters.
     pub fn call(&mut self, name: &str, params: &[Val]) -> Result<Vec<Val>, WasmRuntimeError> {
         let func = self.get_func(name)?;
         let ty = func.ty(&self.store);
@@ -483,6 +507,7 @@ impl ChallengeInstance {
         Ok(results)
     }
 
+    /// Read `length` bytes from WASM memory starting at `offset`.
     pub fn read_memory(
         &mut self,
         offset: usize,
@@ -496,6 +521,7 @@ impl ChallengeInstance {
         Ok(data[offset..end].to_vec())
     }
 
+    /// Write `bytes` into WASM memory starting at `offset`.
     pub fn write_memory(&mut self, offset: usize, bytes: &[u8]) -> Result<(), WasmRuntimeError> {
         let data = self.memory.data_mut(&mut self.store);
         let end = offset.saturating_add(bytes.len());
@@ -506,6 +532,7 @@ impl ChallengeInstance {
         Ok(())
     }
 
+    /// Call a typed `(i32, i32) -> i64` exported function.
     pub fn call_i32_i32_return_i64(
         &mut self,
         name: &str,
@@ -520,6 +547,7 @@ impl ChallengeInstance {
             .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))
     }
 
+    /// Call a typed `(i32, i32) -> i32` exported function.
     pub fn call_i32_i32_return_i32(
         &mut self,
         name: &str,
@@ -534,6 +562,7 @@ impl ChallengeInstance {
             .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))
     }
 
+    /// Call a typed `(i32) -> i32` exported function.
     pub fn call_i32_return_i32(&mut self, name: &str, arg0: i32) -> Result<i32, WasmRuntimeError> {
         let func = self
             .instance
@@ -543,6 +572,7 @@ impl ChallengeInstance {
             .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))
     }
 
+    /// Call a typed `() -> i32` exported function.
     pub fn call_return_i32(&mut self, name: &str) -> Result<i32, WasmRuntimeError> {
         let func = self
             .instance
@@ -552,6 +582,7 @@ impl ChallengeInstance {
             .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))
     }
 
+    /// Call a typed `() -> i64` exported function.
     pub fn call_return_i64(&mut self, name: &str) -> Result<i64, WasmRuntimeError> {
         let func = self
             .instance
@@ -561,54 +592,67 @@ impl ChallengeInstance {
             .map_err(|err: WasmtimeError| WasmRuntimeError::Execution(err.to_string()))
     }
 
+    /// Return the remaining fuel, if fuel metering is enabled.
     pub fn fuel_remaining(&self) -> Option<u64> {
         self.store.get_fuel().ok()
     }
 
+    /// Number of network requests made during this instance's lifetime.
     pub fn network_requests_made(&self) -> u32 {
         self.store.data().network_state.requests_made()
     }
 
+    /// Number of DNS lookups made during this instance's lifetime.
     pub fn network_dns_lookups(&self) -> u32 {
         self.store.data().network_state.dns_lookups()
     }
 
+    /// Reset network request counters.
     pub fn reset_network_state(&mut self) {
         self.store.data_mut().reset_network_counters();
     }
 
+    /// Reset storage I/O counters.
     pub fn reset_storage_state(&mut self) {
         self.store.data_mut().reset_storage_counters();
     }
 
+    /// Total bytes read from storage during this instance's lifetime.
     pub fn storage_bytes_read(&self) -> u64 {
         self.store.data().storage_state.bytes_read
     }
 
+    /// Total bytes written to storage during this instance's lifetime.
     pub fn storage_bytes_written(&self) -> u64 {
         self.store.data().storage_state.bytes_written
     }
 
+    /// Total storage operations during this instance's lifetime.
     pub fn storage_operations_count(&self) -> u32 {
         self.store.data().storage_state.operations_count
     }
 
+    /// The challenge identifier for this instance.
     pub fn challenge_id(&self) -> &str {
         &self.store.data().challenge_id
     }
 
+    /// The validator identifier for this instance.
     pub fn validator_id(&self) -> &str {
         &self.store.data().validator_id
     }
 
+    /// Number of exec operations performed during this instance's lifetime.
     pub fn exec_executions(&self) -> u32 {
         self.store.data().exec_state.executions()
     }
 
+    /// Reset exec operation counters.
     pub fn reset_exec_state(&mut self) {
         self.store.data_mut().reset_exec_counters();
     }
 
+    /// Evaluate a challenge request by calling the WASM `evaluate` export.
     pub fn evaluate_request(&mut self, req: EvalRequest) -> Result<EvalResponse, WasmRuntimeError> {
         let start = Instant::now();
         let request_id = req.request_id.clone();
@@ -653,6 +697,7 @@ impl ChallengeInstance {
         Ok(bridge::output_to_response(&output, &request_id, elapsed_ms))
     }
 
+    /// Execute a closure with mutable access to the runtime state.
     pub fn with_state<F, T>(&mut self, func: F) -> Result<T, WasmRuntimeError>
     where
         F: FnOnce(&mut RuntimeState) -> Result<T, WasmRuntimeError>,

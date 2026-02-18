@@ -14,10 +14,14 @@ use std::path::PathBuf;
 use tracing::warn;
 use wasmtime::{Caller, Linker, Memory};
 
+/// WASM host function namespace for data operations.
 pub const HOST_DATA_NAMESPACE: &str = "platform_data";
+/// WASM host function name for reading challenge data by key.
 pub const HOST_DATA_GET: &str = "data_get";
+/// WASM host function name for listing data keys under a prefix.
 pub const HOST_DATA_LIST: &str = "data_list";
 
+/// Status codes returned by data host functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum DataHostStatus {
@@ -32,10 +36,12 @@ pub enum DataHostStatus {
 }
 
 impl DataHostStatus {
+    /// Convert the status to its `i32` wire representation.
     pub fn to_i32(self) -> i32 {
         self as i32
     }
 
+    /// Parse an `i32` wire value into a `DataHostStatus`.
     pub fn from_i32(code: i32) -> Self {
         match code {
             0 => Self::Success,
@@ -50,6 +56,7 @@ impl DataHostStatus {
     }
 }
 
+/// Policy controlling WASM access to challenge data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataPolicy {
     pub enabled: bool,
@@ -70,6 +77,7 @@ impl Default for DataPolicy {
 }
 
 impl DataPolicy {
+    /// Permissive data policy for local development.
     pub fn development() -> Self {
         Self {
             enabled: true,
@@ -80,11 +88,15 @@ impl DataPolicy {
     }
 }
 
+/// Backend trait for reading challenge data from the host.
 pub trait DataBackend: Send + Sync {
+    /// Retrieve the value for `key` scoped to `challenge_id`, or `None` if absent.
     fn get(&self, challenge_id: &str, key: &str) -> Result<Option<Vec<u8>>, DataError>;
+    /// List data keys under `prefix` scoped to `challenge_id`.
     fn list(&self, challenge_id: &str, prefix: &str) -> Result<Vec<String>, DataError>;
 }
 
+/// Errors that can occur in the data backend.
 #[derive(Debug, thiserror::Error)]
 pub enum DataError {
     #[error("io error: {0}")]
@@ -95,6 +107,7 @@ pub enum DataError {
     PathNotAllowed(String),
 }
 
+/// Data backend that always returns empty results.
 pub struct NoopDataBackend;
 
 impl DataBackend for NoopDataBackend {
@@ -107,11 +120,13 @@ impl DataBackend for NoopDataBackend {
     }
 }
 
+/// Data backend that reads challenge data from the local filesystem.
 pub struct FilesystemDataBackend {
     base_dir: PathBuf,
 }
 
 impl FilesystemDataBackend {
+    /// Create a new filesystem data backend rooted at `base_dir`.
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }
     }
@@ -234,6 +249,7 @@ impl DataBackend for FilesystemDataBackend {
     }
 }
 
+/// Mutable per-instance state for data host functions.
 pub struct DataState {
     pub policy: DataPolicy,
     pub backend: std::sync::Arc<dyn DataBackend>,
@@ -242,6 +258,7 @@ pub struct DataState {
 }
 
 impl DataState {
+    /// Create a new data state with the given policy, backend, and challenge identifier.
     pub fn new(
         policy: DataPolicy,
         backend: std::sync::Arc<dyn DataBackend>,
@@ -255,15 +272,18 @@ impl DataState {
         }
     }
 
+    /// Reset per-execution read counters.
     pub fn reset_counters(&mut self) {
         self.reads = 0;
     }
 }
 
+/// Registrar that binds data host functions into a WASM linker.
 #[derive(Clone, Debug)]
 pub struct DataHostFunctions;
 
 impl DataHostFunctions {
+    /// Create a new `DataHostFunctions` registrar.
     pub fn new() -> Self {
         Self
     }

@@ -14,11 +14,14 @@ use std::time::{Duration, Instant};
 use tracing::{info, warn};
 use wasmtime::{Caller, Linker, Memory};
 
+/// WASM host function namespace for container operations.
 pub const HOST_CONTAINER_NAMESPACE: &str = "platform_container";
+/// WASM host function name for running a container.
 pub const HOST_CONTAINER_RUN: &str = "container_run";
 
 const CONTAINER_POLL_INTERVAL_MS: u64 = 50;
 
+/// Status codes returned by container host functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ContainerHostStatus {
@@ -32,10 +35,12 @@ pub enum ContainerHostStatus {
 }
 
 impl ContainerHostStatus {
+    /// Convert the status to its `i32` wire representation.
     pub fn to_i32(self) -> i32 {
         self as i32
     }
 
+    /// Parse an `i32` wire value into a `ContainerHostStatus`.
     pub fn from_i32(code: i32) -> Self {
         match code {
             0 => Self::Success,
@@ -49,6 +54,7 @@ impl ContainerHostStatus {
     }
 }
 
+/// Policy controlling which containers a WASM module may execute.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerPolicy {
     pub enabled: bool,
@@ -75,6 +81,7 @@ impl Default for ContainerPolicy {
 }
 
 impl ContainerPolicy {
+    /// Permissive container policy for local development.
     pub fn development() -> Self {
         Self {
             enabled: true,
@@ -87,6 +94,7 @@ impl ContainerPolicy {
         }
     }
 
+    /// Check whether the given container image is permitted by this policy.
     pub fn is_image_allowed(&self, image: &str) -> bool {
         if !self.enabled {
             return false;
@@ -97,6 +105,7 @@ impl ContainerPolicy {
     }
 }
 
+/// Request payload for running a container from WASM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerRunRequest {
     pub image: String,
@@ -110,6 +119,7 @@ pub struct ContainerRunRequest {
     pub timeout_ms: u64,
 }
 
+/// Response returned after a container execution completes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerRunResponse {
     pub exit_code: i32,
@@ -118,6 +128,7 @@ pub struct ContainerRunResponse {
     pub duration_ms: u64,
 }
 
+/// Errors that can occur during container execution.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ContainerExecError {
     Disabled,
@@ -128,12 +139,14 @@ pub enum ContainerExecError {
     MemoryError(String),
 }
 
+/// Mutable per-instance state tracking container execution counts.
 pub struct ContainerState {
     pub policy: ContainerPolicy,
     pub containers_run: u32,
 }
 
 impl ContainerState {
+    /// Create a new container state with the given policy.
     pub fn new(policy: ContainerPolicy) -> Self {
         Self {
             policy,
@@ -141,15 +154,18 @@ impl ContainerState {
         }
     }
 
+    /// Reset per-execution counters.
     pub fn reset_counters(&mut self) {
         self.containers_run = 0;
     }
 }
 
+/// Registrar that binds container host functions into a WASM linker.
 #[derive(Clone, Debug)]
 pub struct ContainerHostFunctions;
 
 impl ContainerHostFunctions {
+    /// Create a new `ContainerHostFunctions` registrar.
     pub fn new() -> Self {
         Self
     }
