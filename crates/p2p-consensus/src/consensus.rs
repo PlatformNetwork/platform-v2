@@ -18,6 +18,11 @@ use std::sync::Arc;
 use thiserror::Error;
 use tracing::{info, warn};
 
+/// Default round timeout in milliseconds (30 seconds).
+const DEFAULT_ROUND_TIMEOUT_MS: i64 = 30_000;
+/// Default view-change timeout in milliseconds (60 seconds).
+const DEFAULT_VIEW_CHANGE_TIMEOUT_MS: i64 = 60_000;
+
 /// Consensus errors
 #[derive(Error, Debug)]
 pub enum ConsensusError {
@@ -174,8 +179,8 @@ impl ConsensusEngine {
             current_round: RwLock::new(None),
             view_change_state: RwLock::new(None),
             decisions: RwLock::new(HashMap::new()),
-            round_timeout_ms: 30_000,       // 30 seconds
-            view_change_timeout_ms: 60_000, // 60 seconds
+            round_timeout_ms: DEFAULT_ROUND_TIMEOUT_MS,
+            view_change_timeout_ms: DEFAULT_VIEW_CHANGE_TIMEOUT_MS,
         }
     }
 

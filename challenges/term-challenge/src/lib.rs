@@ -9,7 +9,7 @@ mod types;
 use alloc::vec::Vec;
 use bincode::Options;
 use platform_challenge_sdk_wasm::host_functions::{
-    host_consensus_get_epoch, host_http_post, host_storage_get, host_storage_set,
+    host_consensus_get_epoch, host_http_post, host_log, host_storage_get, host_storage_set,
 };
 use platform_challenge_sdk_wasm::{Challenge, EvaluationInput, EvaluationOutput};
 
@@ -78,7 +78,9 @@ fn get_last_submission_epoch(miner_hotkey: &str) -> Option<u64> {
 
 fn set_last_submission_epoch(miner_hotkey: &str, epoch: u64) {
     let key = last_submission_key(miner_hotkey);
-    let _ = host_storage_set(&key, &epoch.to_le_bytes());
+    if host_storage_set(&key, &epoch.to_le_bytes()).is_err() {
+        host_log(3, "failed to persist last submission epoch");
+    }
 }
 
 pub struct TermChallengeWasm;

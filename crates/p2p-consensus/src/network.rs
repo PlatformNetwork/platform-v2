@@ -658,7 +658,7 @@ impl P2PNetwork {
     pub async fn start(
         &self,
     ) -> Result<(mpsc::Receiver<P2PEvent>, mpsc::Sender<P2PCommand>), NetworkError> {
-        let (event_tx, event_rx) = mpsc::channel::<P2PEvent>(1000);
+        let (_event_tx, event_rx) = mpsc::channel::<P2PEvent>(1000);
         let (cmd_tx, _cmd_rx) = mpsc::channel::<P2PCommand>(1000);
 
         // Get libp2p keypair
@@ -677,9 +677,6 @@ impl P2PNetwork {
             peer_id = %self.local_peer_id,
             "P2P network started, returning event/command channels"
         );
-
-        // Store event_tx for forwarding events
-        let _event_tx_clone = event_tx.clone();
 
         // The actual event loop would be spawned here in a full implementation
         // For now, we return the channels and let the caller handle the swarm event loop
