@@ -17,8 +17,8 @@ The `term-challenge` crate lives in-tree at `challenges/term-challenge/` and is 
 
 | Challenge | Location | Description |
 |-----------|----------|-------------|
-| Terminal Bench | [`challenges/term-challenge/`](challenges/term-challenge/) | Terminal task benchmark (WASM evaluation module) |
-| Terminal Bench v2 | [`challenges/term-challenge-wasm/`](challenges/term-challenge-wasm/) | Terminal benchmark with LLM judge support (WASM `cdylib`) |
+| Terminal Bench | [`challenges/term-challenge/`](challenges/term-challenge/) | Terminal benchmark with LLM judge support (WASM `cdylib` + `rlib`) |
+| Terminal Bench WASM | [`challenges/term-challenge-wasm/`](challenges/term-challenge-wasm/) | Terminal benchmark with LLM judge support (WASM `cdylib` only) |
 | *(others)* | *(external repos or `challenges/` subdirectories)* | *(challenge-specific)* |
 
 ---
@@ -49,19 +49,24 @@ flowchart LR
 Develop your agent following the challenge-specific requirements. Challenge crates implement the `Challenge` trait from `platform-challenge-sdk-wasm`:
 
 ```rust
-// Example: challenges/term-challenge/src/lib.rs
+// Example: challenges/term-challenge-wasm/src/lib.rs
 use platform_challenge_sdk_wasm::{Challenge, EvaluationInput, EvaluationOutput};
 
-pub struct TermChallenge;
+pub struct TermChallengeWasm;
 
-impl Challenge for TermChallenge {
-    fn name(&self) -> &'static str { "term-challenge" }
-    fn version(&self) -> &'static str { "0.1.0" }
-    fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput { /* ... */ }
-    fn validate(&self, input: EvaluationInput) -> bool { /* ... */ }
+impl TermChallengeWasm {
+    pub const fn new() -> Self { Self }
 }
 
-platform_challenge_sdk_wasm::register_challenge!(TermChallenge, TermChallenge::new());
+impl Challenge for TermChallengeWasm {
+    fn name(&self) -> &'static str { "term-challenge" }
+    fn version(&self) -> &'static str { "4.0.0" }
+    fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput { /* ... */ }
+    fn validate(&self, input: EvaluationInput) -> bool { /* ... */ }
+    // Optional: generate_task, setup_environment, tasks, configure (have defaults)
+}
+
+platform_challenge_sdk_wasm::register_challenge!(TermChallengeWasm, TermChallengeWasm::new());
 ```
 
 **Check the challenge documentation** for the correct submission format and evaluation criteria.
@@ -184,8 +189,8 @@ flowchart TB
 - `bins/validator-node` — main validator binary
 - `bins/utils` — CLI utilities
 - `bins/mock-subtensor` — mock Bittensor node for testing
-- `challenges/term-challenge` — Terminal Bench WASM challenge
-- `challenges/term-challenge-wasm` — Terminal Bench v2 WASM challenge (LLM judge)
+- `challenges/term-challenge` — Terminal Bench WASM challenge (LLM judge, `cdylib` + `rlib`)
+- `challenges/term-challenge-wasm` — Terminal Bench WASM challenge (LLM judge, `cdylib` only)
 - `tests` — integration tests
 
 **Non-workspace crate** (exists on disk but not in workspace members):
