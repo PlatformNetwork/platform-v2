@@ -520,10 +520,9 @@ fn cmd_list() -> Result<()> {
         return Ok(());
     }
 
-    let header_installed = "INSTALLED";
     println!(
         "{:<20} {:<12} {:<40} {}",
-        "CHALLENGE", "VERSION", "PATH", header_installed
+        "CHALLENGE", "VERSION", "PATH", "INSTALLED"
     );
     println!("{}", "-".repeat(90));
 

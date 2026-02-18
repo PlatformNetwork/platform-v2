@@ -1026,6 +1026,19 @@ async fn handle_network_event(
                     validator = %msg.validator_hotkey.to_hex(),
                     "Received agent log proposal"
                 );
+                let accepted = state_manager.apply(|state| {
+                    state.propose_agent_logs(
+                        &msg.submission_id,
+                        msg.validator_hotkey.clone(),
+                        msg.logs_data,
+                    )
+                });
+                if !accepted {
+                    warn!(
+                        submission_id = %msg.submission_id,
+                        "Agent log proposal rejected by state manager"
+                    );
+                }
             }
         },
         NetworkEvent::PeerConnected(peer_id) => {

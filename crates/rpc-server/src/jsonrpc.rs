@@ -1367,10 +1367,10 @@ impl RpcHandler {
             .map(|c| c.id);
 
         match challenge_uuid {
-            Some(_cid) => JsonRpcResponse::result(
+            Some(cid) => JsonRpcResponse::result(
                 id,
                 json!({
-                    "challengeId": challenge_id,
+                    "challengeId": cid.to_string(),
                     "entries": [],
                     "total": 0,
                     "limit": limit,
@@ -1444,17 +1444,22 @@ impl RpcHandler {
                 )
             }
         };
-        let _epoch = self.get_param_u64(&params, 1, "epoch");
+        let epoch = self.get_param_u64(&params, 1, "epoch");
 
-        let _hk = match platform_core::Hotkey::from_hex(&miner_hotkey) {
+        let hk = match platform_core::Hotkey::from_hex(&miner_hotkey) {
             Some(h) => h,
             None => return JsonRpcResponse::error(id, INVALID_PARAMS, "Invalid hotkey format"),
         };
+
+        let chain = self.chain_state.read();
+        let is_registered = chain.registered_hotkeys.contains(&hk);
 
         JsonRpcResponse::result(
             id,
             json!({
                 "minerHotkey": miner_hotkey,
+                "isRegistered": is_registered,
+                "epoch": epoch,
                 "entry": null,
             }),
         )
@@ -1471,12 +1476,13 @@ impl RpcHandler {
                 )
             }
         };
-        let _epoch = self.get_param_u64(&params, 1, "epoch");
+        let epoch = self.get_param_u64(&params, 1, "epoch");
 
         JsonRpcResponse::result(
             id,
             json!({
                 "minerHotkey": miner_hotkey,
+                "epoch": epoch,
                 "logs": [],
                 "total": 0,
             }),
