@@ -424,7 +424,7 @@ fn execute_command(
     let has_stdin = request
         .stdin
         .as_ref()
-        .map_or(false, |s| !s.is_empty());
+        .is_some_and(|s| !s.is_empty());
 
     if has_stdin {
         cmd.stdin(std::process::Stdio::piped());
