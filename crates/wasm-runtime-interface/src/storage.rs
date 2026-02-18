@@ -36,9 +36,6 @@ pub const HOST_STORAGE_GET: &str = "storage_get";
 pub const HOST_STORAGE_SET: &str = "storage_set";
 pub const HOST_STORAGE_PROPOSE_WRITE: &str = "storage_propose_write";
 pub const HOST_STORAGE_DELETE: &str = "storage_delete";
-pub const HOST_STORAGE_GET_RESULT: &str = "storage_get_result";
-pub const HOST_STORAGE_ALLOC: &str = "storage_alloc";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum StorageHostStatus {
@@ -183,38 +180,6 @@ impl StorageHostConfig {
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageGetRequest {
-    pub challenge_id: String,
-    pub key: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageGetResponse {
-    pub found: bool,
-    pub value: Option<Vec<u8>>,
-    pub version: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageProposeWriteRequest {
-    pub challenge_id: String,
-    pub key: Vec<u8>,
-    pub value: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageProposeWriteResponse {
-    pub proposal_id: [u8; 32],
-    pub status: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageDeleteRequest {
-    pub challenge_id: String,
-    pub key: Vec<u8>,
 }
 
 pub struct StorageHostState {
@@ -375,36 +340,6 @@ impl StorageBackend for InMemoryStorageBackend {
             Ok(false)
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StorageAuditEntry {
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    pub challenge_id: String,
-    pub validator_id: String,
-    pub operation: StorageOperation,
-    pub key_hash: [u8; 32],
-    pub value_size: Option<usize>,
-    pub status: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum StorageOperation {
-    Get,
-    Set,
-    ProposeWrite,
-    Delete,
-}
-
-pub trait StorageAuditLogger: Send + Sync {
-    fn record(&self, entry: StorageAuditEntry);
-}
-
-pub struct NoopStorageAuditLogger;
-
-impl StorageAuditLogger for NoopStorageAuditLogger {
-    fn record(&self, _entry: StorageAuditEntry) {}
 }
 
 #[derive(Clone, Debug)]

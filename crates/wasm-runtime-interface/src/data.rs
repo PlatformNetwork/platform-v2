@@ -140,8 +140,28 @@ impl FilesystemDataBackend {
         Ok(())
     }
 
+    fn validate_segment(segment: &str, label: &str) -> Result<(), DataError> {
+        if segment.is_empty() {
+            return Err(DataError::PathNotAllowed(format!(
+                "{label} must not be empty"
+            )));
+        }
+        if segment.bytes().any(|b| b == 0) {
+            return Err(DataError::PathNotAllowed(format!(
+                "{label} contains null byte"
+            )));
+        }
+        if segment.contains("..") || segment.contains('\\') || segment.starts_with('/') {
+            return Err(DataError::PathNotAllowed(format!(
+                "{label} contains path traversal or separator"
+            )));
+        }
+        Ok(())
+    }
+
     fn safe_resolve(&self, challenge_id: &str, subpath: &str) -> Result<PathBuf, DataError> {
         Self::validate_challenge_id(challenge_id)?;
+        Self::validate_segment(subpath, "subpath")?;
 
         let challenge_dir = self.base_dir.join(challenge_id);
         let path = challenge_dir.join(subpath);
@@ -204,7 +224,10 @@ impl DataBackend for FilesystemDataBackend {
                         names.push(name.to_string());
                     }
                 }
-                Err(_) => continue,
+                Err(e) => {
+                    warn!(error = %e, "data backend: failed to read directory entry");
+                    continue;
+                }
             }
         }
         Ok(names)

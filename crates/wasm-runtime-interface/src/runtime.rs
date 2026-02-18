@@ -348,11 +348,7 @@ impl WasmRuntime {
             Arc::clone(&instance_config.data_backend),
             instance_config.challenge_id.clone(),
         );
-        let container_state = ContainerState::new(
-            instance_config.container_policy.clone(),
-            instance_config.challenge_id.clone(),
-            instance_config.validator_id.clone(),
-        );
+        let container_state = ContainerState::new(instance_config.container_policy.clone());
         let runtime_state = RuntimeState::new(
             instance_config.network_policy.clone(),
             instance_config.sandbox_policy.clone(),

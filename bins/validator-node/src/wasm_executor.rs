@@ -8,8 +8,8 @@ use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
     ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, NetworkHostFunctions,
-    NetworkPolicy, RuntimeConfig, SandboxHostFunctions, SandboxPolicy, StorageBackend,
-    StorageHostConfig, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
+    NetworkPolicy, RuntimeConfig, SandboxPolicy, StorageBackend, StorageHostConfig, TerminalPolicy,
+    TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -164,7 +164,6 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
-        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
@@ -287,7 +286,6 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
-        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),

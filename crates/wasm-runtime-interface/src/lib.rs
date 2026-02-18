@@ -37,10 +37,8 @@ pub use sandbox::{
     HOST_SANDBOX_LOG_MESSAGE, HOST_SANDBOX_NAMESPACE, HOST_SANDBOX_STATUS,
 };
 pub use storage::{
-    InMemoryStorageBackend, NoopStorageBackend, StorageAuditEntry, StorageAuditLogger,
-    StorageBackend, StorageDeleteRequest, StorageGetRequest, StorageGetResponse, StorageHostConfig,
-    StorageHostError, StorageHostFunctions, StorageHostState, StorageHostStatus, StorageOperation,
-    StorageProposeWriteRequest, StorageProposeWriteResponse,
+    InMemoryStorageBackend, NoopStorageBackend, StorageBackend, StorageHostConfig,
+    StorageHostError, StorageHostFunctions, StorageHostState, StorageHostStatus,
 };
 
 pub const HOST_FUNCTION_NAMESPACE: &str = "platform_network";
@@ -67,8 +65,8 @@ pub use runtime::{
     WasmModule, WasmRuntime, WasmRuntimeError,
 };
 pub use storage::{
-    HOST_STORAGE_ALLOC, HOST_STORAGE_DELETE, HOST_STORAGE_GET, HOST_STORAGE_GET_RESULT,
-    HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE, HOST_STORAGE_SET,
+    HOST_STORAGE_DELETE, HOST_STORAGE_GET, HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE,
+    HOST_STORAGE_SET,
 };
 pub use terminal::{
     TerminalHostFunctions, TerminalHostStatus, TerminalPolicy, TerminalState,

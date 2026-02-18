@@ -17,6 +17,8 @@ use wasmtime::{Caller, Linker, Memory};
 pub const HOST_CONTAINER_NAMESPACE: &str = "platform_container";
 pub const HOST_CONTAINER_RUN: &str = "container_run";
 
+const CONTAINER_POLL_INTERVAL_MS: u64 = 50;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
 pub enum ContainerHostStatus {
@@ -128,17 +130,13 @@ pub enum ContainerExecError {
 
 pub struct ContainerState {
     pub policy: ContainerPolicy,
-    pub challenge_id: String,
-    pub validator_id: String,
     pub containers_run: u32,
 }
 
 impl ContainerState {
-    pub fn new(policy: ContainerPolicy, challenge_id: String, validator_id: String) -> Self {
+    pub fn new(policy: ContainerPolicy) -> Self {
         Self {
             policy,
-            challenge_id,
-            validator_id,
             containers_run: 0,
         }
     }
@@ -447,7 +445,9 @@ fn execute_container(
         if let Some(ref stdin_data) = request.stdin {
             if let Some(ref mut stdin) = child.stdin {
                 use std::io::Write;
-                let _ = stdin.write_all(stdin_data);
+                if let Err(e) = stdin.write_all(stdin_data) {
+                    warn!(error = %e, "failed to write stdin data to container");
+                }
             }
         }
         child.stdin.take();
@@ -464,7 +464,7 @@ fn execute_container(
                     .wait_with_output()
                     .map_err(|e| ContainerExecError::ExecutionFailed(e.to_string()))?
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Ok(None) => std::thread::sleep(Duration::from_millis(CONTAINER_POLL_INTERVAL_MS)),
             Err(e) => return Err(ContainerExecError::ExecutionFailed(e.to_string())),
         }
     };
@@ -610,21 +610,13 @@ mod tests {
 
     #[test]
     fn test_container_state_creation() {
-        let state = ContainerState::new(
-            ContainerPolicy::default(),
-            "test".to_string(),
-            "test".to_string(),
-        );
+        let state = ContainerState::new(ContainerPolicy::default());
         assert_eq!(state.containers_run, 0);
     }
 
     #[test]
     fn test_container_state_reset() {
-        let mut state = ContainerState::new(
-            ContainerPolicy::default(),
-            "test".to_string(),
-            "test".to_string(),
-        );
+        let mut state = ContainerState::new(ContainerPolicy::default());
         state.containers_run = 5;
         state.reset_counters();
         assert_eq!(state.containers_run, 0);
