@@ -14,6 +14,7 @@ pub mod consensus;
 pub mod container;
 pub mod data;
 pub mod exec;
+pub mod llm;
 pub mod network;
 pub mod runtime;
 pub mod sandbox;
@@ -62,6 +63,7 @@ pub use data::{
     DataBackend, DataError, DataHostFunctions, DataHostStatus, DataPolicy, DataState,
     FilesystemDataBackend, NoopDataBackend, HOST_DATA_GET, HOST_DATA_LIST, HOST_DATA_NAMESPACE,
 };
+pub use llm::{LlmHostFunctions, LlmHostStatus, LlmPolicy, LlmState, HOST_LLM_NAMESPACE};
 pub use runtime::{
     ChallengeInstance, HostFunctionRegistrar, InstanceConfig, RuntimeConfig, RuntimeState,
     WasmModule, WasmRuntime, WasmRuntimeError,

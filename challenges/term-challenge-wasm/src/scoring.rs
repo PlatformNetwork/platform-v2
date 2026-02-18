@@ -3,12 +3,10 @@ use core::fmt::Write as _;
 
 use crate::types::{Difficulty, DifficultyStats, TaskDefinition, TaskResult};
 
-#[allow(dead_code)]
 pub struct AggregateScore {
     pub tasks_passed: u32,
     pub tasks_failed: u32,
     pub pass_rate: f64,
-    pub normalized_score: f64,
     pub total_execution_time_ms: u64,
     pub easy_stats: DifficultyStats,
     pub medium_stats: DifficultyStats,
@@ -17,16 +15,7 @@ pub struct AggregateScore {
 
 impl AggregateScore {
     pub fn total_tasks(&self) -> u32 {
-        self.tasks_passed + self.tasks_failed
-    }
-}
-
-#[allow(dead_code)]
-pub fn score_task(result: &TaskResult) -> f64 {
-    if result.passed {
-        1.0
-    } else {
-        0.0
+        self.tasks_passed.saturating_add(self.tasks_failed)
     }
 }
 
@@ -53,9 +42,7 @@ pub fn calculate_aggregate(tasks: &[TaskDefinition], results: &[TaskResult]) -> 
         } else {
             failed += 1;
         }
-
         total_execution_time_ms = total_execution_time_ms.saturating_add(result.execution_time_ms);
-
         let stats = match task.difficulty {
             Difficulty::Easy => &mut easy,
             Difficulty::Medium => &mut medium,
@@ -78,7 +65,6 @@ pub fn calculate_aggregate(tasks: &[TaskDefinition], results: &[TaskResult]) -> 
         tasks_passed: passed,
         tasks_failed: failed,
         pass_rate,
-        normalized_score: pass_rate,
         total_execution_time_ms,
         easy_stats: easy,
         medium_stats: medium,
@@ -103,21 +89,21 @@ pub fn format_summary(score: &AggregateScore) -> String {
         let _ = write!(
             msg,
             " easy={}/{}",
-            score.easy_stats.passed, score.easy_stats.total,
+            score.easy_stats.passed, score.easy_stats.total
         );
     }
     if score.medium_stats.total > 0 {
         let _ = write!(
             msg,
             " med={}/{}",
-            score.medium_stats.passed, score.medium_stats.total,
+            score.medium_stats.passed, score.medium_stats.total
         );
     }
     if score.hard_stats.total > 0 {
         let _ = write!(
             msg,
             " hard={}/{}",
-            score.hard_stats.passed, score.hard_stats.total,
+            score.hard_stats.passed, score.hard_stats.total
         );
     }
     let _ = write!(msg, " time={}ms", score.total_execution_time_ms);

@@ -39,6 +39,26 @@ use wasm_executor::{WasmChallengeExecutor, WasmExecutorConfig};
 /// Storage key for persisted chain state
 const STATE_STORAGE_KEY: &str = "chain_state";
 
+/// Maximum length for user-provided strings logged from P2P messages
+const MAX_LOG_FIELD_LEN: usize = 256;
+const JOB_TIMEOUT_MS: i64 = 300_000;
+
+/// Sanitize a user-provided string for safe logging.
+///
+/// Replaces control characters (newlines, tabs, ANSI escapes) with spaces
+/// and truncates to `MAX_LOG_FIELD_LEN` to prevent log injection attacks.
+fn sanitize_for_log(s: &str) -> String {
+    let truncated = if s.len() > MAX_LOG_FIELD_LEN {
+        &s[..MAX_LOG_FIELD_LEN]
+    } else {
+        s
+    };
+    truncated
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
 // ==================== Shutdown Handler ====================
 
 /// Handles graceful shutdown with state persistence
@@ -121,7 +141,7 @@ impl ShutdownHandler {
 
 // ==================== CLI ====================
 
-#[derive(Parser, Debug)]
+#[derive(Parser)]
 #[command(name = "validator-node")]
 #[command(about = "Platform Validator - Decentralized P2P Architecture")]
 struct Args {
@@ -176,6 +196,28 @@ struct Args {
     /// Fuel limit per WASM execution (requires --wasm-enable-fuel)
     #[arg(long, env = "WASM_FUEL_LIMIT")]
     wasm_fuel_limit: Option<u64>,
+}
+
+impl std::fmt::Debug for Args {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Args")
+            .field(
+                "secret_key",
+                &self.secret_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("data_dir", &self.data_dir)
+            .field("listen_addr", &self.listen_addr)
+            .field("bootstrap", &self.bootstrap)
+            .field("subtensor_endpoint", &self.subtensor_endpoint)
+            .field("netuid", &self.netuid)
+            .field("version_key", &self.version_key)
+            .field("no_bittensor", &self.no_bittensor)
+            .field("wasm_module_dir", &self.wasm_module_dir)
+            .field("wasm_max_memory", &self.wasm_max_memory)
+            .field("wasm_enable_fuel", &self.wasm_enable_fuel)
+            .field("wasm_fuel_limit", &self.wasm_fuel_limit)
+            .finish()
+    }
 }
 
 // ==================== Main ====================
@@ -377,6 +419,7 @@ async fn main() -> Result<()> {
         fuel_limit: args.wasm_fuel_limit,
         storage_host_config: wasm_runtime_interface::StorageHostConfig::default(),
         storage_backend: std::sync::Arc::new(wasm_runtime_interface::InMemoryStorageBackend::new()),
+        chutes_api_key: None,
     }) {
         Ok(executor) => {
             info!(
@@ -847,7 +890,7 @@ async fn handle_network_event(
                     challenge_id: assignment.challenge_id,
                     assigned_validator: assignment.assigned_validator,
                     assigned_at: assignment.timestamp,
-                    timeout_at: assignment.timestamp + 300_000,
+                    timeout_at: assignment.timestamp + JOB_TIMEOUT_MS,
                     status: JobStatus::Pending,
                 };
                 state_manager.apply(|state| {
@@ -950,6 +993,31 @@ async fn handle_network_event(
                     voter = %vote.voter.to_hex(),
                     approve = vote.approve,
                     "Received storage vote"
+                );
+            }
+            P2PMessage::ReviewAssignment(msg) => {
+                debug!(
+                    submission_id = %msg.submission_id,
+                    assigner = %msg.assigner.to_hex(),
+                    assigned_count = msg.assigned_validators.len(),
+                    "Received review assignment"
+                );
+            }
+            P2PMessage::ReviewDecline(msg) => {
+                let safe_reason = sanitize_for_log(&msg.reason);
+                debug!(
+                    submission_id = %msg.submission_id,
+                    validator = %msg.validator.to_hex(),
+                    reason = %safe_reason,
+                    "Received review decline"
+                );
+            }
+            P2PMessage::ReviewResult(msg) => {
+                debug!(
+                    submission_id = %msg.submission_id,
+                    validator = %msg.validator.to_hex(),
+                    score = msg.score,
+                    "Received review result"
                 );
             }
         },

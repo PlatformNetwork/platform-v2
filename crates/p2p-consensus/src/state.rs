@@ -4,6 +4,7 @@
 //! evaluations, weights, and validator information.
 
 use crate::messages::{MerkleNode, MerkleProof, SequenceNumber};
+use bincode::Options;
 use parking_lot::RwLock;
 use platform_core::{hash_data, ChallengeId, Hotkey, SignedMessage};
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, info, warn};
+
+const MAX_STATE_DESERIALIZATION_SIZE: u64 = 256 * 1024 * 1024;
 
 /// Errors related to state operations
 #[derive(Error, Debug)]
@@ -183,6 +186,27 @@ pub struct ChainState {
     /// Storage roots per challenge
     #[serde(default)]
     pub challenge_storage_roots: HashMap<ChallengeId, [u8; 32]>,
+    /// Review assignments per submission
+    #[serde(default)]
+    pub review_assignments: HashMap<String, Vec<ReviewRecord>>,
+}
+
+/// Record of a review assignment
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReviewRecord {
+    pub submission_id: String,
+    pub review_type: crate::messages::ReviewType,
+    pub assigned_validators: Vec<Hotkey>,
+    pub results: HashMap<Hotkey, ReviewResultEntry>,
+    pub created_at: i64,
+}
+
+/// Single review result entry
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReviewResultEntry {
+    pub score: f64,
+    pub details: String,
+    pub timestamp: i64,
 }
 
 impl Default for ChainState {
@@ -206,6 +230,7 @@ impl Default for ChainState {
             active_jobs: HashMap::new(),
             task_progress: HashMap::new(),
             challenge_storage_roots: HashMap::new(),
+            review_assignments: HashMap::new(),
         }
     }
 }
@@ -298,7 +323,19 @@ impl ChainState {
 
     /// Deserialize state from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, StateError> {
-        bincode::deserialize(bytes).map_err(|e| StateError::Serialization(e.to_string()))
+        if bytes.len() as u64 > MAX_STATE_DESERIALIZATION_SIZE {
+            return Err(StateError::Serialization(format!(
+                "state data exceeds maximum size: {} > {}",
+                bytes.len(),
+                MAX_STATE_DESERIALIZATION_SIZE
+            )));
+        }
+        bincode::DefaultOptions::new()
+            .with_limit(MAX_STATE_DESERIALIZATION_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(bytes)
+            .map_err(|e| StateError::Serialization(e.to_string()))
     }
 
     /// Add or update a validator
@@ -682,6 +719,52 @@ impl ChainState {
             self.increment_sequence();
         }
         removed
+    }
+
+    pub fn assign_review(&mut self, record: ReviewRecord) {
+        self.review_assignments
+            .entry(record.submission_id.clone())
+            .or_default()
+            .push(record);
+        self.increment_sequence();
+    }
+
+    pub fn add_review_result(
+        &mut self,
+        submission_id: &str,
+        validator: &Hotkey,
+        score: f64,
+        details: String,
+    ) -> bool {
+        if !score.is_finite() || !(0.0..=1.0).contains(&score) {
+            warn!(
+                score,
+                submission_id,
+                "Rejecting review result with invalid score (must be finite and in 0.0..=1.0)"
+            );
+            return false;
+        }
+        if let Some(reviews) = self.review_assignments.get_mut(submission_id) {
+            for review in reviews.iter_mut() {
+                if review.assigned_validators.contains(validator) {
+                    review.results.insert(
+                        validator.clone(),
+                        ReviewResultEntry {
+                            score,
+                            details,
+                            timestamp: chrono::Utc::now().timestamp_millis(),
+                        },
+                    );
+                    self.update_hash();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn get_review_status(&self, submission_id: &str) -> Option<&Vec<ReviewRecord>> {
+        self.review_assignments.get(submission_id)
     }
 }
 

@@ -3,6 +3,7 @@ use crate::consensus::{ConsensusHostFunctions, ConsensusPolicy, ConsensusState};
 use crate::container::{ContainerHostFunctions, ContainerPolicy, ContainerState};
 use crate::data::{DataBackend, DataHostFunctions, DataPolicy, DataState, NoopDataBackend};
 use crate::exec::{ExecHostFunctions, ExecPolicy, ExecState};
+use crate::llm::{LlmHostFunctions, LlmPolicy, LlmState};
 use crate::sandbox::SandboxHostFunctions;
 use crate::storage::{
     InMemoryStorageBackend, StorageBackend, StorageHostConfig, StorageHostFunctions,
@@ -130,6 +131,8 @@ pub struct InstanceConfig {
     pub data_backend: Arc<dyn DataBackend>,
     /// Container policy for WASM access to container execution.
     pub container_policy: ContainerPolicy,
+    /// LLM policy for WASM access to LLM inference.
+    pub llm_policy: LlmPolicy,
 }
 
 impl Default for InstanceConfig {
@@ -153,6 +156,7 @@ impl Default for InstanceConfig {
             data_policy: DataPolicy::default(),
             data_backend: Arc::new(NoopDataBackend),
             container_policy: ContainerPolicy::default(),
+            llm_policy: LlmPolicy::default(),
         }
     }
 }
@@ -190,6 +194,8 @@ pub struct RuntimeState {
     pub data_state: DataState,
     /// Container state for container execution host operations.
     pub container_state: ContainerState,
+    /// LLM state for LLM inference host operations.
+    pub llm_state: LlmState,
     limits: StoreLimits,
 }
 
@@ -205,6 +211,7 @@ impl RuntimeState {
         terminal_state: TerminalState,
         data_state: DataState,
         container_state: ContainerState,
+        llm_state: LlmState,
         memory_export: String,
         challenge_id: String,
         validator_id: String,
@@ -224,6 +231,7 @@ impl RuntimeState {
             terminal_state,
             data_state,
             container_state,
+            llm_state,
             memory_export,
             challenge_id,
             validator_id,
@@ -353,6 +361,7 @@ impl WasmRuntime {
             instance_config.challenge_id.clone(),
             instance_config.validator_id.clone(),
         );
+        let llm_state = LlmState::new(instance_config.llm_policy.clone());
         let runtime_state = RuntimeState::new(
             instance_config.network_policy.clone(),
             instance_config.sandbox_policy.clone(),
@@ -363,6 +372,7 @@ impl WasmRuntime {
             terminal_state,
             data_state,
             container_state,
+            llm_state,
             instance_config.memory_export.clone(),
             instance_config.challenge_id.clone(),
             instance_config.validator_id.clone(),
@@ -409,6 +419,9 @@ impl WasmRuntime {
 
         let container_host_fns = ContainerHostFunctions::new();
         container_host_fns.register(&mut linker)?;
+
+        let llm_host_fns = LlmHostFunctions::new();
+        llm_host_fns.register(&mut linker)?;
 
         let sandbox_host_fns = SandboxHostFunctions::all();
         sandbox_host_fns.register(&mut linker)?;

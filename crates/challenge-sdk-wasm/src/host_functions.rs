@@ -1,6 +1,10 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+const RESPONSE_BUF_SMALL: usize = 4096;
+const RESPONSE_BUF_MEDIUM: usize = 64 * 1024;
+const RESPONSE_BUF_LARGE: usize = 256 * 1024;
+
 #[link(wasm_import_module = "platform_network")]
 extern "C" {
     fn http_get(req_ptr: i32, req_len: i32, resp_ptr: i32, resp_len: i32) -> i32;
@@ -25,7 +29,7 @@ extern "C" {
 }
 
 pub fn host_http_get(request: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut response_buf = vec![0u8; 65536];
+    let mut response_buf = vec![0u8; RESPONSE_BUF_MEDIUM];
     let status = unsafe {
         http_get(
             request.as_ptr() as i32,
@@ -42,7 +46,7 @@ pub fn host_http_get(request: &[u8]) -> Result<Vec<u8>, i32> {
 }
 
 pub fn host_http_post(request: &[u8], body: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut response_buf = vec![0u8; 65536];
+    let mut response_buf = vec![0u8; RESPONSE_BUF_MEDIUM];
     let status = unsafe {
         http_post(
             request.as_ptr() as i32,
@@ -60,7 +64,7 @@ pub fn host_http_post(request: &[u8], body: &[u8]) -> Result<Vec<u8>, i32> {
 }
 
 pub fn host_dns_resolve(request: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut response_buf = vec![0u8; 4096];
+    let mut response_buf = vec![0u8; RESPONSE_BUF_SMALL];
     let status = unsafe {
         dns_resolve(
             request.as_ptr() as i32,
@@ -76,7 +80,7 @@ pub fn host_dns_resolve(request: &[u8]) -> Result<Vec<u8>, i32> {
 }
 
 pub fn host_storage_get(key: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut value_buf = vec![0u8; 65536];
+    let mut value_buf = vec![0u8; RESPONSE_BUF_MEDIUM];
     let status = unsafe {
         storage_get(
             key.as_ptr() as i32,
@@ -107,7 +111,7 @@ pub fn host_storage_set(key: &[u8], value: &[u8]) -> Result<(), i32> {
 }
 
 pub fn host_terminal_exec(request: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut result_buf = vec![0u8; 262144];
+    let mut result_buf = vec![0u8; RESPONSE_BUF_LARGE];
     let status = unsafe {
         terminal_exec(
             request.as_ptr() as i32,
@@ -124,7 +128,7 @@ pub fn host_terminal_exec(request: &[u8]) -> Result<Vec<u8>, i32> {
 }
 
 pub fn host_read_file(path: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut buf = vec![0u8; 262144];
+    let mut buf = vec![0u8; RESPONSE_BUF_LARGE];
     let status = unsafe {
         terminal_read_file(
             path.as_ptr() as i32,
@@ -156,7 +160,7 @@ pub fn host_write_file(path: &[u8], data: &[u8]) -> Result<(), i32> {
 }
 
 pub fn host_list_dir(path: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut buf = vec![0u8; 65536];
+    let mut buf = vec![0u8; RESPONSE_BUF_MEDIUM];
     let status = unsafe {
         terminal_list_dir(
             path.as_ptr() as i32,
@@ -192,7 +196,7 @@ extern "C" {
 }
 
 pub fn host_sandbox_exec(request: &[u8]) -> Result<Vec<u8>, i32> {
-    let mut response_buf = vec![0u8; 262144];
+    let mut response_buf = vec![0u8; RESPONSE_BUF_LARGE];
     let status = unsafe {
         sandbox_exec(
             request.as_ptr() as i32,
@@ -216,6 +220,33 @@ pub fn host_log(level: u8, msg: &str) {
     unsafe { log_message(level as i32, msg.as_ptr() as i32, msg.len() as i32) }
 }
 
+#[link(wasm_import_module = "platform_llm")]
+extern "C" {
+    fn llm_chat_completion(req_ptr: i32, req_len: i32, resp_ptr: i32, resp_len: i32) -> i32;
+    fn llm_is_available() -> i32;
+}
+
+pub fn host_llm_chat_completion(request: &[u8]) -> Result<Vec<u8>, i32> {
+    let mut response_buf = vec![0u8; RESPONSE_BUF_LARGE];
+    let status = unsafe {
+        llm_chat_completion(
+            request.as_ptr() as i32,
+            request.len() as i32,
+            response_buf.as_mut_ptr() as i32,
+            response_buf.len() as i32,
+        )
+    };
+    if status < 0 {
+        return Err(status);
+    }
+    response_buf.truncate(status as usize);
+    Ok(response_buf)
+}
+
+pub fn host_llm_is_available() -> bool {
+    unsafe { llm_is_available() == 1 }
+}
+
 #[link(wasm_import_module = "platform_consensus")]
 extern "C" {
     fn consensus_get_epoch() -> i64;
@@ -232,7 +263,7 @@ pub fn host_consensus_get_epoch() -> i64 {
 }
 
 pub fn host_consensus_get_validators() -> Result<Vec<u8>, i32> {
-    let mut buf = vec![0u8; 65536];
+    let mut buf = vec![0u8; RESPONSE_BUF_MEDIUM];
     let status = unsafe { consensus_get_validators(buf.as_mut_ptr() as i32, buf.len() as i32) };
     if status < 0 {
         return Err(status);
@@ -250,7 +281,7 @@ pub fn host_consensus_propose_weight(uid: i32, weight: i32) -> Result<(), i32> {
 }
 
 pub fn host_consensus_get_votes() -> Result<Vec<u8>, i32> {
-    let mut buf = vec![0u8; 65536];
+    let mut buf = vec![0u8; RESPONSE_BUF_MEDIUM];
     let status = unsafe { consensus_get_votes(buf.as_mut_ptr() as i32, buf.len() as i32) };
     if status < 0 {
         return Err(status);

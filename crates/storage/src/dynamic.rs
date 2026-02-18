@@ -14,6 +14,7 @@
 use crate::types::{
     NamespaceStats, StorageChange, StorageEntry, StorageKey, StorageStats, StorageValue,
 };
+use bincode::Options;
 use parking_lot::RwLock;
 use platform_core::{ChallengeId, Hotkey, MiniChainError, Result};
 use sled::Tree;
@@ -21,6 +22,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::{info, trace};
+
+const MAX_STORAGE_ENTRY_SIZE: u64 = 64 * 1024 * 1024;
+
+fn bincode_options_storage() -> impl Options {
+    bincode::DefaultOptions::new()
+        .with_limit(MAX_STORAGE_ENTRY_SIZE)
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+}
 
 /// Dynamic storage manager
 #[allow(clippy::type_complexity)]
@@ -116,7 +126,8 @@ impl DynamicStorage {
             .map_err(|e| MiniChainError::Storage(e.to_string()))?
         {
             Some(data) => {
-                let entry: StorageEntry = bincode::deserialize(&data)
+                let entry: StorageEntry = bincode_options_storage()
+                    .deserialize(&data)
                     .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
 
                 // Check expiry
@@ -355,7 +366,8 @@ impl DynamicStorage {
         for item in self.tree.scan_prefix(&prefix) {
             let (key_bytes, data) = item.map_err(|e| MiniChainError::Storage(e.to_string()))?;
 
-            let entry: StorageEntry = bincode::deserialize(&data)
+            let entry: StorageEntry = bincode_options_storage()
+                .deserialize(&data)
                 .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
 
             if entry.is_expired() {
@@ -411,7 +423,7 @@ impl DynamicStorage {
         for item in self.tree.iter() {
             let (key, data) = item.map_err(|e| MiniChainError::Storage(e.to_string()))?;
 
-            if let Ok(entry) = bincode::deserialize::<StorageEntry>(&data) {
+            if let Ok(entry) = bincode_options_storage().deserialize::<StorageEntry>(&data) {
                 if entry.is_expired() {
                     to_remove.push(key.to_vec());
                 }
@@ -474,6 +486,67 @@ impl DynamicStorage {
             .flush()
             .map_err(|e| MiniChainError::Storage(e.to_string()))?;
         Ok(())
+    }
+
+    /// Query entries by prefix within a challenge namespace
+    pub fn query_by_prefix(
+        &self,
+        challenge_id: &ChallengeId,
+        prefix: &str,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        let namespace = challenge_id.0.to_string();
+        let entries = self.scan_namespace(&namespace)?;
+
+        entries
+            .into_iter()
+            .filter(|(k, _)| k.validator.is_none() && k.key.starts_with(prefix))
+            .map(|(k, entry)| {
+                let value_bytes = bincode::serialize(&entry.value)
+                    .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
+                Ok((k.key, value_bytes))
+            })
+            .collect()
+    }
+
+    /// Get a value as it existed at a specific block height
+    ///
+    /// Note: This is a best-effort operation. The current implementation
+    /// returns the current value if it was last modified at or before the
+    /// specified block height. Full block-level history requires a separate
+    /// versioned storage layer.
+    pub fn get_at_block(
+        &self,
+        challenge_id: &ChallengeId,
+        key: &str,
+        block: u64,
+    ) -> Result<Option<Vec<u8>>> {
+        let storage_key = StorageKey::challenge(challenge_id, key);
+        let entry = self.get(&storage_key)?;
+
+        match entry {
+            Some(e) => {
+                if e.version <= block {
+                    let value_bytes = bincode::serialize(&e.value)
+                        .map_err(|err| MiniChainError::Serialization(err.to_string()))?;
+                    Ok(Some(value_bytes))
+                } else {
+                    Ok(None)
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// List all keys within a challenge namespace
+    pub fn list_keys(&self, challenge_id: &ChallengeId) -> Result<Vec<String>> {
+        let namespace = challenge_id.0.to_string();
+        let entries = self.scan_namespace(&namespace)?;
+
+        Ok(entries
+            .into_iter()
+            .filter(|(k, _)| k.validator.is_none())
+            .map(|(k, _)| k.key)
+            .collect())
     }
 }
 
@@ -551,6 +624,16 @@ impl<'a> ChallengeStorage<'a> {
     pub fn map_get(&self, key: &str, field: &str) -> Result<Option<StorageValue>> {
         let storage_key = StorageKey::challenge(&self.challenge_id, key);
         self.storage.map_get(&storage_key, field)
+    }
+
+    /// Query entries by key prefix
+    pub fn query_by_prefix(&self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        self.storage.query_by_prefix(&self.challenge_id, prefix)
+    }
+
+    /// List all keys in this challenge
+    pub fn list_keys(&self) -> Result<Vec<String>> {
+        self.storage.list_keys(&self.challenge_id)
     }
 }
 

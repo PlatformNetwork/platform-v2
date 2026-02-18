@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use bincode::Options;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -7,10 +8,12 @@ use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
-    ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, NetworkHostFunctions,
-    NetworkPolicy, RuntimeConfig, SandboxHostFunctions, SandboxPolicy, StorageBackend,
+    ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, LlmPolicy,
+    NetworkHostFunctions, NetworkPolicy, RuntimeConfig, SandboxPolicy, StorageBackend,
     StorageHostConfig, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
 };
+
+const MAX_EVALUATION_OUTPUT_SIZE: u64 = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvaluationInput {
@@ -65,6 +68,22 @@ pub struct WasmExecutorConfig {
     pub fuel_limit: Option<u64>,
     pub storage_host_config: StorageHostConfig,
     pub storage_backend: Arc<dyn StorageBackend>,
+    pub chutes_api_key: Option<String>,
+}
+
+impl std::fmt::Debug for WasmExecutorConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WasmExecutorConfig")
+            .field("module_dir", &self.module_dir)
+            .field("max_memory_bytes", &self.max_memory_bytes)
+            .field("enable_fuel", &self.enable_fuel)
+            .field("fuel_limit", &self.fuel_limit)
+            .field(
+                "chutes_api_key",
+                &self.chutes_api_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl Default for WasmExecutorConfig {
@@ -76,6 +95,7 @@ impl Default for WasmExecutorConfig {
             fuel_limit: None,
             storage_host_config: StorageHostConfig::default(),
             storage_backend: Arc::new(InMemoryStorageBackend::new()),
+            chutes_api_key: None,
         }
     }
 }
@@ -164,7 +184,6 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
-        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
@@ -186,6 +205,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 
@@ -229,7 +252,11 @@ impl WasmChallengeExecutor {
                 anyhow::anyhow!("Failed to read evaluation output from WASM memory: {}", e)
             })?;
 
-        let output: EvaluationOutput = bincode::deserialize(&output_bytes)
+        let output: EvaluationOutput = bincode::DefaultOptions::new()
+            .with_limit(MAX_EVALUATION_OUTPUT_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(&output_bytes)
             .context("Failed to deserialize EvaluationOutput from WASM module")?;
 
         let fuel_consumed = match (initial_fuel, instance.fuel_remaining()) {
@@ -287,7 +314,6 @@ impl WasmChallengeExecutor {
             bincode::serialize(&input).context("Failed to serialize EvaluationInput")?;
 
         let network_host_fns = Arc::new(NetworkHostFunctions::all());
-        let _sandbox_host_fns = Arc::new(SandboxHostFunctions::all());
 
         let instance_config = InstanceConfig {
             network_policy: network_policy.clone(),
@@ -309,6 +335,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 
@@ -419,6 +449,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 
@@ -439,7 +473,9 @@ impl WasmChallengeExecutor {
         let result_data = if out_ptr > 0 && out_len > 0 {
             instance
                 .read_memory(out_ptr as usize, out_len as usize)
-                .unwrap_or_default()
+                .map_err(|e| {
+                    anyhow::anyhow!("failed to read WASM memory for get_tasks output: {}", e)
+                })?
         } else {
             Vec::new()
         };
@@ -498,6 +534,10 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
             ..Default::default()
         };
 

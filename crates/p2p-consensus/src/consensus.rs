@@ -749,12 +749,16 @@ impl ConsensusEngine {
         let (last_prepared_sequence, prepared_proof) = {
             let round = self.current_round.read();
             if let Some(r) = round.as_ref() {
-                if r.phase >= ConsensusPhase::Prepared && r.pre_prepare.is_some() {
-                    let proof = PreparedProof {
-                        pre_prepare: r.pre_prepare.clone().unwrap(),
-                        prepares: r.prepares.values().cloned().collect(),
-                    };
-                    (Some(r.sequence), Some(proof))
+                if let Some(pre_prepare) = r.pre_prepare.clone() {
+                    if r.phase >= ConsensusPhase::Prepared {
+                        let proof = PreparedProof {
+                            pre_prepare,
+                            prepares: r.prepares.values().cloned().collect(),
+                        };
+                        (Some(r.sequence), Some(proof))
+                    } else {
+                        (None, None)
+                    }
                 } else {
                     (None, None)
                 }

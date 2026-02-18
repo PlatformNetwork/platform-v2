@@ -4,8 +4,9 @@
 //! Provides the networking foundation for PBFT consensus.
 
 use crate::config::P2PConfig;
-use crate::messages::{P2PMessage, SignedP2PMessage, WeightVoteMessage};
+use crate::messages::{P2PMessage, SignedP2PMessage, WeightVoteMessage, MAX_P2P_MESSAGE_SIZE};
 use crate::validator::ValidatorSet;
+use bincode::Options;
 use libp2p::{
     gossipsub::{self, IdentTopic, MessageAuthenticity, MessageId, ValidationMode},
     identify,
@@ -169,7 +170,6 @@ pub struct P2PNetwork {
     /// Peer mapping
     peer_mapping: Arc<PeerMapping>,
     /// Reference to validator set
-    #[allow(dead_code)]
     validator_set: Arc<ValidatorSet>,
     /// Event sender
     #[allow(dead_code)]
@@ -443,8 +443,12 @@ impl P2PNetwork {
         source: PeerId,
         data: &[u8],
     ) -> Result<P2PMessage, NetworkError> {
-        let signed: SignedP2PMessage =
-            bincode::deserialize(data).map_err(|e| NetworkError::Serialization(e.to_string()))?;
+        let signed: SignedP2PMessage = bincode::DefaultOptions::new()
+            .with_limit(MAX_P2P_MESSAGE_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(data)
+            .map_err(|e| NetworkError::Serialization(e.to_string()))?;
 
         // Verify signature first
         if !self.verify_message(&signed) {
@@ -711,6 +715,9 @@ fn expected_signer(message: &P2PMessage) -> Option<&Hotkey> {
         P2PMessage::ChallengeUpdate(msg) => Some(&msg.updater),
         P2PMessage::StorageProposal(msg) => Some(&msg.proposer),
         P2PMessage::StorageVote(msg) => Some(&msg.voter),
+        P2PMessage::ReviewAssignment(msg) => Some(&msg.assigner),
+        P2PMessage::ReviewDecline(msg) => Some(&msg.validator),
+        P2PMessage::ReviewResult(msg) => Some(&msg.validator),
     }
 }
 

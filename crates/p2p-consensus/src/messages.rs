@@ -3,8 +3,11 @@
 //! Defines all message types used for inter-validator communication
 //! over the libp2p gossipsub network.
 
+use bincode::Options;
 use platform_core::{ChallengeId, Hotkey};
 use serde::{Deserialize, Serialize};
+
+pub const MAX_P2P_MESSAGE_SIZE: u64 = 16 * 1024 * 1024;
 
 /// Unique identifier for a consensus round
 pub type RoundId = u64;
@@ -51,6 +54,11 @@ pub enum P2PMessage {
     ChallengeUpdate(ChallengeUpdateMessage),
     StorageProposal(StorageProposalMessage),
     StorageVote(StorageVoteMessage),
+
+    // Review assignment
+    ReviewAssignment(ReviewAssignmentMessage),
+    ReviewDecline(ReviewDeclineMessage),
+    ReviewResult(ReviewResultMessage),
 }
 
 impl P2PMessage {
@@ -61,7 +69,18 @@ impl P2PMessage {
 
     /// Deserialize message from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::Error> {
-        bincode::deserialize(bytes)
+        if bytes.len() as u64 > MAX_P2P_MESSAGE_SIZE {
+            return Err(Box::new(bincode::ErrorKind::Custom(format!(
+                "message exceeds maximum size: {} > {}",
+                bytes.len(),
+                MAX_P2P_MESSAGE_SIZE
+            ))));
+        }
+        bincode::DefaultOptions::new()
+            .with_limit(MAX_P2P_MESSAGE_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(bytes)
     }
 
     /// Get the message type name for logging
@@ -91,6 +110,9 @@ impl P2PMessage {
             P2PMessage::ChallengeUpdate(_) => "ChallengeUpdate",
             P2PMessage::StorageProposal(_) => "StorageProposal",
             P2PMessage::StorageVote(_) => "StorageVote",
+            P2PMessage::ReviewAssignment(_) => "ReviewAssignment",
+            P2PMessage::ReviewDecline(_) => "ReviewDecline",
+            P2PMessage::ReviewResult(_) => "ReviewResult",
         }
     }
 }
@@ -598,6 +620,72 @@ pub struct StorageVoteMessage {
     /// Vote timestamp
     pub timestamp: i64,
     /// Voter's signature
+    pub signature: Vec<u8>,
+}
+
+// ============================================================================
+// Review Assignment Messages
+// ============================================================================
+
+/// Type of review to be performed
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ReviewType {
+    /// LLM-based code review
+    Llm,
+    /// AST-based structural review
+    Ast,
+}
+
+/// Assignment of review validators for a submission
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReviewAssignmentMessage {
+    /// Submission being reviewed
+    pub submission_id: String,
+    /// Type of review
+    pub review_type: ReviewType,
+    /// Validators assigned to perform the review
+    pub assigned_validators: Vec<Hotkey>,
+    /// Deterministic seed used for selection
+    pub seed: [u8; 32],
+    /// Assignment timestamp
+    pub timestamp: i64,
+    /// Validator that made the assignment
+    pub assigner: Hotkey,
+    /// Assigner's signature
+    pub signature: Vec<u8>,
+}
+
+/// Decline message when a validator cannot perform a review
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReviewDeclineMessage {
+    /// Submission being reviewed
+    pub submission_id: String,
+    /// Validator declining the review
+    pub validator: Hotkey,
+    /// Reason for declining
+    pub reason: String,
+    /// Decline timestamp
+    pub timestamp: i64,
+    /// Validator's signature
+    pub signature: Vec<u8>,
+}
+
+/// Result of a review from a validator
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReviewResultMessage {
+    /// Submission being reviewed
+    pub submission_id: String,
+    /// Validator that performed the review
+    pub validator: Hotkey,
+    /// Type of review performed
+    pub review_type: ReviewType,
+    /// Review score (0.0 to 1.0)
+    pub score: f64,
+    /// Detailed review output
+    pub details: String,
+    /// Result timestamp
+    pub timestamp: i64,
+    /// Validator's signature
     pub signature: Vec<u8>,
 }
 
