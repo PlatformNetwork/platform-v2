@@ -45,23 +45,24 @@ pub mod validator;
 pub use config::{P2PConfig, DEFAULT_BOOTSTRAP_NODES};
 pub use consensus::{ConsensusDecision, ConsensusEngine, ConsensusError, ConsensusPhase};
 pub use messages::{
-    ChallengeUpdateMessage, CommitMessage, ConsensusProposal, DataRequestMessage,
-    DataResponseMessage, EvaluationMessage, EvaluationMetrics, HeartbeatMessage,
-    JobAssignmentMessage, JobClaimMessage, LeaderboardRequestMessage, LeaderboardResponseMessage,
-    MerkleNode, MerkleProof, NewViewMessage, P2PMessage, PeerAnnounceMessage, PrePrepare,
-    PrepareMessage, PreparedProof, ProposalContent, RoundId, SequenceNumber, SignedP2PMessage,
-    StateChangeType, StateRequest, StateResponse, StorageProposalMessage, StorageVoteMessage,
-    SubmissionMessage, TaskProgressMessage, TaskResultMessage, ViewChangeMessage, ViewNumber,
-    WeightVoteMessage,
+    AgentLogProposalMessage, ChallengeUpdateMessage, CommitMessage, ConsensusProposal,
+    DataRequestMessage, DataResponseMessage, EvaluationMessage, EvaluationMetrics,
+    HeartbeatMessage, JobAssignmentMessage, JobClaimMessage, LeaderboardRequestMessage,
+    LeaderboardResponseMessage, MerkleNode, MerkleProof, NewViewMessage, P2PMessage,
+    PeerAnnounceMessage, PrePrepare, PrepareMessage, PreparedProof, ProposalContent, RoundId,
+    SequenceNumber, SignedP2PMessage, StateChangeType, StateRequest, StateResponse,
+    StorageProposalMessage, StorageVoteMessage, SubmissionMessage, TaskProgressMessage,
+    TaskResultMessage, ViewChangeMessage, ViewNumber, WeightVoteMessage,
 };
 pub use network::{
     NetworkBehaviour, NetworkError, NetworkEvent, NetworkRunner, P2PCommand, P2PEvent, P2PNetwork,
     PeerMapping,
 };
 pub use state::{
-    build_merkle_proof, compute_merkle_root, verify_merkle_proof, ChainState, ChallengeConfig,
-    EvaluationRecord, JobRecord, JobStatus, LeaderboardEntry, StateError, StateManager,
-    TaskProgressRecord, ValidatorEvaluation, WeightVotes,
+    build_merkle_proof, compute_merkle_root, verify_merkle_proof, AgentCodeEntry, ChainState,
+    ChallengeConfig, EvaluationRecord, JobRecord, JobStatus, LeaderboardEntry, ReviewRecord,
+    ReviewResultEntry, StateError, StateManager, TaskProgressRecord, ValidatorEvaluation,
+    WeightVotes,
 };
 pub use validator::{
     LeaderElection, StakeWeightedVoting, ValidatorError, ValidatorRecord, ValidatorSet,

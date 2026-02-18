@@ -415,6 +415,10 @@ impl RpcHandler {
                     "evaluation_getProgress", "evaluation_getLogs",
                     // Agent
                     "agent_getCode", "agent_getLogs",
+                    // Metagraph
+                    "metagraph_hotkeys", "metagraph_isRegistered",
+                    // Sudo
+                    "sudo_submit",
                     // RPC
                     "rpc_methods",
                     // Monitor
