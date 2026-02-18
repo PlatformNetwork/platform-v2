@@ -59,6 +59,9 @@ pub enum P2PMessage {
     ReviewAssignment(ReviewAssignmentMessage),
     ReviewDecline(ReviewDeclineMessage),
     ReviewResult(ReviewResultMessage),
+
+    /// Agent log proposal for consensus
+    AgentLogProposal(AgentLogProposalMessage),
 }
 
 impl P2PMessage {
@@ -113,6 +116,7 @@ impl P2PMessage {
             P2PMessage::ReviewAssignment(_) => "ReviewAssignment",
             P2PMessage::ReviewDecline(_) => "ReviewDecline",
             P2PMessage::ReviewResult(_) => "ReviewResult",
+            P2PMessage::AgentLogProposal(_) => "AgentLogProposal",
         }
     }
 }
@@ -687,6 +691,31 @@ pub struct ReviewResultMessage {
     pub timestamp: i64,
     /// Validator's signature
     pub signature: Vec<u8>,
+}
+
+// ============================================================================
+// Agent Log Messages
+// ============================================================================
+
+/// Agent log proposal message for P2P consensus
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentLogProposalMessage {
+    /// Submission ID this log belongs to
+    pub submission_id: String,
+    /// Challenge ID
+    pub challenge_id: String,
+    /// Miner hotkey
+    pub miner_hotkey: String,
+    /// SHA256 hash of the logs data
+    pub logs_hash: [u8; 32],
+    /// Serialized agent logs (max 256KB)
+    pub logs_data: Vec<u8>,
+    /// Validator proposing these logs
+    pub validator_hotkey: Hotkey,
+    /// Epoch when evaluation occurred
+    pub epoch: u64,
+    /// Timestamp
+    pub timestamp: i64,
 }
 
 // ============================================================================

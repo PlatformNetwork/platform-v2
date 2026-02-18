@@ -53,6 +53,9 @@ pub enum NetworkMessage {
     /// Real-time task progress update (for evaluation tracking)
     TaskProgress(TaskProgressMessage),
 
+    /// Agent log proposal for consensus validation
+    AgentLogProposal(AgentLogProposalMessage),
+
     /// Version incompatible - disconnect
     VersionMismatch {
         our_version: String,
@@ -124,6 +127,18 @@ impl TaskProgressMessage {
             timestamp: chrono::Utc::now().timestamp() as u64,
         }
     }
+}
+
+/// Agent log proposal message
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentLogProposalMessage {
+    pub submission_id: String,
+    pub challenge_id: String,
+    pub miner_hotkey: String,
+    pub logs_hash: [u8; 32],
+    pub logs_data: Vec<u8>,
+    pub validator_hotkey: String,
+    pub epoch: u64,
 }
 
 /// Challenge-specific network message
@@ -1234,6 +1249,19 @@ mod tests {
             challenge_id: "test".to_string(),
             payload: vec![],
             message_type: ChallengeMessageType::EvaluationResult,
+        });
+
+        // TaskProgress (already covered above via TaskProgress variant)
+
+        // AgentLogProposal
+        let _ = NetworkMessage::AgentLogProposal(AgentLogProposalMessage {
+            submission_id: "sub-1".to_string(),
+            challenge_id: "challenge-1".to_string(),
+            miner_hotkey: "miner-1".to_string(),
+            logs_hash: [0u8; 32],
+            logs_data: vec![1, 2, 3],
+            validator_hotkey: "validator-1".to_string(),
+            epoch: 1,
         });
 
         // VersionMismatch

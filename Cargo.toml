@@ -18,6 +18,7 @@ members = [
     "bins/validator-node",
     "bins/utils",
     "bins/mock-subtensor",
+    "bins/platform-cli",
     "tests",
     "challenges/term-challenge",
     "challenges/term-challenge-wasm",

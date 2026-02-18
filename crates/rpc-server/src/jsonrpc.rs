@@ -352,6 +352,17 @@ impl RpcHandler {
             ["epoch", "current"] => self.epoch_current(req.id),
             ["epoch", "getPhase"] => self.epoch_get_phase(req.id),
 
+            // Leaderboard namespace
+            ["leaderboard", "get"] => self.leaderboard_get(req.id, req.params),
+
+            // Evaluation namespace
+            ["evaluation", "getProgress"] => self.evaluation_get_progress(req.id, req.params),
+            ["evaluation", "getLogs"] => self.evaluation_get_logs(req.id, req.params),
+
+            // Agent namespace
+            ["agent", "getCode"] => self.agent_get_code(req.id, req.params),
+            ["agent", "getLogs"] => self.agent_get_logs(req.id, req.params),
+
             // RPC info
             ["rpc", "methods"] => self.rpc_methods(req.id),
 
@@ -398,6 +409,12 @@ impl RpcHandler {
                     "job_list", "job_get",
                     // Epoch
                     "epoch_current", "epoch_getPhase",
+                    // Leaderboard
+                    "leaderboard_get",
+                    // Evaluation
+                    "evaluation_getProgress", "evaluation_getLogs",
+                    // Agent
+                    "agent_getCode", "agent_getLogs",
                     // RPC
                     "rpc_methods",
                     // Monitor
@@ -1320,6 +1337,150 @@ impl RpcHandler {
         };
 
         JsonRpcResponse::result(id, json!(phase))
+    }
+
+    // ==================== Leaderboard Namespace ====================
+
+    fn leaderboard_get(&self, id: Value, params: Value) -> JsonRpcResponse {
+        let challenge_id = match self.get_param_str(&params, 0, "challenge_id") {
+            Some(c) => c,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    INVALID_PARAMS,
+                    "Missing 'challenge_id' parameter",
+                )
+            }
+        };
+        let limit = self
+            .get_param_u64(&params, 1, "limit")
+            .unwrap_or(100)
+            .min(1000);
+        let offset = self.get_param_u64(&params, 2, "offset").unwrap_or(0);
+
+        let chain = self.chain_state.read();
+
+        let challenge_uuid = chain
+            .challenges
+            .values()
+            .find(|c| c.id.to_string() == challenge_id || c.name == challenge_id)
+            .map(|c| c.id);
+
+        match challenge_uuid {
+            Some(_cid) => JsonRpcResponse::result(
+                id,
+                json!({
+                    "challengeId": challenge_id,
+                    "entries": [],
+                    "total": 0,
+                    "limit": limit,
+                    "offset": offset,
+                }),
+            ),
+            None => JsonRpcResponse::error(
+                id,
+                CHALLENGE_NOT_FOUND,
+                format!("Challenge '{}' not found", challenge_id),
+            ),
+        }
+    }
+
+    // ==================== Evaluation Namespace ====================
+
+    fn evaluation_get_progress(&self, id: Value, params: Value) -> JsonRpcResponse {
+        let submission_id = match self.get_param_str(&params, 0, "submission_id") {
+            Some(s) => s,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    INVALID_PARAMS,
+                    "Missing 'submission_id' parameter",
+                )
+            }
+        };
+
+        JsonRpcResponse::result(
+            id,
+            json!({
+                "submissionId": submission_id,
+                "progress": [],
+                "total": 0,
+            }),
+        )
+    }
+
+    fn evaluation_get_logs(&self, id: Value, params: Value) -> JsonRpcResponse {
+        let submission_id = match self.get_param_str(&params, 0, "submission_id") {
+            Some(s) => s,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    INVALID_PARAMS,
+                    "Missing 'submission_id' parameter",
+                )
+            }
+        };
+
+        JsonRpcResponse::result(
+            id,
+            json!({
+                "submissionId": submission_id,
+                "logs": null,
+                "validated": false,
+            }),
+        )
+    }
+
+    // ==================== Agent Namespace ====================
+
+    fn agent_get_code(&self, id: Value, params: Value) -> JsonRpcResponse {
+        let miner_hotkey = match self.get_param_str(&params, 0, "miner_hotkey") {
+            Some(h) => h,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    INVALID_PARAMS,
+                    "Missing 'miner_hotkey' parameter",
+                )
+            }
+        };
+        let _epoch = self.get_param_u64(&params, 1, "epoch");
+
+        let _hk = match platform_core::Hotkey::from_hex(&miner_hotkey) {
+            Some(h) => h,
+            None => return JsonRpcResponse::error(id, INVALID_PARAMS, "Invalid hotkey format"),
+        };
+
+        JsonRpcResponse::result(
+            id,
+            json!({
+                "minerHotkey": miner_hotkey,
+                "entry": null,
+            }),
+        )
+    }
+
+    fn agent_get_logs(&self, id: Value, params: Value) -> JsonRpcResponse {
+        let miner_hotkey = match self.get_param_str(&params, 0, "miner_hotkey") {
+            Some(h) => h,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    INVALID_PARAMS,
+                    "Missing 'miner_hotkey' parameter",
+                )
+            }
+        };
+        let _epoch = self.get_param_u64(&params, 1, "epoch");
+
+        JsonRpcResponse::result(
+            id,
+            json!({
+                "minerHotkey": miner_hotkey,
+                "logs": [],
+                "total": 0,
+            }),
+        )
     }
 
     // ==================== Helper Methods ====================

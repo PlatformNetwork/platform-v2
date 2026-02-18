@@ -1020,6 +1020,13 @@ async fn handle_network_event(
                     "Received review result"
                 );
             }
+            P2PMessage::AgentLogProposal(msg) => {
+                debug!(
+                    submission_id = %msg.submission_id,
+                    validator = %msg.validator_hotkey.to_hex(),
+                    "Received agent log proposal"
+                );
+            }
         },
         NetworkEvent::PeerConnected(peer_id) => {
             info!("Peer connected: {}", peer_id);

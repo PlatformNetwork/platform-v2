@@ -718,6 +718,7 @@ fn expected_signer(message: &P2PMessage) -> Option<&Hotkey> {
         P2PMessage::ReviewAssignment(msg) => Some(&msg.assigner),
         P2PMessage::ReviewDecline(msg) => Some(&msg.validator),
         P2PMessage::ReviewResult(msg) => Some(&msg.validator),
+        P2PMessage::AgentLogProposal(msg) => Some(&msg.validator_hotkey),
     }
 }
 
