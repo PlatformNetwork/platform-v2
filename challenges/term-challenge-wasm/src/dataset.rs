@@ -1,11 +1,11 @@
+use crate::types::{DatasetSelection, TaskDefinition};
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 use core::fmt::Write as _;
 use platform_challenge_sdk_wasm::host_functions::{
     host_consensus_get_epoch, host_random_seed, host_storage_set,
 };
-use crate::types::{DatasetSelection, TaskDefinition};
 
 const DATASET_SELECTION_PREFIX: &[u8] = b"dataset_selection:";
 const TOTAL_SWE_BENCH_TASKS: usize = 2294;
@@ -22,7 +22,9 @@ pub fn select_random_task_indices() -> Vec<usize> {
         seed[0], seed[1], seed[2], seed[3], seed[4], seed[5], seed[6], seed[7],
     ]);
     while indices.len() < TASKS_TO_SELECT {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let idx = (state >> 33) as usize % TOTAL_SWE_BENCH_TASKS;
         if !indices.contains(&idx) {
             indices.push(idx);

@@ -1,5 +1,6 @@
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::fmt;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,7 +39,7 @@ pub struct ChallengeParams {
     pub active_dataset: Option<Vec<TaskDefinition>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Submission {
     pub agent_hash: String,
     pub miner_hotkey: String,
@@ -49,6 +50,28 @@ pub struct Submission {
     pub executor_url: String,
     pub executor_token: String,
     pub task_results: Vec<TaskResult>,
+}
+
+impl fmt::Debug for Submission {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Submission")
+            .field("agent_hash", &self.agent_hash)
+            .field("miner_hotkey", &self.miner_hotkey)
+            .field(
+                "signature",
+                &format_args!("[{} bytes]", self.signature.len()),
+            )
+            .field("epoch", &self.epoch)
+            .field(
+                "package_zip",
+                &format_args!("[{} bytes]", self.package_zip.len()),
+            )
+            .field("basilica_instance", &self.basilica_instance)
+            .field("executor_url", &self.executor_url)
+            .field("executor_token", &"[REDACTED]")
+            .field("task_results", &self.task_results)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

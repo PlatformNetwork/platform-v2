@@ -23,9 +23,18 @@ pub fn calculate_aggregate(tasks: &[TaskDefinition], results: &[TaskResult]) -> 
     let mut passed: u32 = 0;
     let mut failed: u32 = 0;
     let mut total_execution_time_ms: u64 = 0;
-    let mut easy = DifficultyStats { total: 0, passed: 0 };
-    let mut medium = DifficultyStats { total: 0, passed: 0 };
-    let mut hard = DifficultyStats { total: 0, passed: 0 };
+    let mut easy = DifficultyStats {
+        total: 0,
+        passed: 0,
+    };
+    let mut medium = DifficultyStats {
+        total: 0,
+        passed: 0,
+    };
+    let mut hard = DifficultyStats {
+        total: 0,
+        passed: 0,
+    };
 
     for (task, result) in tasks.iter().zip(results.iter()) {
         if result.passed {
@@ -46,7 +55,11 @@ pub fn calculate_aggregate(tasks: &[TaskDefinition], results: &[TaskResult]) -> 
     }
 
     let total = passed + failed;
-    let pass_rate = if total > 0 { passed as f64 / total as f64 } else { 0.0 };
+    let pass_rate = if total > 0 {
+        passed as f64 / total as f64
+    } else {
+        0.0
+    };
 
     AggregateScore {
         tasks_passed: passed,
@@ -88,13 +101,25 @@ pub fn format_summary(score: &AggregateScore) -> String {
         score.pass_rate * 100.0,
     );
     if score.easy_stats.total > 0 {
-        let _ = write!(msg, " easy={}/{}", score.easy_stats.passed, score.easy_stats.total);
+        let _ = write!(
+            msg,
+            " easy={}/{}",
+            score.easy_stats.passed, score.easy_stats.total
+        );
     }
     if score.medium_stats.total > 0 {
-        let _ = write!(msg, " med={}/{}", score.medium_stats.passed, score.medium_stats.total);
+        let _ = write!(
+            msg,
+            " med={}/{}",
+            score.medium_stats.passed, score.medium_stats.total
+        );
     }
     if score.hard_stats.total > 0 {
-        let _ = write!(msg, " hard={}/{}", score.hard_stats.passed, score.hard_stats.total);
+        let _ = write!(
+            msg,
+            " hard={}/{}",
+            score.hard_stats.passed, score.hard_stats.total
+        );
     }
     let _ = write!(msg, " time={}ms", score.total_execution_time_ms);
     msg

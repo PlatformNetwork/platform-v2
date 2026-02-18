@@ -6,6 +6,8 @@
 use platform_core::{ChallengeId, Hotkey};
 use serde::{Deserialize, Serialize};
 
+const MAX_P2P_MESSAGE_SIZE: u64 = 16 * 1024 * 1024;
+
 /// Unique identifier for a consensus round
 pub type RoundId = u64;
 
@@ -66,6 +68,13 @@ impl P2PMessage {
 
     /// Deserialize message from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, bincode::Error> {
+        if bytes.len() as u64 > MAX_P2P_MESSAGE_SIZE {
+            return Err(Box::new(bincode::ErrorKind::Custom(format!(
+                "message exceeds maximum size: {} > {}",
+                bytes.len(),
+                MAX_P2P_MESSAGE_SIZE
+            ))));
+        }
         bincode::deserialize(bytes)
     }
 

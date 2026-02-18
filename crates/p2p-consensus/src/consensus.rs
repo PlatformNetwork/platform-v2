@@ -1233,7 +1233,11 @@ impl ConsensusEngine {
                 selected.push(Hotkey([0u8; 32]));
             }
 
-            [selected[0].clone(), selected[1].clone(), selected[2].clone()]
+            [
+                selected[0].clone(),
+                selected[1].clone(),
+                selected[2].clone(),
+            ]
         };
 
         let llm_reviewers = select_n(0);

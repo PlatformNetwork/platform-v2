@@ -9,9 +9,13 @@
 //! - `llm_is_available() -> i32` — Check if LLM inference is available (has API key)
 
 use crate::runtime::{HostFunctionRegistrar, RuntimeState, WasmRuntimeError};
+use bincode::Options;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use tracing::warn;
 use wasmtime::{Caller, Linker, Memory};
+
+const MAX_CHAT_REQUEST_SIZE: u64 = 4 * 1024 * 1024;
 
 pub const HOST_LLM_NAMESPACE: &str = "platform_llm";
 pub const HOST_LLM_CHAT_COMPLETION: &str = "llm_chat_completion";
@@ -35,13 +39,26 @@ impl LlmHostStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LlmPolicy {
     pub enabled: bool,
+    #[serde(skip)]
     pub api_key: Option<String>,
     pub endpoint: String,
     pub max_requests: u32,
     pub allowed_models: Vec<String>,
+}
+
+impl fmt::Debug for LlmPolicy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LlmPolicy")
+            .field("enabled", &self.enabled)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field("endpoint", &self.endpoint)
+            .field("max_requests", &self.max_requests)
+            .field("allowed_models", &self.allowed_models)
+            .finish()
+    }
 }
 
 impl Default for LlmPolicy {
@@ -199,10 +216,27 @@ fn handle_chat_completion(
         content: String,
     }
 
-    let chat_req: ChatRequest = match bincode::deserialize(&request_bytes) {
+    let chat_req: ChatRequest = match bincode::DefaultOptions::new()
+        .with_limit(MAX_CHAT_REQUEST_SIZE)
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .deserialize(&request_bytes)
+    {
         Ok(r) => r,
         Err(_) => return LlmHostStatus::InvalidRequest.to_i32(),
     };
+
+    {
+        let state = &caller.data().llm_state;
+        let allowed = &state.policy.allowed_models;
+        if !allowed.is_empty() && !allowed.contains(&chat_req.model) {
+            warn!(
+                model = %chat_req.model,
+                "llm_chat_completion: model not in allowed list"
+            );
+            return LlmHostStatus::InvalidRequest.to_i32();
+        }
+    }
 
     #[derive(Serialize)]
     struct OpenAiRequest {
@@ -425,5 +459,21 @@ mod tests {
         let state = LlmState::new(LlmPolicy::default());
         assert_eq!(state.requests_made, 0);
         assert!(!state.policy.is_available());
+    }
+
+    #[test]
+    fn test_llm_policy_debug_redacts_api_key() {
+        let policy = LlmPolicy::with_api_key("super-secret-key-12345".to_string());
+        let debug_output = format!("{:?}", policy);
+        assert!(!debug_output.contains("super-secret-key-12345"));
+        assert!(debug_output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn test_llm_policy_serialize_skips_api_key() {
+        let policy = LlmPolicy::with_api_key("secret-key".to_string());
+        let serialized = bincode::serialize(&policy).unwrap();
+        let deserialized: LlmPolicy = bincode::deserialize(&serialized).unwrap();
+        assert!(deserialized.api_key.is_none());
     }
 }

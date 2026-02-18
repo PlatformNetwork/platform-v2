@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use bincode::Options;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -6,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info};
+
+const MAX_EVALUATION_OUTPUT_SIZE: u64 = 64 * 1024 * 1024;
 use wasm_runtime_interface::{
     ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, LlmPolicy,
     NetworkHostFunctions, NetworkPolicy, RuntimeConfig, SandboxHostFunctions, SandboxPolicy,
@@ -236,7 +239,11 @@ impl WasmChallengeExecutor {
                 anyhow::anyhow!("Failed to read evaluation output from WASM memory: {}", e)
             })?;
 
-        let output: EvaluationOutput = bincode::deserialize(&output_bytes)
+        let output: EvaluationOutput = bincode::DefaultOptions::new()
+            .with_limit(MAX_EVALUATION_OUTPUT_SIZE)
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .deserialize(&output_bytes)
             .context("Failed to deserialize EvaluationOutput from WASM module")?;
 
         let fuel_consumed = match (initial_fuel, instance.fuel_remaining()) {

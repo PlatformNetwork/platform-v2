@@ -16,7 +16,9 @@ use platform_challenge_sdk_wasm::host_functions::{
 use platform_challenge_sdk_wasm::{Challenge, EvaluationInput, EvaluationOutput};
 
 use crate::scoring::{calculate_aggregate, format_summary, to_weight};
-use crate::types::{ChallengeParams, DatasetSelection, LlmJudgeRequest, LlmJudgeResponse, Submission, TaskResult};
+use crate::types::{
+    ChallengeParams, DatasetSelection, LlmJudgeRequest, LlmJudgeResponse, Submission, TaskResult,
+};
 
 use alloc::string::String;
 
@@ -108,7 +110,8 @@ impl TermChallengeWasm {
             Ok(b) => b,
             Err(_) => return None,
         };
-        let judge_resp: LlmJudgeResponse = match bincode_options_llm().deserialize(&response_bytes) {
+        let judge_resp: LlmJudgeResponse = match bincode_options_llm().deserialize(&response_bytes)
+        {
             Ok(r) => r,
             Err(_) => return None,
         };
@@ -149,7 +152,9 @@ impl Challenge for TermChallengeWasm {
         }
         for result in &submission.task_results {
             if !validate_task_result(result) {
-                return EvaluationOutput::failure("invalid task result: bad score or empty task_id");
+                return EvaluationOutput::failure(
+                    "invalid task result: bad score or empty task_id",
+                );
             }
         }
         let mut results: Vec<TaskResult> = submission.task_results;
@@ -233,7 +238,7 @@ impl Challenge for TermChallengeWasm {
     }
 
     fn configure(&self, config: &[u8]) {
-        if let Ok(selection) = bincode::deserialize::<DatasetSelection>(config) {
+        if let Ok(selection) = bincode_options_params().deserialize::<DatasetSelection>(config) {
             tasks::store_dataset(&selection);
         }
     }

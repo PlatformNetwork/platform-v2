@@ -1,14 +1,16 @@
+use crate::types::RouteDefinition;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
-use crate::types::RouteDefinition;
 
 pub fn get_route_definitions() -> Vec<RouteDefinition> {
     vec![
         RouteDefinition {
             method: String::from("GET"),
             path: String::from("/leaderboard"),
-            description: String::from("Returns current leaderboard with scores, miner hotkeys, and ranks"),
+            description: String::from(
+                "Returns current leaderboard with scores, miner hotkeys, and ranks",
+            ),
         },
         RouteDefinition {
             method: String::from("GET"),

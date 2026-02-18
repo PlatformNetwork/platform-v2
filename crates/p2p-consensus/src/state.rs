@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
+const MAX_STATE_DESERIALIZATION_SIZE: u64 = 256 * 1024 * 1024;
+
 /// Errors related to state operations
 #[derive(Error, Debug)]
 pub enum StateError {
@@ -320,6 +322,13 @@ impl ChainState {
 
     /// Deserialize state from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, StateError> {
+        if bytes.len() as u64 > MAX_STATE_DESERIALIZATION_SIZE {
+            return Err(StateError::Serialization(format!(
+                "state data exceeds maximum size: {} > {}",
+                bytes.len(),
+                MAX_STATE_DESERIALIZATION_SIZE
+            )));
+        }
         bincode::deserialize(bytes).map_err(|e| StateError::Serialization(e.to_string()))
     }
 
@@ -721,6 +730,14 @@ impl ChainState {
         score: f64,
         details: String,
     ) -> bool {
+        if !score.is_finite() || !(0.0..=1.0).contains(&score) {
+            warn!(
+                score,
+                submission_id,
+                "Rejecting review result with invalid score (must be finite and in 0.0..=1.0)"
+            );
+            return false;
+        }
         if let Some(reviews) = self.review_assignments.get_mut(submission_id) {
             for review in reviews.iter_mut() {
                 if review.assigned_validators.contains(validator) {
