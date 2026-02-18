@@ -844,10 +844,9 @@ impl DockerClient {
         if let Ok(validator_hotkey) = std::env::var("VALIDATOR_HOTKEY") {
             env.push(format!("VALIDATOR_HOTKEY={}", validator_hotkey));
         }
-        // Pass validator secret key for signing requests (needed by challenge validator workers)
-        if let Ok(validator_secret) = std::env::var("VALIDATOR_SECRET_KEY") {
-            env.push(format!("VALIDATOR_SECRET={}", validator_secret));
-        }
+        // SECURITY: VALIDATOR_SECRET_KEY is intentionally NOT forwarded to challenge
+        // containers. Challenge containers are third-party code and must never receive
+        // the validator's private signing key.
         // Pass owner/sudo hotkey for challenge sudo operations
         if let Ok(owner_hotkey) = std::env::var("OWNER_HOTKEY") {
             env.push(format!("OWNER_HOTKEY={}", owner_hotkey));

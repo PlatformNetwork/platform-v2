@@ -252,10 +252,44 @@ fn find_matching_asset(assets: &[GitHubAsset]) -> Option<&GitHubAsset> {
 
 // ==================== GitHub API ====================
 
+/// Validate that a GitHub repo string is in the expected `owner/repo` format.
+///
+/// Prevents URL path injection when the value is interpolated into API URLs.
+/// Only alphanumeric characters, hyphens, underscores, and dots are permitted
+/// in each segment.
+fn validate_github_repo(repo: &str) -> Result<()> {
+    let parts: Vec<&str> = repo.split('/').collect();
+    if parts.len() != 2 {
+        anyhow::bail!(
+            "Invalid github_repo '{}': must be in 'owner/repo' format",
+            repo
+        );
+    }
+    for part in &parts {
+        if part.is_empty() {
+            anyhow::bail!(
+                "Invalid github_repo '{}': owner and repo must not be empty",
+                repo
+            );
+        }
+        if !part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        {
+            anyhow::bail!(
+                "Invalid github_repo '{}': contains disallowed characters",
+                repo
+            );
+        }
+    }
+    Ok(())
+}
+
 async fn fetch_latest_release(
     client: &reqwest::Client,
     github_repo: &str,
 ) -> Result<GitHubRelease> {
+    validate_github_repo(github_repo)?;
     let url = format!("{}/repos/{}/releases/latest", GITHUB_API_BASE, github_repo);
     debug!("Fetching latest release from {}", url);
 

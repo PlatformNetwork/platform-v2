@@ -140,10 +140,30 @@ impl TerminalPolicy {
         if !self.enabled {
             return false;
         }
+        if path.contains("..") {
+            return false;
+        }
+        let normalized = std::path::Path::new(path).components().fold(
+            std::path::PathBuf::new(),
+            |mut acc, comp| {
+                match comp {
+                    std::path::Component::ParentDir => {
+                        acc.pop();
+                    }
+                    std::path::Component::Normal(s) => acc.push(s),
+                    std::path::Component::RootDir => acc.push("/"),
+                    _ => {}
+                }
+                acc
+            },
+        );
+        let normalized_str = normalized.to_string_lossy();
         if self.allowed_paths.is_empty() {
             return true;
         }
-        self.allowed_paths.iter().any(|p| path.starts_with(p))
+        self.allowed_paths
+            .iter()
+            .any(|p| normalized_str.starts_with(p))
     }
 }
 
@@ -692,6 +712,15 @@ mod tests {
         let policy = TerminalPolicy::default_challenge();
         assert!(policy.is_path_allowed("/tmp/test.txt"));
         assert!(!policy.is_path_allowed("/etc/passwd"));
+    }
+
+    #[test]
+    fn test_terminal_policy_blocks_path_traversal() {
+        let policy = TerminalPolicy::default_challenge();
+        assert!(!policy.is_path_allowed("/tmp/../../etc/passwd"));
+        assert!(!policy.is_path_allowed("/tmp/../etc/shadow"));
+        assert!(!policy.is_path_allowed("/tmp/safe/../../root/.ssh/id_rsa"));
+        assert!(!policy.is_path_allowed("/tmp/.."));
     }
 
     #[test]
