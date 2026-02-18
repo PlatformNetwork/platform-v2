@@ -4,6 +4,7 @@
 //! Uses libp2p for gossipsub consensus and Kademlia DHT for storage.
 //! Submits weights to Bittensor at epoch boundaries.
 
+mod challenge_storage;
 mod wasm_executor;
 
 use anyhow::Result;
