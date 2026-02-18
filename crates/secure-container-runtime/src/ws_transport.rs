@@ -403,14 +403,14 @@ mod tests {
     #[test]
     fn test_generate_and_verify_token() {
         let secret = "test-secret-key-123";
-        let token = generate_token("term-challenge", "validator-1", secret, 3600).unwrap();
+        let token = generate_token("test-challenge", "validator-1", secret, 3600).unwrap();
 
         // Verify token
         let key = jsonwebtoken::DecodingKey::from_secret(secret.as_bytes());
         let validation = jsonwebtoken::Validation::default();
         let decoded = jsonwebtoken::decode::<WsClaims>(&token, &key, &validation).unwrap();
 
-        assert_eq!(decoded.claims.challenge_id, "term-challenge");
+        assert_eq!(decoded.claims.challenge_id, "test-challenge");
         assert_eq!(decoded.claims.owner_id, "validator-1");
     }
 

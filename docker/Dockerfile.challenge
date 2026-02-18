@@ -3,9 +3,9 @@
 #
 # Usage:
 #   docker build -f docker/Dockerfile.challenge \
-#     --build-arg CHALLENGE_NAME=term-challenge \
-#     --build-arg CHALLENGE_DIR=challenges/term-challenge \
-#     -t cortexlm/challenge-term-bench:v1.0.0 .
+#     --build-arg CHALLENGE_NAME=my-challenge \
+#     --build-arg CHALLENGE_DIR=challenges/my-challenge \
+#     -t cortexlm/challenge-my-challenge:v1.0.0 .
 
 # ===== Build Stage =====
 FROM rust:1.92-bookworm as builder
@@ -17,8 +17,8 @@ ENV PLATFORM_NIGHTLY_RUSTFLAGS=${PLATFORM_NIGHTLY_RUSTFLAGS}
 ENV PLATFORM_LINKER_RUSTFLAGS=${PLATFORM_LINKER_RUSTFLAGS}
 ENV INSTALL_FAST_LINKER=${INSTALL_FAST_LINKER}
 
-ARG CHALLENGE_NAME=term-challenge
-ARG CHALLENGE_DIR=challenges/term-challenge
+ARG CHALLENGE_NAME=my-challenge
+ARG CHALLENGE_DIR=challenges/my-challenge
 
 WORKDIR /app
 
@@ -50,7 +50,7 @@ RUN cargo build --release
 # ===== Runtime Stage =====
 FROM debian:bookworm-slim
 
-ARG CHALLENGE_NAME=term-challenge
+ARG CHALLENGE_NAME=my-challenge
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

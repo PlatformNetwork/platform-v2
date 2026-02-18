@@ -16,7 +16,7 @@ Reviewed: `bins/validator-node`, `crates/core`, `crates/p2p-consensus`, `crates/
 - Docker-only notions appear in:
   - `ChallengeContainerConfig` usage (core) and `ChallengeInstance` container ID/endpoint metadata.
   - `refresh_challenge` uses a synthesized config with hardcoded defaults (mechanism_id=0, timeout, CPU/mem). This bypasses canonical config/state.
-  - `cleanup_stale_task_containers` has hardcoded `term-challenge-` prefixes and container exclusions.
+  - `cleanup_stale_task_containers` has hardcoded challenge container prefixes and container exclusions.
 
 ### Challenge Registry
 - Registry entries still require a `docker_image` field and only optionally include WASM metadata. This is a legacy docker-first structure that needs inversion for WASM-first.
@@ -48,7 +48,7 @@ Reviewed: `bins/validator-node`, `crates/core`, `crates/p2p-consensus`, `crates/
    - `ChallengeEntry` should store WASM module metadata as primary, with docker fields removed or optional legacy for migration.
    - `discovery` should focus on WASM module registry or signed P2P announcements instead of docker registry scanning.
 5. **Remove hardcoded challenge Docker names**
-   - `cleanup_stale_task_containers` in `challenge-orchestrator` has hardcoded `term-challenge-` and should be removed or generalized.
+   - `cleanup_stale_task_containers` in `challenge-orchestrator` has hardcoded container prefixes and should be removed or generalized.
 6. **Consensus state challenge metadata**
    - Replace `p2p-consensus::ChallengeConfig` docker image with WASM module metadata (hash/path/entrypoint/policy) to support WASM-only evaluation.
 

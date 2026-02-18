@@ -105,7 +105,7 @@ pub struct NetworkPolicy {
     pub audit: AuditPolicy,
 }
 
-/// Sandbox policy for term-challenge WASM modules.
+/// Sandbox policy for challenge WASM modules.
 ///
 /// Controls whether sandbox command execution is permitted and enforces
 /// resource limits on spawned processes.
@@ -139,8 +139,8 @@ impl SandboxPolicy {
         }
     }
 
-    /// Term-challenge default sandbox policy.
-    pub fn term_challenge() -> Self {
+    /// Default challenge sandbox policy.
+    pub fn default_challenge() -> Self {
         Self {
             enable_sandbox: true,
             allowed_commands: vec![

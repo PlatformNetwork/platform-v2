@@ -97,7 +97,7 @@ impl Default for RuntimeConfig {
 pub struct InstanceConfig {
     /// Network policy enforced by host functions.
     pub network_policy: NetworkPolicy,
-    /// Sandbox policy for term-challenge execution.
+    /// Sandbox policy for challenge execution.
     pub sandbox_policy: SandboxPolicy,
     /// Exec policy enforced by host functions.
     pub exec_policy: ExecPolicy,
@@ -164,7 +164,7 @@ impl Default for InstanceConfig {
 pub struct RuntimeState {
     /// Network policy available to host functions.
     pub network_policy: NetworkPolicy,
-    /// Sandbox policy for term-challenge execution.
+    /// Sandbox policy for challenge execution.
     pub sandbox_policy: SandboxPolicy,
     /// Mutable network state enforcing policy.
     pub network_state: NetworkState,

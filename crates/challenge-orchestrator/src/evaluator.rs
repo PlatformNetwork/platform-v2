@@ -5,7 +5,7 @@
 //! timeouts, and surfaces useful errors back to the validator.
 //!
 //! For challenge-specific schemas, see each challenge repository (for example,
-//! `term-challenge-repo/src/server.rs`).
+//! `the challenge repository`).
 
 use crate::{ChallengeInstance, ContainerStatus};
 use parking_lot::RwLock;
@@ -296,13 +296,13 @@ mod tests {
     #[test]
     fn test_challenge_info_deserialize() {
         let json = r#"{
-            "name": "term-challenge",
+            "name": "test-challenge",
             "version": "1.0.0",
             "description": "Terminal benchmark challenge"
         }"#;
 
         let info: ChallengeInfo = serde_json::from_str(json).unwrap();
-        assert_eq!(info.name, "term-challenge");
+        assert_eq!(info.name, "test-challenge");
         assert_eq!(info.mechanism_id, 0); // default
     }
 

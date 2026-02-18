@@ -341,7 +341,7 @@ mod tests {
     fn test_validate_image_allowed() {
         let policy = SecurityPolicy::default();
         assert!(policy
-            .validate_image("ghcr.io/platformnetwork/term-challenge:latest")
+            .validate_image("ghcr.io/platformnetwork/test-challenge:latest")
             .is_ok());
         assert!(policy.validate_image("platform-challenge:latest").is_ok());
     }
@@ -401,7 +401,7 @@ mod tests {
         let policy = SecurityPolicy::default();
 
         let config = ContainerConfig {
-            image: "ghcr.io/platformnetwork/term-challenge:latest".to_string(),
+            image: "ghcr.io/platformnetwork/test-challenge:latest".to_string(),
             challenge_id: "test-challenge".to_string(),
             owner_id: "test-owner".to_string(),
             ..Default::default()
@@ -415,7 +415,7 @@ mod tests {
         let policy = SecurityPolicy::default();
 
         let config = ContainerConfig {
-            image: "ghcr.io/platformnetwork/term-challenge:latest".to_string(),
+            image: "ghcr.io/platformnetwork/test-challenge:latest".to_string(),
             challenge_id: "".to_string(),
             owner_id: "test-owner".to_string(),
             ..Default::default()

@@ -10,7 +10,7 @@ use secure_container_runtime::*;
 use std::time::Duration;
 use tokio::time::sleep;
 
-const TEST_IMAGE: &str = "ghcr.io/platformnetwork/term-challenge:latest";
+const TEST_IMAGE: &str = "ghcr.io/platformnetwork/test-challenge:latest";
 const MALICIOUS_IMAGE: &str = "docker.io/malicious/evil:latest";
 
 // ============================================================================
@@ -59,7 +59,7 @@ fn test_strict_policy_blocks_non_whitelisted_images() {
 
     // Allowed images (in whitelist)
     let allowed = vec![
-        "ghcr.io/platformnetwork/term-challenge:latest",
+        "ghcr.io/platformnetwork/test-challenge:latest",
         "ghcr.io/platformnetwork/validator:v1.0.0",
         "GHCR.IO/PLATFORMNETWORK/test:latest", // Case insensitive
     ];
@@ -79,7 +79,7 @@ fn test_permissive_policy_allows_all_images() {
         "alpine:latest",
         "ubuntu:22.04",
         "alexgshaw/code-from-image:20251031",
-        "ghcr.io/platformnetwork/term-challenge:latest",
+        "ghcr.io/platformnetwork/test-challenge:latest",
     ];
 
     for image in images {
@@ -95,7 +95,7 @@ fn test_default_policy_allows_whitelisted_images() {
 
     // Platform images should be allowed
     let allowed_images = vec![
-        "ghcr.io/platformnetwork/term-challenge:latest",
+        "ghcr.io/platformnetwork/test-challenge:latest",
         "platform-compiler:latest",
     ];
 

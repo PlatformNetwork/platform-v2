@@ -122,14 +122,6 @@ impl TaskResult {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TermEvaluationParams {
-    pub challenge_id: String,
-    pub task_definitions: Vec<TaskDefinition>,
-    pub timeout_ms: u64,
-    pub environment_config: Option<Vec<u8>>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContainerRunRequest {
     pub image: String,
     pub command: Vec<String>,

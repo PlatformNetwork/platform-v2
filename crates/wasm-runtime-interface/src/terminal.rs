@@ -110,7 +110,7 @@ impl TerminalPolicy {
         }
     }
 
-    pub fn term_challenge() -> Self {
+    pub fn default_challenge() -> Self {
         Self {
             enabled: true,
             allowed_commands: vec![
@@ -689,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_terminal_policy_path_check() {
-        let policy = TerminalPolicy::term_challenge();
+        let policy = TerminalPolicy::default_challenge();
         assert!(policy.is_path_allowed("/tmp/test.txt"));
         assert!(!policy.is_path_allowed("/etc/passwd"));
     }
