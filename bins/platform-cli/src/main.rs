@@ -521,8 +521,8 @@ fn cmd_list() -> Result<()> {
     }
 
     println!(
-        "{:<20} {:<12} {:<40} {}",
-        "CHALLENGE", "VERSION", "PATH", "INSTALLED"
+        "{:<20} {:<12} {:<40} INSTALLED",
+        "CHALLENGE", "VERSION", "PATH"
     );
     println!("{}", "-".repeat(90));
 
