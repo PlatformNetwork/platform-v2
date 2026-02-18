@@ -110,11 +110,7 @@ pub struct ConsensusState {
 }
 
 impl ConsensusState {
-    pub fn new(
-        policy: ConsensusPolicy,
-        challenge_id: String,
-        validator_id: String,
-    ) -> Self {
+    pub fn new(policy: ConsensusPolicy, challenge_id: String, validator_id: String) -> Self {
         Self {
             policy,
             epoch: 0,
@@ -157,9 +153,7 @@ impl HostFunctionRegistrar for ConsensusHostFunctions {
             .func_wrap(
                 HOST_CONSENSUS_NAMESPACE,
                 HOST_CONSENSUS_GET_EPOCH,
-                |caller: Caller<RuntimeState>| -> i64 {
-                    handle_get_epoch(&caller)
-                },
+                |caller: Caller<RuntimeState>| -> i64 { handle_get_epoch(&caller) },
             )
             .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
 
@@ -207,9 +201,7 @@ impl HostFunctionRegistrar for ConsensusHostFunctions {
             .func_wrap(
                 HOST_CONSENSUS_NAMESPACE,
                 HOST_CONSENSUS_GET_SUBMISSION_COUNT,
-                |caller: Caller<RuntimeState>| -> i32 {
-                    handle_get_submission_count(&caller)
-                },
+                |caller: Caller<RuntimeState>| -> i32 { handle_get_submission_count(&caller) },
             )
             .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
 
@@ -217,9 +209,7 @@ impl HostFunctionRegistrar for ConsensusHostFunctions {
             .func_wrap(
                 HOST_CONSENSUS_NAMESPACE,
                 HOST_CONSENSUS_GET_BLOCK_HEIGHT,
-                |caller: Caller<RuntimeState>| -> i64 {
-                    handle_get_block_height(&caller)
-                },
+                |caller: Caller<RuntimeState>| -> i64 { handle_get_block_height(&caller) },
             )
             .map_err(|err| WasmRuntimeError::HostFunction(err.to_string()))?;
 
@@ -235,11 +225,7 @@ fn handle_get_epoch(caller: &Caller<RuntimeState>) -> i64 {
     state.epoch as i64
 }
 
-fn handle_get_validators(
-    caller: &mut Caller<RuntimeState>,
-    buf_ptr: i32,
-    buf_len: i32,
-) -> i32 {
+fn handle_get_validators(caller: &mut Caller<RuntimeState>, buf_ptr: i32, buf_len: i32) -> i32 {
     let data = {
         let state = &caller.data().consensus_state;
         if !state.policy.enabled {
@@ -264,11 +250,7 @@ fn handle_get_validators(
     data.len() as i32
 }
 
-fn handle_propose_weight(
-    caller: &mut Caller<RuntimeState>,
-    uid: i32,
-    weight: i32,
-) -> i32 {
+fn handle_propose_weight(caller: &mut Caller<RuntimeState>, uid: i32, weight: i32) -> i32 {
     if uid < 0 || weight < 0 {
         return ConsensusHostStatus::InvalidArgument.to_i32();
     }
@@ -291,11 +273,7 @@ fn handle_propose_weight(
     ConsensusHostStatus::Success.to_i32()
 }
 
-fn handle_get_votes(
-    caller: &mut Caller<RuntimeState>,
-    buf_ptr: i32,
-    buf_len: i32,
-) -> i32 {
+fn handle_get_votes(caller: &mut Caller<RuntimeState>, buf_ptr: i32, buf_len: i32) -> i32 {
     let data = {
         let state = &caller.data().consensus_state;
         if !state.policy.enabled {
@@ -320,10 +298,7 @@ fn handle_get_votes(
     data.len() as i32
 }
 
-fn handle_get_state_hash(
-    caller: &mut Caller<RuntimeState>,
-    buf_ptr: i32,
-) -> i32 {
+fn handle_get_state_hash(caller: &mut Caller<RuntimeState>, buf_ptr: i32) -> i32 {
     let hash = {
         let state = &caller.data().consensus_state;
         if !state.policy.enabled {
@@ -396,8 +371,14 @@ mod tests {
         assert_eq!(ConsensusHostStatus::ProposalLimitExceeded.to_i32(), -2);
         assert_eq!(ConsensusHostStatus::InternalError.to_i32(), -100);
 
-        assert_eq!(ConsensusHostStatus::from_i32(0), ConsensusHostStatus::Success);
-        assert_eq!(ConsensusHostStatus::from_i32(1), ConsensusHostStatus::Disabled);
+        assert_eq!(
+            ConsensusHostStatus::from_i32(0),
+            ConsensusHostStatus::Success
+        );
+        assert_eq!(
+            ConsensusHostStatus::from_i32(1),
+            ConsensusHostStatus::Disabled
+        );
         assert_eq!(
             ConsensusHostStatus::from_i32(-1),
             ConsensusHostStatus::BufferTooSmall

@@ -14,10 +14,9 @@
 
 use crate::runtime::{HostFunctionRegistrar, RuntimeState, WasmRuntimeError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::process::Command;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::warn;
 use wasmtime::{Caller, Linker, Memory};
 
 pub const HOST_TERMINAL_NAMESPACE: &str = "platform_terminal";
@@ -159,11 +158,7 @@ pub struct TerminalState {
 }
 
 impl TerminalState {
-    pub fn new(
-        policy: TerminalPolicy,
-        challenge_id: String,
-        validator_id: String,
-    ) -> Self {
+    pub fn new(policy: TerminalPolicy, challenge_id: String, validator_id: String) -> Self {
         Self {
             policy,
             challenge_id,
@@ -404,7 +399,12 @@ fn handle_terminal_read_file(
         Err(_) => return TerminalHostStatus::InternalError.to_i32(),
     };
 
-    if !caller.data().terminal_state.policy.is_path_allowed(&path_str) {
+    if !caller
+        .data()
+        .terminal_state
+        .policy
+        .is_path_allowed(&path_str)
+    {
         return TerminalHostStatus::PathNotAllowed.to_i32();
     }
 
@@ -461,7 +461,12 @@ fn handle_terminal_write_file(
         Err(_) => return TerminalHostStatus::InternalError.to_i32(),
     };
 
-    if !caller.data().terminal_state.policy.is_path_allowed(&path_str) {
+    if !caller
+        .data()
+        .terminal_state
+        .policy
+        .is_path_allowed(&path_str)
+    {
         return TerminalHostStatus::PathNotAllowed.to_i32();
     }
 
@@ -513,7 +518,12 @@ fn handle_terminal_list_dir(
         Err(_) => return TerminalHostStatus::InternalError.to_i32(),
     };
 
-    if !caller.data().terminal_state.policy.is_path_allowed(&path_str) {
+    if !caller
+        .data()
+        .terminal_state
+        .policy
+        .is_path_allowed(&path_str)
+    {
         return TerminalHostStatus::PathNotAllowed.to_i32();
     }
 
@@ -650,7 +660,10 @@ mod tests {
         assert_eq!(TerminalHostStatus::InternalError.to_i32(), -100);
 
         assert_eq!(TerminalHostStatus::from_i32(0), TerminalHostStatus::Success);
-        assert_eq!(TerminalHostStatus::from_i32(1), TerminalHostStatus::Disabled);
+        assert_eq!(
+            TerminalHostStatus::from_i32(1),
+            TerminalHostStatus::Disabled
+        );
         assert_eq!(
             TerminalHostStatus::from_i32(-999),
             TerminalHostStatus::InternalError

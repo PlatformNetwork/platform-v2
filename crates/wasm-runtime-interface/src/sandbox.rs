@@ -210,10 +210,7 @@ impl SandboxHostFunctions {
 }
 
 impl HostFunctionRegistrar for SandboxHostFunctions {
-    fn register(
-        &self,
-        linker: &mut Linker<RuntimeState>,
-    ) -> Result<(), WasmRuntimeError> {
+    fn register(&self, linker: &mut Linker<RuntimeState>) -> Result<(), WasmRuntimeError> {
         linker
             .func_wrap(HOST_SANDBOX_NAMESPACE, HOST_SANDBOX_STATUS, || -> i32 {
                 SandboxHostStatus::Success.to_i32()
@@ -262,10 +259,7 @@ impl HostFunctionRegistrar for SandboxHostFunctions {
             .func_wrap(
                 HOST_SANDBOX_NAMESPACE,
                 HOST_SANDBOX_LOG_MESSAGE,
-                |mut caller: Caller<RuntimeState>,
-                 level: i32,
-                 msg_ptr: i32,
-                 msg_len: i32| {
+                |mut caller: Caller<RuntimeState>, level: i32, msg_ptr: i32, msg_len: i32| {
                     handle_log_message(&mut caller, level, msg_ptr, msg_len);
                 },
             )
@@ -421,10 +415,7 @@ fn execute_command(
         cmd.current_dir(dir);
     }
 
-    let has_stdin = request
-        .stdin
-        .as_ref()
-        .is_some_and(|s| !s.is_empty());
+    let has_stdin = request.stdin.as_ref().is_some_and(|s| !s.is_empty());
 
     if has_stdin {
         cmd.stdin(std::process::Stdio::piped());
@@ -451,9 +442,7 @@ fn execute_command(
     let output = loop {
         if start.elapsed() > timeout {
             let _ = child.kill();
-            return Err(SandboxExecError::ExecutionTimeout(
-                timeout.as_secs(),
-            ));
+            return Err(SandboxExecError::ExecutionTimeout(timeout.as_secs()));
         }
         match child.try_wait() {
             Ok(Some(_)) => {
@@ -483,12 +472,7 @@ fn handle_get_timestamp(caller: &Caller<RuntimeState>) -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-fn handle_log_message(
-    caller: &mut Caller<RuntimeState>,
-    level: i32,
-    msg_ptr: i32,
-    msg_len: i32,
-) {
+fn handle_log_message(caller: &mut Caller<RuntimeState>, level: i32, msg_ptr: i32, msg_len: i32) {
     let msg = match read_memory(caller, msg_ptr, msg_len) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(err) => {
