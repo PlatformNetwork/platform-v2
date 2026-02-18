@@ -112,9 +112,9 @@ pub use p2p_client::{
     ValidatorEvaluationResult,
 };
 pub use server::{
-    ChallengeServer, ChallengeServerBuilder, ConfigLimits, ConfigResponse, EvaluationRequest,
-    EvaluationResponse, HealthResponse, ServerChallenge, ServerConfig, ValidationRequest,
-    ValidationResponse,
+    ChallengeContext, ChallengeServer, ChallengeServerBuilder, ConfigLimits, ConfigResponse,
+    EvaluationRequest, EvaluationResponse, HealthResponse, ServerChallenge, ServerConfig,
+    ValidationRequest, ValidationResponse,
 };
 
 pub use data::*;
@@ -130,9 +130,10 @@ pub use weights::*;
 /// Prelude for P2P challenge development
 pub mod prelude {
     pub use super::error::ChallengeError;
+    pub use super::routes::{ChallengeRoute, RouteRequest, RouteResponse};
     pub use super::server::{
-        ChallengeServer, EvaluationRequest, EvaluationResponse, ServerChallenge, ServerConfig,
-        ValidationRequest, ValidationResponse,
+        ChallengeContext, ChallengeServer, EvaluationRequest, EvaluationResponse, ServerChallenge,
+        ServerConfig, ValidationRequest, ValidationResponse,
     };
 
     // P2P mode
