@@ -69,11 +69,6 @@ build_challenge() {
 if [ -n "$1" ]; then
     build_challenge "$1"
 else
-    # Build term-challenge-wasm if it exists as a workspace member
-    if cargo metadata --no-deps --format-version 1 2>/dev/null | grep -q '"name":"term-challenge-wasm"'; then
-        build_challenge "term-challenge-wasm"
-    fi
-
     # Build any challenge crates found under challenges/*/
     for dir in challenges/*/; do
         if [ -f "${dir}Cargo.toml" ]; then

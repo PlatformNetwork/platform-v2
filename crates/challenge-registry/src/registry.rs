@@ -25,7 +25,7 @@ pub struct WasmModuleMetadata {
     /// Network policy for WASM execution
     #[serde(default)]
     pub network_policy: NetworkPolicy,
-    /// Sandbox policy for term-challenge execution
+    /// Sandbox policy for challenge execution
     #[serde(default)]
     pub sandbox_policy: Option<SandboxPolicy>,
     /// Restartable configuration identifier

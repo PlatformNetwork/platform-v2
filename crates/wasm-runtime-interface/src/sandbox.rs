@@ -661,8 +661,8 @@ mod tests {
     }
 
     #[test]
-    fn test_sandbox_policy_term_challenge() {
-        let policy = SandboxPolicy::term_challenge();
+    fn test_sandbox_policy_default_challenge() {
+        let policy = SandboxPolicy::default_challenge();
         assert!(policy.enable_sandbox);
         assert!(policy.allowed_commands.contains(&"bash".to_string()));
         assert!(policy.allowed_commands.contains(&"python3".to_string()));

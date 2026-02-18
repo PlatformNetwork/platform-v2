@@ -14,14 +14,11 @@ members = [
     "crates/p2p-consensus",
     "crates/wasm-runtime-interface",
     "crates/challenge-sdk-wasm",
-    "challenges/term-challenge-wasm",
     "bins/validator-node",
     "bins/utils",
     "bins/mock-subtensor",
     "bins/platform-cli",
     "tests",
-    "challenges/term-challenge",
-    "challenges/term-challenge-wasm",
 ]
 # Note: Challenges are in separate repositories and import platform-challenge-sdk as a git dependency
 # Note: WASM runtime removed - updates via git, version checked at handshake
@@ -103,7 +100,7 @@ w3f-bls = { git = "https://github.com/opentensor/bls", branch = "fix-no-std" }
 too_many_arguments = "allow"
 large_enum_variant = "allow"
 type_complexity = "allow"
-await_holding_lock = "warn"  # TODO: Fix async lock issues properly
+await_holding_lock = "warn"
 collapsible_match = "allow"
 collapsible_if = "allow"
 

@@ -5,14 +5,11 @@ extern crate alloc;
 pub mod alloc_impl;
 pub mod host_functions;
 pub mod llm_types;
-pub mod term_types;
 pub mod types;
 
 pub use llm_types::{LlmMessage, LlmRequest, LlmResponse, LlmUsage};
-pub use term_types::*;
 pub use types::{
     score_f64_scaled, SandboxExecRequest, SandboxExecResponse, TaskDefinition, TaskResult,
-    TermEvaluationParams,
 };
 pub use types::{ContainerRunRequest, ContainerRunResponse};
 pub use types::{EvaluationInput, EvaluationOutput};

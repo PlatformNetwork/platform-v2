@@ -13,13 +13,7 @@ Each challenge defines:
 - Submission formats and requirements
 - Scoring algorithms
 
-The `term-challenge` crate lives in-tree at `challenges/term-challenge/` and is compiled to WASM for production evaluation. External challenges import `platform-challenge-sdk` as a git dependency.
-
-| Challenge | Location | Description |
-|-----------|----------|-------------|
-| Terminal Bench | [`challenges/term-challenge/`](challenges/term-challenge/) | Terminal task benchmark (WASM evaluation module) |
-| Terminal Bench v2 | [`challenges/term-challenge-wasm/`](challenges/term-challenge-wasm/) | Terminal benchmark with LLM judge support (WASM `cdylib`) |
-| *(others)* | *(external repos or `challenges/` subdirectories)* | *(challenge-specific)* |
+Challenge crates are maintained in their own repositories and import `platform-challenge-sdk-wasm` as a git dependency. See the `challenges/` directory for instructions on adding a new challenge.
 
 ---
 
@@ -49,19 +43,19 @@ flowchart LR
 Develop your agent following the challenge-specific requirements. Challenge crates implement the `Challenge` trait from `platform-challenge-sdk-wasm`:
 
 ```rust
-// Example: challenges/term-challenge/src/lib.rs
+// Example: my-challenge/src/lib.rs
 use platform_challenge_sdk_wasm::{Challenge, EvaluationInput, EvaluationOutput};
 
-pub struct TermChallenge;
+pub struct MyChallenge;
 
-impl Challenge for TermChallenge {
-    fn name(&self) -> &'static str { "term-challenge" }
+impl Challenge for MyChallenge {
+    fn name(&self) -> &'static str { "my-challenge" }
     fn version(&self) -> &'static str { "0.1.0" }
     fn evaluate(&self, input: EvaluationInput) -> EvaluationOutput { /* ... */ }
     fn validate(&self, input: EvaluationInput) -> bool { /* ... */ }
 }
 
-platform_challenge_sdk_wasm::register_challenge!(TermChallenge, TermChallenge::new());
+platform_challenge_sdk_wasm::register_challenge!(MyChallenge, MyChallenge::new());
 ```
 
 **Check the challenge documentation** for the correct submission format and evaluation criteria.
@@ -140,9 +134,8 @@ Each challenge defines its own scoring algorithm in its `evaluate()` method. Val
 Build and test challenge WASM modules locally:
 
 ```bash
-# Build the WASM artifacts
-cargo build --release --target wasm32-unknown-unknown -p term-challenge
-cargo build --release --target wasm32-unknown-unknown -p term-challenge-wasm
+# Build a challenge WASM artifact (example)
+cargo build --release --target wasm32-unknown-unknown -p my-challenge
 
 # Run workspace tests
 cargo test
@@ -163,8 +156,6 @@ flowchart TB
     Platform --> Validator[validator-node]
     Platform --> Runtime[wasm-runtime-interface]
     Platform --> P2P[p2p-consensus]
-    Platform --> TC[challenges/term-challenge]
-    Platform --> TCW[challenges/term-challenge-wasm]
 ```
 
 **Workspace crates** (from `Cargo.toml`):
@@ -182,10 +173,9 @@ flowchart TB
 - `crates/p2p-consensus` — libp2p gossipsub + DHT consensus
 - `crates/wasm-runtime-interface` — WASM runtime host interface
 - `bins/validator-node` — main validator binary
+- `bins/platform-cli` — CLI for downloading and managing challenge CLIs
 - `bins/utils` — CLI utilities
 - `bins/mock-subtensor` — mock Bittensor node for testing
-- `challenges/term-challenge` — Terminal Bench WASM challenge
-- `challenges/term-challenge-wasm` — Terminal Bench v2 WASM challenge (LLM judge)
 - `tests` — integration tests
 
 **Non-workspace crate** (exists on disk but not in workspace members):
@@ -198,7 +188,7 @@ flowchart TB
 ## Getting Started
 
 1. **Choose a challenge** you want to participate in
-2. **Read the challenge documentation** (e.g., `challenges/term-challenge/`)
+2. **Read the challenge documentation** for your chosen challenge
 3. **Understand the submission format** from the challenge's types and evaluation logic
 4. **Submit** through the P2P network
 5. **Monitor** your submission status and scores

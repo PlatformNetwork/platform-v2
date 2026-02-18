@@ -316,16 +316,16 @@ impl ChallengeOrchestrator {
     #[deprecated(note = "Docker-based container cleanup is deprecated; prefer WASM-based challenge execution")]
     pub async fn cleanup_stale_task_containers(&self) -> anyhow::Result<CleanupResult> {
         tracing::warn!("Docker-based container cleanup is deprecated; prefer WASM-based challenge execution");
-        // Clean up term-challenge task containers older than 2 hours
+        // Clean up challenge task containers older than 2 hours
         // Exclude:
         // - challenge-* (main challenge containers managed by orchestrator)
         // - platform-* (validator, watchtower)
         let result = self
             .docker
             .cleanup_stale_containers(
-                "term-challenge-",
+                "challenge-task-",
                 120, // 2 hours old
-                &["challenge-term-challenge", "platform-"],
+                &["challenge-", "platform-"],
             )
             .await?;
 
@@ -706,10 +706,10 @@ mod tests {
         let calls = docker.cleanup_calls();
         assert_eq!(calls.len(), 1);
         let (prefix, max_age, excludes) = &calls[0];
-        assert_eq!(prefix, "term-challenge-");
+        assert_eq!(prefix, "challenge-task-");
         assert_eq!(*max_age, 120);
         let expected: Vec<String> = vec![
-            "challenge-term-challenge".to_string(),
+            "challenge-".to_string(),
             "platform-".to_string(),
         ];
         assert_eq!(excludes, &expected);
