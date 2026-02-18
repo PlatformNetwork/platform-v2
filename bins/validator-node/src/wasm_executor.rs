@@ -538,7 +538,29 @@ impl WasmChallengeExecutor {
         Ok((result, metrics))
     }
 
+    fn validate_module_path(module_path: &str) -> Result<()> {
+        if module_path.is_empty() {
+            anyhow::bail!("module path must not be empty");
+        }
+        if module_path.contains('\0') {
+            anyhow::bail!("module path contains null byte");
+        }
+        let path = std::path::Path::new(module_path);
+        if path.is_absolute() {
+            anyhow::bail!("module path must be relative");
+        }
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            anyhow::bail!("module path must not contain '..' components");
+        }
+        Ok(())
+    }
+
     fn load_module(&self, module_path: &str) -> Result<Arc<WasmModule>> {
+        Self::validate_module_path(module_path)?;
+
         {
             let cache = self.module_cache.read();
             if let Some(module) = cache.get(module_path) {
@@ -548,7 +570,22 @@ impl WasmChallengeExecutor {
         }
 
         let full_path = self.config.module_dir.join(module_path);
-        let wasm_bytes = std::fs::read(&full_path)
+        let canonical_base = self
+            .config
+            .module_dir
+            .canonicalize()
+            .with_context(|| "Failed to canonicalize module_dir")?;
+        let canonical_path = full_path.canonicalize().with_context(|| {
+            format!(
+                "Failed to canonicalize module path: {}",
+                full_path.display()
+            )
+        })?;
+        if !canonical_path.starts_with(&canonical_base) {
+            anyhow::bail!("Module path escapes module directory: {}", module_path);
+        }
+
+        let wasm_bytes = std::fs::read(&canonical_path)
             .with_context(|| format!("Failed to read WASM module from {}", full_path.display()))?;
 
         info!(
@@ -566,6 +603,10 @@ impl WasmChallengeExecutor {
 
         {
             let mut cache = self.module_cache.write();
+            const MAX_MODULE_CACHE_SIZE: usize = 256;
+            if cache.len() >= MAX_MODULE_CACHE_SIZE {
+                cache.clear();
+            }
             cache.insert(module_path.to_string(), Arc::clone(&module));
         }
 
@@ -599,6 +640,9 @@ impl WasmChallengeExecutor {
     }
 
     pub fn module_exists(&self, module_path: &str) -> bool {
+        if Self::validate_module_path(module_path).is_err() {
+            return false;
+        }
         self.resolve_module_path(module_path).exists()
     }
 }

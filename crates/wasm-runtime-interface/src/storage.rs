@@ -132,6 +132,7 @@ pub struct StorageHostConfig {
     pub max_keys_per_challenge: usize,
     pub allow_direct_writes: bool,
     pub require_consensus: bool,
+    pub max_operations_per_execution: u32,
 }
 
 impl Default for StorageHostConfig {
@@ -143,6 +144,7 @@ impl Default for StorageHostConfig {
             max_keys_per_challenge: 10_000,
             allow_direct_writes: false,
             require_consensus: true,
+            max_operations_per_execution: 1_000,
         }
     }
 }
@@ -156,6 +158,7 @@ impl StorageHostConfig {
             max_keys_per_challenge: 100_000,
             allow_direct_writes: true,
             require_consensus: false,
+            max_operations_per_execution: 100_000,
         }
     }
 
@@ -167,6 +170,11 @@ impl StorageHostConfig {
         }
         if key.len() > self.max_key_size {
             return Err(StorageHostError::KeyTooLarge(key.len(), self.max_key_size));
+        }
+        if key.contains(&0) {
+            return Err(StorageHostError::InvalidKey(
+                "key contains null byte".to_string(),
+            ));
         }
         Ok(())
     }
@@ -423,12 +431,26 @@ impl HostFunctionRegistrar for StorageHostFunctions {
     }
 }
 
+fn check_operations_limit(caller: &Caller<RuntimeState>) -> Result<(), StorageHostStatus> {
+    let storage = &caller.data().storage_state;
+    if storage.operations_count >= storage.config.max_operations_per_execution {
+        Err(StorageHostStatus::QuotaExceeded)
+    } else {
+        Ok(())
+    }
+}
+
 fn handle_storage_get(
     caller: &mut Caller<RuntimeState>,
     key_ptr: i32,
     key_len: i32,
     value_ptr: i32,
 ) -> i32 {
+    if let Err(status) = check_operations_limit(caller) {
+        warn!("storage_get: operations limit exceeded");
+        return status.to_i32();
+    }
+
     let key = match read_wasm_memory(caller, key_ptr, key_len) {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -484,6 +506,11 @@ fn handle_storage_set(
     value_ptr: i32,
     value_len: i32,
 ) -> i32 {
+    if let Err(status) = check_operations_limit(caller) {
+        warn!("storage_set: operations limit exceeded");
+        return status.to_i32();
+    }
+
     let key = match read_wasm_memory(caller, key_ptr, key_len) {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -532,6 +559,11 @@ fn handle_storage_set(
 }
 
 fn handle_storage_delete(caller: &mut Caller<RuntimeState>, key_ptr: i32, key_len: i32) -> i32 {
+    if let Err(status) = check_operations_limit(caller) {
+        warn!("storage_delete: operations limit exceeded");
+        return status.to_i32();
+    }
+
     let key = match read_wasm_memory(caller, key_ptr, key_len) {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -573,6 +605,11 @@ fn handle_storage_propose_write(
     value_ptr: i32,
     value_len: i32,
 ) -> i64 {
+    if let Err(status) = check_operations_limit(caller) {
+        warn!("storage_propose_write: operations limit exceeded");
+        return pack_result(status, 0);
+    }
+
     let key = match read_wasm_memory(caller, key_ptr, key_len) {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -699,8 +736,16 @@ mod tests {
         assert!(config.validate_key(b"valid-key").is_ok());
         assert!(config.validate_key(b"").is_err());
 
-        let large_key = vec![0u8; 2000];
+        let large_key = vec![b'a'; 2000];
         assert!(config.validate_key(&large_key).is_err());
+    }
+
+    #[test]
+    fn test_storage_host_config_validate_key_rejects_null_bytes() {
+        let config = StorageHostConfig::default();
+        assert!(config.validate_key(b"key\0evil").is_err());
+        assert!(config.validate_key(b"\0").is_err());
+        assert!(config.validate_key(b"key\0").is_err());
     }
 
     #[test]

@@ -291,13 +291,18 @@ fn handle_container_run(
         .unwrap_or(policy.max_memory_mb)
         .min(policy.max_memory_mb);
 
+    let cpu_limit = request
+        .cpu_limit
+        .unwrap_or(policy.max_cpu_count)
+        .min(policy.max_cpu_count);
+
     let network_mode = if policy.allow_network {
         request.network_mode.as_deref().unwrap_or("bridge")
     } else {
         "none"
     };
 
-    let result = execute_container(&request, timeout, memory_limit, network_mode);
+    let result = execute_container(&request, timeout, memory_limit, cpu_limit, network_mode);
 
     let challenge_id = caller.data().challenge_id.clone();
     let validator_id = caller.data().validator_id.clone();
@@ -395,6 +400,14 @@ fn validate_container_request(
         ));
     }
 
+    const ALLOWED_NETWORK_MODES: &[&str] = &["none", "bridge"];
+    if !ALLOWED_NETWORK_MODES.contains(&network_mode) {
+        return Err(ContainerExecError::ExecutionFailed(format!(
+            "network mode '{}' is not permitted; allowed: {:?}",
+            network_mode, ALLOWED_NETWORK_MODES
+        )));
+    }
+
     Ok(())
 }
 
@@ -402,6 +415,7 @@ fn execute_container(
     request: &ContainerRunRequest,
     timeout: Duration,
     memory_limit_mb: u64,
+    cpu_limit: u32,
     network_mode: &str,
 ) -> Result<ContainerRunResponse, ContainerExecError> {
     validate_container_request(request, network_mode)?;
@@ -413,6 +427,10 @@ fn execute_container(
     cmd.arg("--rm");
     cmd.args(["--network", network_mode]);
     cmd.args(["--memory", &format!("{}m", memory_limit_mb)]);
+    cmd.args(["--cpus", &cpu_limit.to_string()]);
+    cmd.args(["--security-opt", "no-new-privileges"]);
+    cmd.args(["--cap-drop", "ALL"]);
+    cmd.args(["--pids-limit", "256"]);
 
     for (key, value) in &request.env_vars {
         cmd.args(["-e", &format!("{}={}", key, value)]);
@@ -717,6 +735,30 @@ mod tests {
     fn test_validate_rejects_network_mode_with_whitespace() {
         let req = make_valid_request();
         assert!(validate_container_request(&req, "host --privileged").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_network_mode_host() {
+        let req = make_valid_request();
+        assert!(validate_container_request(&req, "host").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_network_mode_container() {
+        let req = make_valid_request();
+        assert!(validate_container_request(&req, "container:abc").is_err());
+    }
+
+    #[test]
+    fn test_validate_accepts_network_mode_none() {
+        let req = make_valid_request();
+        assert!(validate_container_request(&req, "none").is_ok());
+    }
+
+    #[test]
+    fn test_validate_accepts_network_mode_bridge() {
+        let req = make_valid_request();
+        assert!(validate_container_request(&req, "bridge").is_ok());
     }
 
     #[test]

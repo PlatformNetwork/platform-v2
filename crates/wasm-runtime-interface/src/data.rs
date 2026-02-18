@@ -402,6 +402,14 @@ fn handle_data_list(
         Err(_) => return DataHostStatus::InternalError.to_i32(),
     };
 
+    if prefix_str.len() > caller.data().data_state.policy.max_key_size {
+        return DataHostStatus::KeyTooLarge.to_i32();
+    }
+
+    if caller.data().data_state.reads >= caller.data().data_state.policy.max_reads_per_execution {
+        return DataHostStatus::InternalError.to_i32();
+    }
+
     let challenge_id = caller.data().data_state.challenge_id.clone();
     let backend = std::sync::Arc::clone(&caller.data().data_state.backend);
 
