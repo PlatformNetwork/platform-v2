@@ -337,6 +337,12 @@ impl RpcHandler {
             ["challenge", "get"] => self.challenge_get(req.id, req.params),
             ["challenge", "getRoutes"] => self.challenge_get_routes(req.id, req.params),
             ["challenge", "listAllRoutes"] => self.challenge_list_all_routes(req.id),
+            // challenge_call is handled asynchronously via handle_async()
+            ["challenge", "call"] => JsonRpcResponse::error(
+                req.id,
+                INTERNAL_ERROR,
+                "challenge_call must be invoked via handle_async()",
+            ),
 
             // Job namespace
             ["job", "list"] => self.job_list(req.id, req.params),
@@ -387,7 +393,7 @@ impl RpcHandler {
                     "validator_list", "validator_get", "validator_count",
                     // Challenge
                     "challenge_list", "challenge_get", "challenge_getRoutes",
-                    "challenge_listAllRoutes",
+                    "challenge_listAllRoutes", "challenge_call",
                     // Job
                     "job_list", "job_get",
                     // Epoch
@@ -1081,6 +1087,103 @@ impl RpcHandler {
                 "routes": routes_json,
             }),
         )
+    }
+
+    // ==================== Async Handler ====================
+
+    /// Handle a JSON-RPC request, supporting both sync and async methods.
+    ///
+    /// Methods like `challenge_call` require async execution (the route handler
+    /// callback is async). This method handles those asynchronously and delegates
+    /// all other methods to the synchronous [`handle()`](Self::handle).
+    pub async fn handle_async(&self, req: JsonRpcRequest) -> JsonRpcResponse {
+        let parts: Vec<&str> = req.method.splitn(2, '_').collect();
+        match parts.as_slice() {
+            ["challenge", "call"] => self.challenge_call(req.id, req.params).await,
+            _ => self.handle(req),
+        }
+    }
+
+    /// Call a challenge route handler
+    async fn challenge_call(&self, id: Value, params: Value) -> JsonRpcResponse {
+        let challenge_id = match self.get_param_str(&params, 0, "challengeId") {
+            Some(c) => c,
+            None => {
+                return JsonRpcResponse::error(
+                    id,
+                    INVALID_PARAMS,
+                    "Missing 'challengeId' parameter",
+                )
+            }
+        };
+
+        let method = self
+            .get_param_str(&params, 1, "method")
+            .unwrap_or_else(|| "GET".to_string());
+
+        let path = self
+            .get_param_str(&params, 2, "path")
+            .unwrap_or_else(|| "/".to_string());
+
+        let body = params
+            .get("body")
+            .or_else(|| params.get(3))
+            .cloned()
+            .unwrap_or(Value::Null);
+
+        let query: std::collections::HashMap<String, String> = params
+            .get("query")
+            .or_else(|| params.get(4))
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        // Verify the challenge has registered routes
+        {
+            let routes = self.challenge_routes.read();
+            if !routes.contains_key(&challenge_id) {
+                // Try to find by name
+                let chain = self.chain_state.read();
+                let found = chain.challenges.values().any(|c| c.name == challenge_id);
+                if !found {
+                    return JsonRpcResponse::error(
+                        id,
+                        CHALLENGE_NOT_FOUND,
+                        format!("Challenge '{}' not found or has no routes", challenge_id),
+                    );
+                }
+            }
+        }
+
+        let request = RouteRequest {
+            method,
+            path,
+            params: std::collections::HashMap::new(),
+            query,
+            headers: std::collections::HashMap::new(),
+            body,
+            auth_hotkey: None,
+        };
+
+        let maybe_handler = self.route_handler.read().clone();
+        match maybe_handler {
+            Some(handler) => {
+                let response = handler(challenge_id.clone(), request).await;
+                JsonRpcResponse::result(
+                    id,
+                    json!({
+                        "challengeId": challenge_id,
+                        "status": response.status,
+                        "headers": response.headers,
+                        "body": response.body,
+                    }),
+                )
+            }
+            None => JsonRpcResponse::error(
+                id,
+                INTERNAL_ERROR,
+                "No route handler registered. Challenge route handlers are not configured.",
+            ),
+        }
     }
 
     // ==================== Job Namespace ====================

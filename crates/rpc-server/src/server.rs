@@ -353,7 +353,7 @@ async fn jsonrpc_handler(
     if let Some(arr) = body.as_array() {
         // For batch, we'd return an array - for now just handle first
         if let Some(first) = arr.first() {
-            return handle_single_request(first.clone(), &handler);
+            return handle_single_request(first.clone(), &handler).await;
         }
         return (
             StatusCode::BAD_REQUEST,
@@ -365,10 +365,13 @@ async fn jsonrpc_handler(
         );
     }
 
-    handle_single_request(body, &handler)
+    handle_single_request(body, &handler).await
 }
 
-fn handle_single_request(body: Value, handler: &RpcHandler) -> (StatusCode, Json<JsonRpcResponse>) {
+async fn handle_single_request(
+    body: Value,
+    handler: &RpcHandler,
+) -> (StatusCode, Json<JsonRpcResponse>) {
     // Parse the request
     let req: JsonRpcRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -396,8 +399,8 @@ fn handle_single_request(body: Value, handler: &RpcHandler) -> (StatusCode, Json
         );
     }
 
-    // Handle the request
-    let response = handler.handle(req);
+    // Handle the request (supports both sync and async methods like challenge_call)
+    let response = handler.handle_async(req).await;
 
     // JSON-RPC always returns 200 OK (errors are in the response body)
     (StatusCode::OK, Json(response))
@@ -628,7 +631,7 @@ mod tests {
         let handler = Arc::new(RpcHandler::new(state, 1));
 
         let invalid_body = json!({"method": "test"}); // Missing required fields
-        let (status, resp) = handle_single_request(invalid_body, &handler);
+        let (status, resp) = handle_single_request(invalid_body, &handler).await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(resp.0.error.is_some());
@@ -650,7 +653,7 @@ mod tests {
             "params": null,
             "id": 1
         });
-        let (status, resp) = handle_single_request(body, &handler);
+        let (status, resp) = handle_single_request(body, &handler).await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(resp.0.error.is_some());
@@ -671,7 +674,7 @@ mod tests {
             "params": null,
             "id": 1
         });
-        let (status, resp) = handle_single_request(body, &handler);
+        let (status, resp) = handle_single_request(body, &handler).await;
 
         assert_eq!(status, StatusCode::OK);
         assert!(resp.0.result.is_some());

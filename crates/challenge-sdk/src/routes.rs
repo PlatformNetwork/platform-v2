@@ -1,6 +1,11 @@
-//! Challenge Custom Routes System
+//! Provides the generic route infrastructure for challenges to define custom
+//! HTTP routes that get mounted on the RPC server. Each challenge declares its
+//! own routes and handlers via the `ServerChallenge` trait — the platform SDK
+//! does NOT hardcode any challenge-specific routes.
+//! use platform_challenge_sdk::server::{ServerChallenge, ChallengeContext};
+//! impl ServerChallenge for MyChallenge {
+//!     // ... challenge_id, name, version, evaluate ...
 //!
-//! Allows challenges to define custom HTTP routes that get mounted
 //! on the RPC server. Each challenge can expose its own API endpoints.
 //!
 //! # Example
@@ -18,7 +23,11 @@
 //!         ]
 //!     }
 //!
-//!     async fn handle_route(&self, ctx: &ChallengeContext, req: RouteRequest) -> RouteResponse {
+//!     async fn handle_route(
+//!         &self,
+//!         ctx: &ChallengeContext,
+//!         req: RouteRequest,
+//!     ) -> RouteResponse {
 //!         match (req.method.as_str(), req.path.as_str()) {
 //!             ("GET", "/leaderboard") => {
 //!                 let data = self.get_leaderboard(ctx).await;
@@ -29,6 +38,15 @@
 //!                 let agent = self.get_agent(ctx, hash).await;
 //!                 RouteResponse::json(agent)
 //!             }
+//!             _ => RouteResponse::not_found()
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! // The platform SDK provides the generic building blocks (ChallengeRoute,
+//! // RouteRequest, RouteResponse, RouteRegistry, RouteBuilder, RoutesManifest,
+//! // HttpMethod) — challenges use these to declare their own routes.
 //!             _ => RouteResponse::not_found()
 //!         }
 //!     }
@@ -102,18 +120,6 @@ impl RoutesManifest {
     pub fn with_metadata(mut self, key: impl Into<String>, value: Value) -> Self {
         self.metadata.insert(key.into(), value);
         self
-    }
-
-    /// Build standard routes that most challenges should implement
-    pub fn with_standard_routes(self) -> Self {
-        self.with_routes(vec![
-            ChallengeRoute::post("/submit", "Submit an agent for evaluation"),
-            ChallengeRoute::get("/status/:hash", "Get agent evaluation status"),
-            ChallengeRoute::get("/leaderboard", "Get current leaderboard"),
-            ChallengeRoute::get("/config", "Get challenge configuration"),
-            ChallengeRoute::get("/stats", "Get challenge statistics"),
-            ChallengeRoute::get("/health", "Health check endpoint"),
-        ])
     }
 }
 
@@ -589,16 +595,6 @@ mod tests {
             manifest.metadata.get("author"),
             Some(&serde_json::json!("John Doe"))
         );
-    }
-
-    #[test]
-    fn test_routes_manifest_with_standard_routes() {
-        let manifest = RoutesManifest::new("test", "1.0").with_standard_routes();
-
-        assert!(manifest.routes.len() >= 6);
-        assert!(manifest.routes.iter().any(|r| r.path == "/submit"));
-        assert!(manifest.routes.iter().any(|r| r.path == "/leaderboard"));
-        assert!(manifest.routes.iter().any(|r| r.path == "/health"));
     }
 
     #[test]

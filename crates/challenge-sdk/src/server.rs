@@ -6,22 +6,57 @@
 //! # Usage
 //!
 //! ```text
-//! use platform_challenge_sdk::server::{ChallengeServer, ServerConfig};
+//! use platform_challenge_sdk::server::{ChallengeServer, ServerConfig, ChallengeContext};
+//! use platform_challenge_sdk::routes::{ChallengeRoute, RouteRequest, RouteResponse};
 //!
-//! let server = ChallengeServer::new(my_challenge)
-//!     .config(ServerConfig::default())
-//!     .build();
+//! #[async_trait]
+//! impl ServerChallenge for MyChallenge {
+//!     fn challenge_id(&self) -> &str { "my-challenge" }
+//!     fn name(&self) -> &str { "My Challenge" }
+//!     fn version(&self) -> &str { "0.1.0" }
 //!
-//! server.run().await?;
+//!     async fn evaluate(&self, req: EvaluationRequest) -> Result<EvaluationResponse, ChallengeError> {
+//!         // Your evaluation logic here
+//!         Ok(EvaluationResponse::success(&req.request_id, 0.95, json!({})))
+//!     }
+//!
+//!     // Declare custom routes this challenge exposes
+//!     fn routes(&self) -> Vec<ChallengeRoute> {
+//!         vec![
+//!             ChallengeRoute::get("/leaderboard", "Get current leaderboard"),
+//!             ChallengeRoute::post("/submit", "Submit evaluation result"),
+//!         ]
+//!     }
+//!
+//!     // Handle incoming route requests
+//!     async fn handle_route(&self, ctx: &ChallengeContext, req: RouteRequest) -> RouteResponse {
+//!         match (req.method.as_str(), req.path.as_str()) {
+//!             ("GET", "/leaderboard") => RouteResponse::json(json!({"entries": []})),
+//!             _ => RouteResponse::not_found(),
+//!         }
+//!     }
+//! }
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), ChallengeError> {
+//!     ChallengeServer::builder(MyChallenge)
+//!         .port(8080)
+//!         .build()
+//!         .run()
+//!         .await
+//! }
 //! ```
 //!
-//! # Endpoints
+//! # Platform Endpoints
 //!
-//! The server exposes:
+//! The server exposes these platform-level endpoints:
 //! - `POST /evaluate` - Receive evaluation requests from platform
 //! - `GET /health` - Health check
 //! - `GET /config` - Challenge configuration schema
 //! - `POST /validate` - Quick validation without full evaluation
+//!
+//! Additionally, any custom routes declared by `ServerChallenge::routes()` are
+//! mounted and handled via `ServerChallenge::handle_route()`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -31,7 +66,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
+use crate::database::ChallengeDatabase;
 use crate::error::ChallengeError;
+use crate::routes::{ChallengeRoute, RouteRequest, RouteResponse};
 
 #[cfg(feature = "http-server")]
 use axum::extract::State;
@@ -233,6 +270,25 @@ pub struct ConfigLimits {
 }
 
 // ============================================================================
+// CHALLENGE CONTEXT
+// ============================================================================
+
+/// Context provided to route handlers, giving access to shared resources
+///
+/// Route handlers receive this to access the local sled database and chain
+/// state when handling custom routes.
+pub struct ChallengeContext {
+    /// Local challenge database (sled)
+    pub db: Arc<ChallengeDatabase>,
+    /// Challenge ID
+    pub challenge_id: String,
+    /// Current epoch
+    pub epoch: u64,
+    /// Current block height
+    pub block_height: u64,
+}
+
+// ============================================================================
 // SERVER TRAIT
 // ============================================================================
 
@@ -277,6 +333,24 @@ pub trait ServerChallenge: Send + Sync {
             features: vec![],
             limits: ConfigLimits::default(),
         }
+    }
+
+    /// Return the custom routes this challenge exposes.
+    ///
+    /// Challenges override this to declare their own API routes (e.g.,
+    /// `/leaderboard`, `/submit`, `/stats`). The platform SDK does not
+    /// hardcode any challenge-specific routes.
+    fn routes(&self) -> Vec<ChallengeRoute> {
+        vec![]
+    }
+
+    /// Handle an incoming route request.
+    ///
+    /// Called when a request matches one of the routes declared by
+    /// [`routes()`](Self::routes). The `ChallengeContext` provides access
+    /// to the local sled database and current chain state.
+    async fn handle_route(&self, _ctx: &ChallengeContext, _request: RouteRequest) -> RouteResponse {
+        RouteResponse::not_found()
     }
 }
 
@@ -374,11 +448,30 @@ impl<C: ServerChallenge + 'static> ChallengeServer<C> {
             .parse()
             .map_err(|e| ChallengeError::Config(format!("Invalid address: {}", e)))?;
 
+        // Log custom routes declared by the challenge
+        let custom_routes = state.challenge.routes();
+        if !custom_routes.is_empty() {
+            info!(
+                "Challenge {} declares {} custom route(s)",
+                state.challenge.challenge_id(),
+                custom_routes.len()
+            );
+            for route in &custom_routes {
+                debug!(
+                    "  {} {}: {}",
+                    route.method.as_str(),
+                    route.path,
+                    route.description
+                );
+            }
+        }
+
         let app = Router::new()
             .route("/health", get(health_handler::<C>))
             .route("/config", get(config_handler::<C>))
             .route("/evaluate", post(evaluate_handler::<C>))
             .route("/validate", post(validate_handler::<C>))
+            .fallback(custom_route_handler::<C>)
             .with_state(state);
 
         info!(
@@ -483,6 +576,84 @@ async fn validate_handler<C: ServerChallenge + 'static>(
             warnings: vec![],
         }),
     }
+}
+
+/// Catch-all handler for custom challenge routes declared via `ServerChallenge::routes()`
+#[cfg(feature = "http-server")]
+async fn custom_route_handler<C: ServerChallenge + 'static>(
+    State(state): State<Arc<ServerState<C>>>,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
+    body: Option<axum::Json<serde_json::Value>>,
+) -> (axum::http::StatusCode, axum::Json<serde_json::Value>) {
+    let path = uri.path().to_string();
+    let method_str = method.as_str().to_string();
+
+    let custom_routes = state.challenge.routes();
+
+    // Find matching route
+    let mut matched_params = std::collections::HashMap::new();
+    let mut found = false;
+    for route in &custom_routes {
+        if let Some(params) = route.matches(&method_str, &path) {
+            matched_params = params;
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            axum::Json(serde_json::json!({
+                "error": "not_found",
+                "message": format!("No route matches {} {}", method_str, path)
+            })),
+        );
+    }
+
+    // Build headers map
+    let mut headers_map = std::collections::HashMap::new();
+    for (key, value) in headers.iter() {
+        if let Ok(v) = value.to_str() {
+            headers_map.insert(key.as_str().to_string(), v.to_string());
+        }
+    }
+
+    let request = RouteRequest {
+        method: method_str,
+        path,
+        params: matched_params,
+        query,
+        headers: headers_map,
+        body: body.map(|b| b.0).unwrap_or(serde_json::Value::Null),
+        auth_hotkey: None,
+    };
+
+    // Build a minimal ChallengeContext (no database in fallback handler)
+    // In production, the ChallengeContext would be populated by the validator node
+    let ctx = ChallengeContext {
+        db: Arc::new(
+            ChallengeDatabase::open(std::env::temp_dir(), crate::types::ChallengeId::new())
+                .unwrap_or_else(|_| {
+                    ChallengeDatabase::open(std::env::temp_dir(), crate::types::ChallengeId::new())
+                        .expect("Failed to open temporary challenge database")
+                }),
+        ),
+        challenge_id: state.challenge.challenge_id().to_string(),
+        epoch: 0,
+        block_height: 0,
+    };
+
+    let response = state.challenge.handle_route(&ctx, request).await;
+
+    (
+        axum::http::StatusCode::from_u16(response.status)
+            .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+        axum::Json(response.body),
+    )
 }
 
 // ============================================================================
