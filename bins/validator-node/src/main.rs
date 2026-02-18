@@ -25,8 +25,9 @@ use platform_distributed_storage::{
     DistributedStoreExt, LocalStorage, LocalStorageBuilder, StorageKey,
 };
 use platform_p2p_consensus::{
-    ChainState, ConsensusEngine, EvaluationMessage, EvaluationMetrics, EvaluationRecord,
-    NetworkEvent, P2PConfig, P2PMessage, P2PNetwork, StateManager, ValidatorRecord, ValidatorSet,
+    ChainState, ConsensusEngine, EvaluationMessage, EvaluationMetrics, EvaluationRecord, JobRecord,
+    JobStatus, NetworkEvent, P2PConfig, P2PMessage, P2PNetwork, StateManager, TaskProgressRecord,
+    ValidatorRecord, ValidatorSet,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
