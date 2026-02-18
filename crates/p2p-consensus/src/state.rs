@@ -814,7 +814,7 @@ impl ChainState {
         let mut hash_counts: HashMap<[u8; 32], usize> = HashMap::new();
         let mut hash_to_data: HashMap<[u8; 32], &Vec<u8>> = HashMap::new();
 
-        for (_validator, logs_data) in proposals {
+        for logs_data in proposals.values() {
             let mut hasher = Sha256::new();
             hasher.update(logs_data);
             let hash: [u8; 32] = hasher.finalize().into();

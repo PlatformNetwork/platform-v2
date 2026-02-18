@@ -217,16 +217,11 @@ fn platform_identifier() -> String {
         "windows" => "windows",
         other => other,
     };
-    let arch = match std::env::consts::ARCH {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        "arm" => "arm",
-        other => other,
-    };
+    let arch = std::env::consts::ARCH;
     format!("{}-{}", os, arch)
 }
 
-fn find_matching_asset<'a>(assets: &'a [GitHubAsset]) -> Option<&'a GitHubAsset> {
+fn find_matching_asset(assets: &[GitHubAsset]) -> Option<&GitHubAsset> {
     let platform = platform_identifier();
     debug!("Looking for asset matching platform: {}", platform);
 
@@ -490,9 +485,10 @@ fn cmd_list() -> Result<()> {
         return Ok(());
     }
 
+    let header_installed = "INSTALLED";
     println!(
         "{:<20} {:<12} {:<40} {}",
-        "CHALLENGE", "VERSION", "PATH", "INSTALLED"
+        "CHALLENGE", "VERSION", "PATH", header_installed
     );
     println!("{}", "-".repeat(90));
 

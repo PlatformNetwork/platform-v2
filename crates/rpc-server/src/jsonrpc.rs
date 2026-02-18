@@ -1451,27 +1451,13 @@ impl RpcHandler {
             None => return JsonRpcResponse::error(id, INVALID_PARAMS, "Invalid hotkey format"),
         };
 
-        let chain = self.chain_state.read();
-        let is_registered =
-            chain.registered_hotkeys.contains(&hk) || chain.validators.contains_key(&hk);
-
-        if is_registered {
-            JsonRpcResponse::result(
-                id,
-                json!({
-                    "minerHotkey": miner_hotkey,
-                    "entry": null,
-                }),
-            )
-        } else {
-            JsonRpcResponse::result(
-                id,
-                json!({
-                    "minerHotkey": miner_hotkey,
-                    "entry": null,
-                }),
-            )
-        }
+        JsonRpcResponse::result(
+            id,
+            json!({
+                "minerHotkey": miner_hotkey,
+                "entry": null,
+            }),
+        )
     }
 
     fn agent_get_logs(&self, id: Value, params: Value) -> JsonRpcResponse {
