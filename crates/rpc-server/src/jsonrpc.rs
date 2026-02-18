@@ -1104,6 +1104,34 @@ impl RpcHandler {
         }
     }
 
+    /// Allowed HTTP methods for challenge_call
+    const ALLOWED_METHODS: &'static [&'static str] = &["GET", "POST", "PUT", "DELETE", "PATCH"];
+
+    /// Maximum path length for challenge_call
+    const MAX_PATH_LEN: usize = 2048;
+
+    /// Maximum number of query parameters for challenge_call
+    const MAX_QUERY_PARAMS: usize = 100;
+
+    /// Maximum body size in bytes (1 MB) for challenge_call
+    const MAX_BODY_SIZE: usize = 1_048_576;
+
+    /// Validate that a path has no traversal sequences and starts with '/'
+    fn validate_path(path: &str) -> bool {
+        if path.len() > Self::MAX_PATH_LEN {
+            return false;
+        }
+        if !path.starts_with('/') {
+            return false;
+        }
+        for segment in path.split('/') {
+            if segment == ".." {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Call a challenge route handler
     async fn challenge_call(&self, id: Value, params: Value) -> JsonRpcResponse {
         let challenge_id = match self.get_param_str(&params, 0, "challengeId") {
@@ -1121,9 +1149,29 @@ impl RpcHandler {
             .get_param_str(&params, 1, "method")
             .unwrap_or_else(|| "GET".to_string());
 
+        if !Self::ALLOWED_METHODS.contains(&method.as_str()) {
+            return JsonRpcResponse::error(
+                id,
+                INVALID_PARAMS,
+                format!(
+                    "Invalid HTTP method '{}'. Allowed: {}",
+                    method,
+                    Self::ALLOWED_METHODS.join(", ")
+                ),
+            );
+        }
+
         let path = self
             .get_param_str(&params, 2, "path")
             .unwrap_or_else(|| "/".to_string());
+
+        if !Self::validate_path(&path) {
+            return JsonRpcResponse::error(
+                id,
+                INVALID_PARAMS,
+                "Invalid path: must start with '/', must not contain '..', and must be <= 2048 characters",
+            );
+        }
 
         let body = params
             .get("body")
@@ -1131,11 +1179,38 @@ impl RpcHandler {
             .cloned()
             .unwrap_or(Value::Null);
 
+        if body != Value::Null {
+            let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
+            if body_size > Self::MAX_BODY_SIZE {
+                return JsonRpcResponse::error(
+                    id,
+                    INVALID_PARAMS,
+                    format!(
+                        "Request body too large: {} bytes (max {})",
+                        body_size,
+                        Self::MAX_BODY_SIZE
+                    ),
+                );
+            }
+        }
+
         let query: std::collections::HashMap<String, String> = params
             .get("query")
             .or_else(|| params.get(4))
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
+
+        if query.len() > Self::MAX_QUERY_PARAMS {
+            return JsonRpcResponse::error(
+                id,
+                INVALID_PARAMS,
+                format!(
+                    "Too many query parameters: {} (max {})",
+                    query.len(),
+                    Self::MAX_QUERY_PARAMS
+                ),
+            );
+        }
 
         // Verify the challenge has registered routes
         {

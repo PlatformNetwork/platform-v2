@@ -58,13 +58,11 @@
 //! Additionally, any custom routes declared by `ServerChallenge::routes()` are
 //! mounted and handled via `ServerChallenge::handle_route()`.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
 
 use crate::database::ChallengeDatabase;
 use crate::error::ChallengeError;
@@ -313,7 +311,7 @@ pub trait ServerChallenge: Send + Sync {
     /// Validate submission data (quick check)
     async fn validate(
         &self,
-        request: ValidationRequest,
+        _request: ValidationRequest,
     ) -> Result<ValidationResponse, ChallengeError> {
         // Default: accept everything
         Ok(ValidationResponse {
@@ -436,6 +434,8 @@ impl<C: ServerChallenge + 'static> ChallengeServer<C> {
     /// Run the server (requires axum feature)
     #[cfg(feature = "http-server")]
     pub async fn run(&self) -> Result<(), ChallengeError> {
+        use std::net::SocketAddr;
+
         use axum::{
             extract::{Json, State},
             http::StatusCode,
@@ -632,16 +632,35 @@ async fn custom_route_handler<C: ServerChallenge + 'static>(
         auth_hotkey: None,
     };
 
-    // Build a minimal ChallengeContext (no database in fallback handler)
-    // In production, the ChallengeContext would be populated by the validator node
+    // Use a shared fallback database to avoid creating a new temp DB per request (DoS vector).
+    // In production, the ChallengeContext would be populated by the validator node.
+    static FALLBACK_DB: OnceLock<Arc<ChallengeDatabase>> = OnceLock::new();
+
+    let db = match FALLBACK_DB.get() {
+        Some(db) => Arc::clone(db),
+        None => {
+            match ChallengeDatabase::open(std::env::temp_dir(), crate::types::ChallengeId::new()) {
+                Ok(db) => {
+                    let db = Arc::new(db);
+                    let _ = FALLBACK_DB.set(Arc::clone(&db));
+                    db
+                }
+                Err(e) => {
+                    error!("Failed to open fallback challenge database: {}", e);
+                    return (
+                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                        axum::Json(serde_json::json!({
+                            "error": "internal_error",
+                            "message": "Failed to initialize challenge database"
+                        })),
+                    );
+                }
+            }
+        }
+    };
+
     let ctx = ChallengeContext {
-        db: Arc::new(
-            ChallengeDatabase::open(std::env::temp_dir(), crate::types::ChallengeId::new())
-                .unwrap_or_else(|_| {
-                    ChallengeDatabase::open(std::env::temp_dir(), crate::types::ChallengeId::new())
-                        .expect("Failed to open temporary challenge database")
-                }),
-        ),
+        db,
         challenge_id: state.challenge.challenge_id().to_string(),
         epoch: 0,
         block_height: 0,
@@ -649,11 +668,12 @@ async fn custom_route_handler<C: ServerChallenge + 'static>(
 
     let response = state.challenge.handle_route(&ctx, request).await;
 
-    (
-        axum::http::StatusCode::from_u16(response.status)
-            .unwrap_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
-        axum::Json(response.body),
-    )
+    let status = match axum::http::StatusCode::from_u16(response.status) {
+        Ok(s) => s,
+        Err(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+    };
+
+    (status, axum::Json(response.body))
 }
 
 // ============================================================================

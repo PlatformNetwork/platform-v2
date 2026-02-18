@@ -9,10 +9,9 @@ use crate::{
         EvaluationRequest, EvaluationResponse, ServerChallenge, ValidationRequest,
         ValidationResponse,
     },
-    types::ChallengeId,
 };
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::json;
 
 /// Simple test challenge that returns scores based on submission data
 pub struct SimpleTestChallenge {

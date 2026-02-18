@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables, unused_imports)]
 //! Platform Challenge SDK
 //!
 //! SDK for developing challenges on Platform Network.

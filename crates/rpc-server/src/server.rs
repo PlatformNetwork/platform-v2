@@ -321,10 +321,11 @@ async fn challenge_route_handler(
     match maybe_handler {
         Some(handle) => {
             let response = handle(challenge_id.clone(), request).await;
-            (
-                StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-                Json(response.body),
-            )
+            let status = match StatusCode::from_u16(response.status) {
+                Ok(s) => s,
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, Json(response.body))
         }
         None => {
             // No handler registered - return info about the route
