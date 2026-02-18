@@ -35,8 +35,6 @@ pub struct TaskResult {
 pub struct ChallengeParams {
     pub tasks: Vec<TaskDefinition>,
     pub llm_judge_url: Option<String>,
-    pub decay_params: Option<DecayParams>,
-    pub active_dataset: Option<Vec<TaskDefinition>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -92,23 +90,6 @@ pub struct LlmJudgeRequest {
 pub struct LlmJudgeResponse {
     pub score: f64,
     pub reasoning: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DecayParams {
-    pub grace_period_hours: u64,
-    pub half_life_hours: u64,
-    pub min_multiplier: f64,
-}
-
-impl Default for DecayParams {
-    fn default() -> Self {
-        Self {
-            grace_period_hours: 72,
-            half_life_hours: 24,
-            min_multiplier: 0.0,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
