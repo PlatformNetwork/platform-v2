@@ -70,6 +70,10 @@ use crate::routes::{ChallengeRoute, RouteRequest, RouteResponse};
 
 #[cfg(feature = "http-server")]
 use axum::extract::State;
+#[cfg(feature = "http-server")]
+use std::sync::OnceLock;
+#[cfg(feature = "http-server")]
+use tracing::{debug, error, info};
 
 /// Server configuration
 #[derive(Debug, Clone)]
@@ -437,8 +441,6 @@ impl<C: ServerChallenge + 'static> ChallengeServer<C> {
         use std::net::SocketAddr;
 
         use axum::{
-            extract::{Json, State},
-            http::StatusCode,
             routing::{get, post},
             Router,
         };
