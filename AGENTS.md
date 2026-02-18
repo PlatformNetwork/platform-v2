@@ -173,6 +173,7 @@ flowchart TB
 - `crates/p2p-consensus` — libp2p gossipsub + DHT consensus
 - `crates/wasm-runtime-interface` — WASM runtime host interface
 - `bins/validator-node` — main validator binary
+- `bins/platform-cli` — CLI for downloading and managing challenge CLIs
 - `bins/utils` — CLI utilities
 - `bins/mock-subtensor` — mock Bittensor node for testing
 - `tests` — integration tests
