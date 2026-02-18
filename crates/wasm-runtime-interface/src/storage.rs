@@ -511,6 +511,8 @@ fn handle_storage_get(
     let challenge_id = storage.challenge_id.clone();
     let backend = Arc::clone(&storage.backend);
 
+    let max_value_size = storage.config.max_value_size;
+
     let value = match backend.get(&challenge_id, &key) {
         Ok(Some(v)) => v,
         Ok(None) => return 0,
@@ -519,6 +521,15 @@ fn handle_storage_get(
             return StorageHostStatus::from(err).to_i32();
         }
     };
+
+    if value.len() > max_value_size {
+        warn!(
+            value_len = value.len(),
+            max = max_value_size,
+            "storage_get: value exceeds max_value_size"
+        );
+        return StorageHostStatus::InternalError.to_i32();
+    }
 
     caller.data_mut().storage_state.bytes_read += value.len() as u64;
     caller.data_mut().storage_state.operations_count += 1;

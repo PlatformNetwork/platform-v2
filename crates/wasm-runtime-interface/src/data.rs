@@ -115,14 +115,73 @@ impl FilesystemDataBackend {
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }
     }
+
+    fn validate_challenge_id(challenge_id: &str) -> Result<(), DataError> {
+        if challenge_id.is_empty() {
+            return Err(DataError::PathNotAllowed(
+                "challenge_id must not be empty".to_string(),
+            ));
+        }
+        if challenge_id.bytes().any(|b| b == 0) {
+            return Err(DataError::PathNotAllowed(
+                "challenge_id contains null byte".to_string(),
+            ));
+        }
+        if challenge_id.contains('/')
+            || challenge_id.contains('\\')
+            || challenge_id.contains(std::path::MAIN_SEPARATOR)
+            || challenge_id == ".."
+            || challenge_id == "."
+        {
+            return Err(DataError::PathNotAllowed(
+                "challenge_id contains path separator or traversal".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn safe_resolve(&self, challenge_id: &str, subpath: &str) -> Result<PathBuf, DataError> {
+        Self::validate_challenge_id(challenge_id)?;
+
+        let challenge_dir = self.base_dir.join(challenge_id);
+        let path = challenge_dir.join(subpath);
+
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(DataError::PathNotAllowed(subpath.to_string()));
+        }
+
+        if !path.starts_with(&challenge_dir) {
+            return Err(DataError::PathNotAllowed(subpath.to_string()));
+        }
+
+        if path.exists() {
+            let canonical_path = path
+                .canonicalize()
+                .map_err(|e| DataError::Io(e.to_string()))?;
+            let canonical_base = if challenge_dir.exists() {
+                challenge_dir
+                    .canonicalize()
+                    .map_err(|e| DataError::Io(e.to_string()))?
+            } else {
+                return Err(DataError::PathNotAllowed(
+                    "challenge directory does not exist".to_string(),
+                ));
+            };
+            if !canonical_path.starts_with(&canonical_base) {
+                return Err(DataError::PathNotAllowed(subpath.to_string()));
+            }
+        }
+
+        Ok(path)
+    }
 }
 
 impl DataBackend for FilesystemDataBackend {
     fn get(&self, challenge_id: &str, key: &str) -> Result<Option<Vec<u8>>, DataError> {
-        let path = self.base_dir.join(challenge_id).join(key);
-        if !path.starts_with(self.base_dir.join(challenge_id)) {
-            return Err(DataError::PathNotAllowed(key.to_string()));
-        }
+        let path = self.safe_resolve(challenge_id, key)?;
         match std::fs::read(&path) {
             Ok(data) => Ok(Some(data)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -131,10 +190,7 @@ impl DataBackend for FilesystemDataBackend {
     }
 
     fn list(&self, challenge_id: &str, prefix: &str) -> Result<Vec<String>, DataError> {
-        let dir = self.base_dir.join(challenge_id).join(prefix);
-        if !dir.starts_with(self.base_dir.join(challenge_id)) {
-            return Err(DataError::PathNotAllowed(prefix.to_string()));
-        }
+        let dir = self.safe_resolve(challenge_id, prefix)?;
         let entries = match std::fs::read_dir(&dir) {
             Ok(rd) => rd,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -275,6 +331,15 @@ fn handle_data_get(
             return DataHostStatus::IoError.to_i32();
         }
     };
+
+    if value.len() > caller.data().data_state.policy.max_value_size {
+        warn!(
+            value_len = value.len(),
+            max = caller.data().data_state.policy.max_value_size,
+            "data_get: value exceeds max_value_size"
+        );
+        return DataHostStatus::InternalError.to_i32();
+    }
 
     caller.data_mut().data_state.reads += 1;
 
@@ -422,6 +487,56 @@ mod tests {
         let policy = DataPolicy::development();
         assert!(policy.enabled);
         assert_eq!(policy.max_key_size, 4096);
+    }
+
+    #[test]
+    fn test_filesystem_backend_rejects_traversal_in_key() {
+        let tmp = std::env::temp_dir().join("platform_data_test");
+        let _ = std::fs::create_dir_all(tmp.join("challenge-1"));
+        let backend = FilesystemDataBackend::new(tmp.clone());
+        let result = backend.get("challenge-1", "../../../etc/passwd");
+        assert!(result.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_filesystem_backend_rejects_traversal_in_challenge_id() {
+        let tmp = std::env::temp_dir().join("platform_data_test2");
+        let _ = std::fs::create_dir_all(&tmp);
+        let backend = FilesystemDataBackend::new(tmp.clone());
+        let result = backend.get("../etc", "passwd");
+        assert!(result.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_filesystem_backend_rejects_null_in_key() {
+        let tmp = std::env::temp_dir().join("platform_data_test3");
+        let _ = std::fs::create_dir_all(tmp.join("challenge-1"));
+        let backend = FilesystemDataBackend::new(tmp.clone());
+        let result = backend.get("challenge-1", "key\0evil");
+        assert!(result.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_filesystem_backend_rejects_empty_challenge_id() {
+        let tmp = std::env::temp_dir().join("platform_data_test4");
+        let _ = std::fs::create_dir_all(&tmp);
+        let backend = FilesystemDataBackend::new(tmp.clone());
+        let result = backend.get("", "key");
+        assert!(result.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_filesystem_backend_rejects_dot_dot_challenge_id() {
+        let tmp = std::env::temp_dir().join("platform_data_test5");
+        let _ = std::fs::create_dir_all(&tmp);
+        let backend = FilesystemDataBackend::new(tmp.clone());
+        let result = backend.get("..", "key");
+        assert!(result.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

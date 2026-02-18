@@ -332,12 +332,82 @@ fn handle_container_run(
     write_result(caller, resp_ptr, resp_len, result)
 }
 
+fn validate_container_request(
+    request: &ContainerRunRequest,
+    network_mode: &str,
+) -> Result<(), ContainerExecError> {
+    if request.image.is_empty()
+        || request.image.starts_with('-')
+        || request
+            .image
+            .bytes()
+            .any(|b| b == 0 || b == b'\n' || b == b'\r')
+        || request.image.contains(char::is_whitespace)
+    {
+        return Err(ContainerExecError::ExecutionFailed(format!(
+            "invalid image name: {}",
+            request.image.chars().take(64).collect::<String>()
+        )));
+    }
+
+    for (key, value) in &request.env_vars {
+        if key.is_empty()
+            || key.starts_with('-')
+            || key.contains('=')
+            || key.bytes().any(|b| b == 0 || b == b'\n' || b == b'\r')
+        {
+            return Err(ContainerExecError::ExecutionFailed(
+                "invalid environment variable key".to_string(),
+            ));
+        }
+        if value.bytes().any(|b| b == 0) {
+            return Err(ContainerExecError::ExecutionFailed(
+                "invalid environment variable value".to_string(),
+            ));
+        }
+    }
+
+    if let Some(ref dir) = request.working_dir {
+        if dir.bytes().any(|b| b == 0 || b == b'\n' || b == b'\r') {
+            return Err(ContainerExecError::ExecutionFailed(
+                "invalid working directory".to_string(),
+            ));
+        }
+        if std::path::Path::new(dir)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(ContainerExecError::ExecutionFailed(
+                "working directory must not contain '..' components".to_string(),
+            ));
+        }
+    }
+
+    for arg in &request.command {
+        if arg.bytes().any(|b| b == 0) {
+            return Err(ContainerExecError::ExecutionFailed(
+                "invalid command argument: contains null byte".to_string(),
+            ));
+        }
+    }
+
+    if network_mode.bytes().any(|b| b == 0) || network_mode.contains(char::is_whitespace) {
+        return Err(ContainerExecError::ExecutionFailed(
+            "invalid network mode".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn execute_container(
     request: &ContainerRunRequest,
     timeout: Duration,
     memory_limit_mb: u64,
     network_mode: &str,
 ) -> Result<ContainerRunResponse, ContainerExecError> {
+    validate_container_request(request, network_mode)?;
+
     let start = Instant::now();
 
     let mut cmd = Command::new("docker");
@@ -558,6 +628,109 @@ mod tests {
         state.containers_run = 5;
         state.reset_counters();
         assert_eq!(state.containers_run, 0);
+    }
+
+    fn make_valid_request() -> ContainerRunRequest {
+        ContainerRunRequest {
+            image: "ubuntu:22.04".to_string(),
+            command: vec!["echo".to_string(), "hello".to_string()],
+            env_vars: vec![("KEY".to_string(), "VALUE".to_string())],
+            working_dir: None,
+            stdin: None,
+            memory_limit_mb: Some(256),
+            cpu_limit: Some(1),
+            network_mode: None,
+            timeout_ms: 5000,
+        }
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_image() {
+        let mut req = make_valid_request();
+        req.image = String::new();
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_image_with_dash_prefix() {
+        let mut req = make_valid_request();
+        req.image = "--privileged".to_string();
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_image_with_newline() {
+        let mut req = make_valid_request();
+        req.image = "ubuntu\nmalicious".to_string();
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_image_with_whitespace() {
+        let mut req = make_valid_request();
+        req.image = "ubuntu --privileged".to_string();
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_env_key_with_equals() {
+        let mut req = make_valid_request();
+        req.env_vars = vec![("KEY=INJECT".to_string(), "val".to_string())];
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_env_key_with_dash_prefix() {
+        let mut req = make_valid_request();
+        req.env_vars = vec![("-e".to_string(), "val".to_string())];
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_env_key_with_null() {
+        let mut req = make_valid_request();
+        req.env_vars = vec![("KEY\0".to_string(), "val".to_string())];
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_env_value_with_null() {
+        let mut req = make_valid_request();
+        req.env_vars = vec![("KEY".to_string(), "val\0ue".to_string())];
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_workdir_traversal() {
+        let mut req = make_valid_request();
+        req.working_dir = Some("/app/../etc/shadow".to_string());
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_workdir_with_null() {
+        let mut req = make_valid_request();
+        req.working_dir = Some("/app\0".to_string());
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_command_arg_with_null() {
+        let mut req = make_valid_request();
+        req.command = vec!["echo\0".to_string()];
+        assert!(validate_container_request(&req, "none").is_err());
+    }
+
+    #[test]
+    fn test_validate_rejects_network_mode_with_whitespace() {
+        let req = make_valid_request();
+        assert!(validate_container_request(&req, "host --privileged").is_err());
+    }
+
+    #[test]
+    fn test_validate_accepts_valid_request() {
+        let req = make_valid_request();
+        assert!(validate_container_request(&req, "none").is_ok());
     }
 
     #[test]
