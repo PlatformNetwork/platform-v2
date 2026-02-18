@@ -141,3 +141,27 @@ pub struct ContainerRunResponse {
     pub stderr: Vec<u8>,
     pub duration_ms: u64,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WasmRouteDefinition {
+    pub method: String,
+    pub path: String,
+    pub description: String,
+    pub requires_auth: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WasmRouteRequest {
+    pub method: String,
+    pub path: String,
+    pub params: Vec<(String, String)>,
+    pub query: Vec<(String, String)>,
+    pub body: Vec<u8>,
+    pub auth_hotkey: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WasmRouteResponse {
+    pub status: u16,
+    pub body: Vec<u8>,
+}

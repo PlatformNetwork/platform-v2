@@ -90,6 +90,13 @@ impl ValidatorSync {
 
         // Parse validators and all hotkeys from metagraph
         let (bt_validators, all_hotkeys) = self.parse_metagraph(metagraph)?;
+
+        // Extract UID 0 hotkey before dropping client borrow
+        let uid0_hotkey = metagraph.neurons.get(&0).map(|neuron| {
+            let hotkey_bytes: &[u8; 32] = neuron.hotkey.as_ref();
+            Hotkey(*hotkey_bytes)
+        });
+
         drop(client); // Release lock
 
         // Update registered hotkeys in state (all miners + validators)
@@ -100,6 +107,13 @@ impl ValidatorSync {
 
         // Update state with validators
         let result = self.update_state(state, bt_validators, banned_validators);
+
+        // Resolve subnet owner from UID 0
+        if let Some(hotkey) = uid0_hotkey {
+            let mut state_guard = state.write();
+            state_guard.sudo_key = hotkey;
+            debug!("Subnet owner set to UID 0 hotkey: {}", state_guard.sudo_key);
+        }
 
         // Update last sync block
         self.last_sync_block = state.read().block_height;
