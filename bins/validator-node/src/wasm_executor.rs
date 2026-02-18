@@ -186,6 +186,7 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            ..Default::default()
         };
 
         let mut instance = self
@@ -308,6 +309,7 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            ..Default::default()
         };
 
         let mut instance = self
@@ -496,6 +498,7 @@ impl WasmChallengeExecutor {
             fixed_timestamp_ms: None,
             consensus_policy: ConsensusPolicy::default(),
             terminal_policy: TerminalPolicy::default(),
+            ..Default::default()
         };
 
         let mut instance = self
