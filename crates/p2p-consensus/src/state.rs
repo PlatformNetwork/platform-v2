@@ -15,6 +15,15 @@ use tracing::{debug, info, warn};
 
 const MAX_STATE_DESERIALIZATION_SIZE: u64 = 256 * 1024 * 1024;
 
+/// Maximum size of agent log data in bytes (256 KB)
+const MAX_AGENT_LOG_SIZE: usize = 256 * 1024;
+
+/// Maximum number of pending agent log proposals (per-submission entries)
+const MAX_AGENT_LOG_PROPOSALS: usize = 10_000;
+
+/// Maximum number of validated agent log entries
+const MAX_VALIDATED_AGENT_LOGS: usize = 50_000;
+
 /// Errors related to state operations
 #[derive(Error, Debug)]
 pub enum StateError {
@@ -788,18 +797,45 @@ impl ChainState {
         self.review_assignments.get(submission_id)
     }
 
-    /// Propose agent logs from a validator
+    /// Propose agent logs from a validator.
+    ///
+    /// Returns `false` and discards the data if:
+    /// - `logs_data` exceeds `MAX_AGENT_LOG_SIZE` (256 KB)
+    /// - the total number of proposal entries exceeds `MAX_AGENT_LOG_PROPOSALS`
     pub fn propose_agent_logs(
         &mut self,
         submission_id: &str,
         validator: Hotkey,
         logs_data: Vec<u8>,
-    ) {
+    ) -> bool {
+        if logs_data.len() > MAX_AGENT_LOG_SIZE {
+            warn!(
+                submission_id = %submission_id,
+                size = logs_data.len(),
+                max = MAX_AGENT_LOG_SIZE,
+                "Rejecting agent log proposal: data exceeds maximum size"
+            );
+            return false;
+        }
+
+        if self.agent_log_proposals.len() >= MAX_AGENT_LOG_PROPOSALS
+            && !self.agent_log_proposals.contains_key(submission_id)
+        {
+            warn!(
+                submission_id = %submission_id,
+                count = self.agent_log_proposals.len(),
+                max = MAX_AGENT_LOG_PROPOSALS,
+                "Rejecting agent log proposal: too many pending proposals"
+            );
+            return false;
+        }
+
         self.agent_log_proposals
             .entry(submission_id.to_string())
             .or_default()
             .insert(validator, logs_data);
         self.update_hash();
+        true
     }
 
     /// Finalize agent logs by consensus (>50% agreement by hash)
@@ -831,6 +867,22 @@ impl ChainState {
 
         if best_count > total_proposals / 2 {
             if let Some(data) = hash_to_data.get(&best_hash) {
+                if self.validated_agent_logs.len() >= MAX_VALIDATED_AGENT_LOGS {
+                    warn!(
+                        count = self.validated_agent_logs.len(),
+                        max = MAX_VALIDATED_AGENT_LOGS,
+                        "Validated agent logs at capacity; pruning oldest entries"
+                    );
+                    let keys_to_remove: Vec<String> = self
+                        .validated_agent_logs
+                        .keys()
+                        .take(self.validated_agent_logs.len() / 10)
+                        .cloned()
+                        .collect();
+                    for key in keys_to_remove {
+                        self.validated_agent_logs.remove(&key);
+                    }
+                }
                 self.validated_agent_logs
                     .insert(submission_id.to_string(), (*data).clone());
             }

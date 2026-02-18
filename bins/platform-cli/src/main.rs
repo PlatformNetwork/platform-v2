@@ -150,6 +150,29 @@ fn bin_dir() -> Result<PathBuf> {
     Ok(platform_dir()?.join(BIN_DIR_NAME))
 }
 
+/// Validate that a binary name does not contain path separators or traversal sequences.
+///
+/// Prevents a malicious config from escaping the `~/.platform/bin/` directory
+/// via names like `../../usr/bin/evil` or `foo/bar`.
+fn validate_binary_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        anyhow::bail!("Binary name must not be empty");
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        anyhow::bail!(
+            "Invalid binary name '{}': must not contain path separators or '..'",
+            name
+        );
+    }
+    if name.starts_with('.') || name.starts_with('-') {
+        anyhow::bail!(
+            "Invalid binary name '{}': must not start with '.' or '-'",
+            name
+        );
+    }
+    Ok(())
+}
+
 // ==================== Config I/O ====================
 
 fn load_config() -> Result<PlatformConfig> {
@@ -277,6 +300,14 @@ async fn fetch_latest_release(
 }
 
 async fn download_binary(client: &reqwest::Client, url: &str, dest: &Path) -> Result<()> {
+    let parsed_url =
+        reqwest::Url::parse(url).with_context(|| format!("Invalid download URL: {}", url))?;
+    if parsed_url.scheme() != "https" {
+        anyhow::bail!(
+            "Refusing to download from non-HTTPS URL: {}",
+            parsed_url.scheme()
+        );
+    }
     info!("Downloading binary from {}", url);
 
     let response = client
@@ -351,6 +382,8 @@ async fn cmd_download(challenge_name: &str) -> Result<()> {
             )
         })?;
 
+    validate_binary_name(&challenge.binary_name)?;
+
     info!(
         "Downloading challenge '{}' from {}",
         canonical_name, challenge.github_repo
@@ -406,6 +439,8 @@ async fn cmd_update(challenge_name: &str) -> Result<()> {
     let config = load_config()?;
     let (canonical_name, challenge) = resolve_challenge_name(&config, challenge_name)
         .with_context(|| format!("Challenge '{}' not found in config", challenge_name))?;
+
+    validate_binary_name(&challenge.binary_name)?;
 
     let versions = load_versions()?;
     let current_version = versions
@@ -512,6 +547,8 @@ async fn cmd_run(challenge_name: &str, args: &[String]) -> Result<()> {
     let config = load_config()?;
     let (canonical_name, challenge) = resolve_challenge_name(&config, challenge_name)
         .with_context(|| format!("Challenge '{}' not found in config", challenge_name))?;
+
+    validate_binary_name(&challenge.binary_name)?;
 
     let versions = load_versions()?;
     let version_info = versions.get(&canonical_name).with_context(|| {

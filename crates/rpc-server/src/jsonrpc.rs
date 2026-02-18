@@ -1446,7 +1446,7 @@ impl RpcHandler {
         };
         let _epoch = self.get_param_u64(&params, 1, "epoch");
 
-        let hk = match platform_core::Hotkey::from_hex(&miner_hotkey) {
+        let _hk = match platform_core::Hotkey::from_hex(&miner_hotkey) {
             Some(h) => h,
             None => return JsonRpcResponse::error(id, INVALID_PARAMS, "Invalid hotkey format"),
         };
