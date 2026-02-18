@@ -2,18 +2,21 @@
 //! HTTP routes that get mounted on the RPC server. Each challenge declares its
 //! own routes and handlers via the `ServerChallenge` trait — the platform SDK
 //! does NOT hardcode any challenge-specific routes.
-//! use platform_challenge_sdk::server::{ServerChallenge, ChallengeContext};
-//! impl ServerChallenge for MyChallenge {
-//!     // ... challenge_id, name, version, evaluate ...
 //!
-//! on the RPC server. Each challenge can expose its own API endpoints.
+//! The platform SDK provides the generic building blocks ([`ChallengeRoute`],
+//! [`RouteRequest`], [`RouteResponse`], [`RouteRegistry`], [`RouteBuilder`],
+//! [`RoutesManifest`], [`HttpMethod`]) — challenges use these to declare their
+//! own routes.
 //!
 //! # Example
 //!
 //! ```text
+//! use platform_challenge_sdk::server::{ServerChallenge, ChallengeContext};
 //! use platform_challenge_sdk::routes::*;
 //!
-//! impl Challenge for MyChallenge {
+//! impl ServerChallenge for MyChallenge {
+//!     // ... challenge_id, name, version, evaluate ...
+//!
 //!     fn routes(&self) -> Vec<ChallengeRoute> {
 //!         vec![
 //!             ChallengeRoute::get("/leaderboard", "Get current leaderboard"),
@@ -38,15 +41,6 @@
 //!                 let agent = self.get_agent(ctx, hash).await;
 //!                 RouteResponse::json(agent)
 //!             }
-//!             _ => RouteResponse::not_found()
-//!         }
-//!     }
-//! }
-//! ```
-//!
-//! // The platform SDK provides the generic building blocks (ChallengeRoute,
-//! // RouteRequest, RouteResponse, RouteRegistry, RouteBuilder, RoutesManifest,
-//! // HttpMethod) — challenges use these to declare their own routes.
 //!             _ => RouteResponse::not_found()
 //!         }
 //!     }
