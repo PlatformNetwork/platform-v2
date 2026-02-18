@@ -207,8 +207,8 @@ fn handle_chat_completion(
     struct ChatRequest {
         model: String,
         messages: Vec<ChatMessage>,
-        max_tokens: Option<u32>,
-        temperature: Option<f32>,
+        max_tokens: u32,
+        temperature: f32,
     }
 
     #[derive(Deserialize)]
@@ -265,8 +265,8 @@ fn handle_chat_completion(
                 content: m.content,
             })
             .collect(),
-        max_tokens: chat_req.max_tokens,
-        temperature: chat_req.temperature,
+        max_tokens: Some(chat_req.max_tokens),
+        temperature: Some(chat_req.temperature),
     };
 
     let json_body = match serde_json::to_vec(&openai_req) {
