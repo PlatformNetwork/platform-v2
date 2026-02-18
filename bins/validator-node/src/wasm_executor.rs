@@ -8,9 +8,8 @@ use std::time::Instant;
 use tracing::{debug, info};
 use wasm_runtime_interface::{
     ConsensusPolicy, ExecPolicy, InMemoryStorageBackend, InstanceConfig, NetworkHostFunctions,
-    NetworkPolicy, NoopStorageBackend, RuntimeConfig, SandboxHostFunctions, SandboxPolicy,
-    StorageHostConfig, StorageHostState, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime,
-    WasmRuntimeError,
+    NetworkPolicy, RuntimeConfig, SandboxHostFunctions, SandboxPolicy, StorageBackend,
+    StorageHostConfig, TerminalPolicy, TimePolicy, WasmModule, WasmRuntime, WasmRuntimeError,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,6 +17,10 @@ pub struct EvaluationInput {
     pub agent_data: Vec<u8>,
     pub challenge_id: String,
     pub params: Vec<u8>,
+    #[serde(default)]
+    pub task_definition: Option<Vec<u8>>,
+    #[serde(default)]
+    pub environment_config: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
