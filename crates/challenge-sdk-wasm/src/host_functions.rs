@@ -233,8 +233,7 @@ pub fn host_consensus_get_epoch() -> i64 {
 
 pub fn host_consensus_get_validators() -> Result<Vec<u8>, i32> {
     let mut buf = vec![0u8; 65536];
-    let status =
-        unsafe { consensus_get_validators(buf.as_mut_ptr() as i32, buf.len() as i32) };
+    let status = unsafe { consensus_get_validators(buf.as_mut_ptr() as i32, buf.len() as i32) };
     if status < 0 {
         return Err(status);
     }
@@ -276,5 +275,3 @@ pub fn host_consensus_get_submission_count() -> i32 {
 pub fn host_consensus_get_block_height() -> i64 {
     unsafe { consensus_get_block_height() }
 }
-
-

@@ -47,6 +47,10 @@ pub const HOST_HTTP_GET: &str = "http_get";
 pub const HOST_HTTP_POST: &str = "http_post";
 pub const HOST_DNS_RESOLVE: &str = "dns_resolve";
 
+pub use consensus::{
+    ConsensusHostFunctions, ConsensusHostStatus, ConsensusPolicy, ConsensusState,
+    HOST_CONSENSUS_NAMESPACE,
+};
 pub use runtime::{
     ChallengeInstance, HostFunctionRegistrar, InstanceConfig, RuntimeConfig, RuntimeState,
     WasmModule, WasmRuntime, WasmRuntimeError,
@@ -55,15 +59,11 @@ pub use storage::{
     HOST_STORAGE_ALLOC, HOST_STORAGE_DELETE, HOST_STORAGE_GET, HOST_STORAGE_GET_RESULT,
     HOST_STORAGE_NAMESPACE, HOST_STORAGE_PROPOSE_WRITE, HOST_STORAGE_SET,
 };
-pub use time::{TimeError, TimeHostFunction, TimeHostFunctions, TimeMode, TimePolicy, TimeState};
-pub use consensus::{
-    ConsensusHostFunctions, ConsensusHostStatus, ConsensusPolicy, ConsensusState,
-    HOST_CONSENSUS_NAMESPACE,
-};
 pub use terminal::{
     TerminalHostFunctions, TerminalHostStatus, TerminalPolicy, TerminalState,
     HOST_TERMINAL_NAMESPACE,
 };
+pub use time::{TimeError, TimeHostFunction, TimeHostFunctions, TimeMode, TimePolicy, TimeState};
 
 /// Host functions that may be exposed to WASM challenges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

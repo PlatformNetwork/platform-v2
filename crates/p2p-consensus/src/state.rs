@@ -637,13 +637,20 @@ impl ChainState {
         Some(job)
     }
 
-    pub fn update_leaderboard(&mut self, challenge_id: ChallengeId, entries: Vec<LeaderboardEntry>) {
+    pub fn update_leaderboard(
+        &mut self,
+        challenge_id: ChallengeId,
+        entries: Vec<LeaderboardEntry>,
+    ) {
         self.leaderboard.insert(challenge_id, entries);
         self.increment_sequence();
     }
 
     pub fn get_leaderboard(&self, challenge_id: &ChallengeId) -> Vec<LeaderboardEntry> {
-        self.leaderboard.get(challenge_id).cloned().unwrap_or_default()
+        self.leaderboard
+            .get(challenge_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn update_task_progress(&mut self, record: TaskProgressRecord) {
@@ -658,7 +665,8 @@ impl ChainState {
     }
 
     pub fn cleanup_stale_jobs(&mut self, now: i64) -> Vec<JobRecord> {
-        let stale: Vec<String> = self.active_jobs
+        let stale: Vec<String> = self
+            .active_jobs
             .iter()
             .filter(|(_, job)| job.timeout_at < now && job.status != JobStatus::Completed)
             .map(|(id, _)| id.clone())
