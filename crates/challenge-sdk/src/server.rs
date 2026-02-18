@@ -1767,7 +1767,6 @@ mod async_tests {
 
     #[test]
     fn test_server_builder_custom_port() {
-        let challenge = TestChallenge::default();
         for port in [80, 443, 3000, 8000, 8080, 9000, 65535] {
             let server = ChallengeServer::builder(TestChallenge::default())
                 .port(port)
