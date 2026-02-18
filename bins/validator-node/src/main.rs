@@ -49,7 +49,11 @@ const JOB_TIMEOUT_MS: i64 = 300_000;
 /// and truncates to `MAX_LOG_FIELD_LEN` to prevent log injection attacks.
 fn sanitize_for_log(s: &str) -> String {
     let truncated = if s.len() > MAX_LOG_FIELD_LEN {
-        &s[..MAX_LOG_FIELD_LEN]
+        let mut end = MAX_LOG_FIELD_LEN;
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        &s[..end]
     } else {
         s
     };

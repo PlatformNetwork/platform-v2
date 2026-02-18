@@ -16,6 +16,9 @@ use tracing::warn;
 use wasmtime::{Caller, Linker, Memory};
 
 const MAX_CHAT_REQUEST_SIZE: u64 = 4 * 1024 * 1024;
+const MAX_LLM_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+const MAX_LLM_MAX_TOKENS: u32 = 16_384;
+const MAX_LLM_MESSAGES: usize = 128;
 const LLM_REQUEST_TIMEOUT_SECS: u64 = 60;
 
 pub const HOST_LLM_NAMESPACE: &str = "platform_llm";
@@ -217,7 +220,7 @@ fn handle_chat_completion(
         content: String,
     }
 
-    let chat_req: ChatRequest = match bincode::DefaultOptions::new()
+    let mut chat_req: ChatRequest = match bincode::DefaultOptions::new()
         .with_limit(MAX_CHAT_REQUEST_SIZE)
         .with_fixint_encoding()
         .allow_trailing_bytes()
@@ -226,6 +229,24 @@ fn handle_chat_completion(
         Ok(r) => r,
         Err(_) => return LlmHostStatus::InvalidRequest.to_i32(),
     };
+
+    if chat_req.messages.len() > MAX_LLM_MESSAGES {
+        warn!(
+            count = chat_req.messages.len(),
+            limit = MAX_LLM_MESSAGES,
+            "llm_chat_completion: too many messages"
+        );
+        return LlmHostStatus::InvalidRequest.to_i32();
+    }
+
+    if chat_req.max_tokens > MAX_LLM_MAX_TOKENS {
+        warn!(
+            requested = chat_req.max_tokens,
+            limit = MAX_LLM_MAX_TOKENS,
+            "llm_chat_completion: capping max_tokens"
+        );
+        chat_req.max_tokens = MAX_LLM_MAX_TOKENS;
+    }
 
     {
         let state = &caller.data().llm_state;
@@ -290,11 +311,24 @@ fn handle_chat_completion(
         }
     };
 
-    let response_body = match http_response.bytes() {
-        Ok(b) => b.to_vec(),
-        Err(err) => {
-            warn!(error = %err, "llm_chat_completion: failed to read response body");
-            return LlmHostStatus::ApiError.to_i32();
+    if !http_response.status().is_success() {
+        warn!(
+            status = http_response.status().as_u16(),
+            "llm_chat_completion: API returned error status"
+        );
+        return LlmHostStatus::ApiError.to_i32();
+    }
+
+    let response_body = {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let mut reader = http_response.take(MAX_LLM_RESPONSE_BYTES as u64);
+        match reader.read_to_end(&mut buf) {
+            Ok(_) => buf,
+            Err(err) => {
+                warn!(error = %err, "llm_chat_completion: failed to read response body");
+                return LlmHostStatus::ApiError.to_i32();
+            }
         }
     };
 
