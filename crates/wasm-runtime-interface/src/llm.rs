@@ -16,6 +16,7 @@ use tracing::warn;
 use wasmtime::{Caller, Linker, Memory};
 
 const MAX_CHAT_REQUEST_SIZE: u64 = 4 * 1024 * 1024;
+const LLM_REQUEST_TIMEOUT_SECS: u64 = 60;
 
 pub const HOST_LLM_NAMESPACE: &str = "platform_llm";
 pub const HOST_LLM_CHAT_COMPLETION: &str = "llm_chat_completion";
@@ -279,7 +280,7 @@ fn handle_chat_completion(
         .header("Content-Type", "application/json")
         .header("Authorization", format!("Bearer {}", api_key))
         .body(json_body)
-        .timeout(std::time::Duration::from_secs(60))
+        .timeout(std::time::Duration::from_secs(LLM_REQUEST_TIMEOUT_SECS))
         .send()
     {
         Ok(r) => r,

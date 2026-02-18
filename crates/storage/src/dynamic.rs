@@ -485,14 +485,15 @@ impl DynamicStorage {
         let namespace = challenge_id.0.to_string();
         let entries = self.scan_namespace(&namespace)?;
 
-        Ok(entries
+        entries
             .into_iter()
             .filter(|(k, _)| k.validator.is_none() && k.key.starts_with(prefix))
             .map(|(k, entry)| {
-                let value_bytes = bincode::serialize(&entry.value).unwrap_or_default();
-                (k.key, value_bytes)
+                let value_bytes = bincode::serialize(&entry.value)
+                    .map_err(|e| MiniChainError::Serialization(e.to_string()))?;
+                Ok((k.key, value_bytes))
             })
-            .collect())
+            .collect()
     }
 
     /// Get a value as it existed at a specific block height

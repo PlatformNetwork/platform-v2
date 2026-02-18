@@ -6,6 +6,7 @@ use platform_challenge_sdk_wasm::host_functions::{host_storage_get, host_storage
 const ACTIVE_DATASET_KEY: &[u8] = b"active_dataset";
 const DATASET_HISTORY_KEY: &[u8] = b"dataset_history";
 const MAX_DATASET_SIZE: u64 = 8 * 1024 * 1024;
+const MAX_DATASET_HISTORY: usize = 100;
 
 fn bincode_options_dataset() -> impl Options {
     bincode::DefaultOptions::new()
@@ -46,8 +47,8 @@ fn append_dataset_history(selection: &DatasetSelection) -> bool {
         })
         .unwrap_or_default();
     history.push(selection.clone());
-    if history.len() > 100 {
-        history.drain(0..history.len() - 100);
+    if history.len() > MAX_DATASET_HISTORY {
+        history.drain(0..history.len() - MAX_DATASET_HISTORY);
     }
     let data = match bincode::serialize(&history) {
         Ok(d) => d,
