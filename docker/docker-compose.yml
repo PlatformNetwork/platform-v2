@@ -18,14 +18,14 @@ services:
     environment:
       - VALIDATOR_SECRET_KEY=${VALIDATOR_SECRET_KEY}
       - SUBTENSOR_ENDPOINT=${SUBTENSOR_ENDPOINT:-wss://entrypoint-finney.opentensor.ai:443}
-      - P2P_PORT=9000
+      - P2P_PORT=8090
       - RPC_PORT=8080
       - RUST_LOG=info
     volumes:
       - validator-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "9000:9000"   # P2P
+      - "8090:8090"   # P2P
       - "8080:8080"   # RPC
     networks:
       - platform

@@ -154,7 +154,7 @@ struct Args {
     data_dir: PathBuf,
 
     /// P2P listen address
-    #[arg(long, default_value = "/ip4/0.0.0.0/tcp/9000")]
+    #[arg(long, default_value = "/ip4/0.0.0.0/tcp/8090")]
     listen_addr: String,
 
     /// Bootstrap peers (multiaddr format)
@@ -259,9 +259,7 @@ async fn main() -> Result<()> {
     info!("Distributed storage initialized");
 
     if args.bootstrap.is_empty() {
-        return Err(anyhow::anyhow!(
-            "No bootstrap peers configured. Provide --bootstrap to connect to the P2P validator mesh."
-        ));
+        warn!("No bootstrap peers configured. This node will act as a bootnode (waiting for peers to connect).");
     }
     let p2p_config = P2PConfig::default()
         .with_listen_addr(&args.listen_addr)
@@ -1179,8 +1177,7 @@ async fn handle_block_event(
                         }
                     }
                     _ => {
-                        info!("No weights for epoch {} - submitting burn weights", epoch);
-                        // Submit burn weights (uid 0 with max weight)
+                        info!("No challenge weights for epoch {} - submitting burn weights (100% to UID 0)", epoch);
                         match st
                             .set_mechanism_weights(
                                 sig,

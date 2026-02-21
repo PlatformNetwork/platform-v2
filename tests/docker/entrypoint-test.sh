@@ -18,7 +18,7 @@ else
 fi
 
 ARGS="--data-dir ${DATA_DIR:-/data}"
-ARGS="$ARGS --listen-addr ${P2P_LISTEN_ADDR:-/ip4/0.0.0.0/tcp/9000}"
+ARGS="$ARGS --listen-addr ${P2P_LISTEN_ADDR:-/ip4/0.0.0.0/tcp/8090}"
 
 if [ "${PLATFORM_TEST_DOCKER_MODE:-auto}" = "required" ] && command -v platform_install_docker_if_needed >/dev/null 2>&1; then
     platform_install_docker_if_needed

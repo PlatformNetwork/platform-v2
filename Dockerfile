@@ -137,8 +137,9 @@ ENV DATA_DIR=/data
 ENV SUBTENSOR_ENDPOINT=wss://entrypoint-finney.opentensor.ai:443
 ENV NETUID=100
 
-# Expose P2P port
-EXPOSE 9000
+# Expose P2P and RPC ports
+EXPOSE 8090
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
@@ -146,7 +147,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 # Default entrypoint
 ENTRYPOINT ["validator-node"]
-CMD ["--data-dir", "/data", "--listen-addr", "/ip4/0.0.0.0/tcp/9000"]
+CMD ["--data-dir", "/data", "--listen-addr", "/ip4/0.0.0.0/tcp/8090"]
 
 # Labels
 LABEL org.opencontainers.image.source="https://github.com/PlatformNetwork/platform"

@@ -5,7 +5,7 @@ set -e
 
 echo "=== Mini-Chain Validator ==="
 echo "Version: ${VERSION:-unknown}"
-echo "P2P Port: ${P2P_PORT:-9000}"
+echo "P2P Port: ${P2P_PORT:-8090}"
 echo "RPC Port: ${RPC_PORT:-8080}"
 echo ""
 

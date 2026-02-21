@@ -64,7 +64,7 @@ ENV DATA_DIR=/data
 ENV NETUID=100
 
 # Expose P2P port
-EXPOSE 9000
+EXPOSE 8090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
