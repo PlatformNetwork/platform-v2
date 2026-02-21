@@ -67,6 +67,10 @@ if [ -n "$BOOTSTRAP_PEERS" ]; then
     done
 fi
 
+if [ -n "$EXTERNAL_ADDR" ]; then
+    ARGS+=("--external-addr" "$EXTERNAL_ADDR")
+fi
+
 # Cleanup crash file on successful start
 cleanup() {
     rm -f "$CRASH_FILE"

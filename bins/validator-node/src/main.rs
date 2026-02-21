@@ -157,6 +157,11 @@ struct Args {
     #[arg(long, default_value = "/ip4/0.0.0.0/tcp/8090")]
     listen_addr: String,
 
+    /// External address to announce to peers (multiaddr format, e.g. /ip4/1.2.3.4/tcp/8090)
+    /// Use this when running behind NAT or in Docker to announce your public IP
+    #[arg(long, env = "EXTERNAL_ADDR")]
+    external_addr: Option<String>,
+
     /// Bootstrap peers (multiaddr format)
     #[arg(long)]
     bootstrap: Vec<String>,
@@ -268,6 +273,12 @@ async fn main() -> Result<()> {
         .with_listen_addr(&args.listen_addr)
         .with_netuid(args.netuid)
         .with_min_stake(10_000_000_000_000); // 10000 TAO
+
+    // Set external address if provided (for NAT/Docker environments)
+    if let Some(ref external_addr) = args.external_addr {
+        p2p_config = p2p_config.with_external_addrs(vec![external_addr.clone()]);
+        info!("External address configured: {}", external_addr);
+    }
 
     // Add CLI bootstrap peers to defaults (don't replace)
     for peer in &args.bootstrap {

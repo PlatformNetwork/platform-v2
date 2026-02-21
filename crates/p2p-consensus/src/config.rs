@@ -21,6 +21,9 @@ pub const DEFAULT_BOOTSTRAP_NODES: &[&str] = &[
 pub struct P2PConfig {
     /// Listen addresses (multiaddr format)
     pub listen_addrs: Vec<String>,
+    /// External addresses to announce to peers (multiaddr format)
+    /// If empty, the node will try to detect its public IP automatically
+    pub external_addrs: Vec<String>,
     /// Bootstrap peers (multiaddr format)
     pub bootstrap_peers: Vec<String>,
     /// Gossipsub topic for consensus messages
@@ -50,6 +53,7 @@ impl Default for P2PConfig {
     fn default() -> Self {
         Self {
             listen_addrs: vec![format!("/ip4/0.0.0.0/tcp/{}", DEFAULT_P2P_PORT)],
+            external_addrs: vec![],
             bootstrap_peers: DEFAULT_BOOTSTRAP_NODES
                 .iter()
                 .map(|s| s.to_string())
@@ -98,10 +102,17 @@ impl P2PConfig {
         self
     }
 
+    /// Add external addresses to announce
+    pub fn with_external_addrs(mut self, addrs: Vec<String>) -> Self {
+        self.external_addrs = addrs;
+        self
+    }
+
     /// Create a development config with relaxed settings
     pub fn development() -> Self {
         Self {
             listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".to_string()],
+            external_addrs: vec![],
             bootstrap_peers: vec![],
             consensus_topic: "platform/consensus/dev".to_string(),
             challenge_topic: "platform/challenge/dev".to_string(),
@@ -122,6 +133,7 @@ impl P2PConfig {
                 format!("/ip4/0.0.0.0/tcp/{}", DEFAULT_P2P_PORT),
                 format!("/ip6/::/tcp/{}", DEFAULT_P2P_PORT),
             ],
+            external_addrs: vec![],
             bootstrap_peers: DEFAULT_BOOTSTRAP_NODES
                 .iter()
                 .map(|s| s.to_string())

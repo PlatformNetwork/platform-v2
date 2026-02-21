@@ -744,6 +744,20 @@ impl P2PNetwork {
             }
         }
 
+        // Add external addresses for announcement to other peers
+        // This is crucial for NAT traversal - we announce our public IP instead of internal Docker IPs
+        for addr_str in &self.config.external_addrs {
+            match addr_str.parse::<Multiaddr>() {
+                Ok(addr) => {
+                    swarm.add_external_address(addr.clone());
+                    info!(addr = %addr, "Added external address for announcement");
+                }
+                Err(e) => {
+                    error!(addr = %addr_str, error = %e, "Invalid external address");
+                }
+            }
+        }
+
         // Connect to bootstrap peers
         for addr_str in &self.config.bootstrap_peers {
             match addr_str.parse::<Multiaddr>() {
