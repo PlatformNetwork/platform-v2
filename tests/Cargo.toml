@@ -40,12 +40,17 @@ path = "blockchain_state_tests.rs"
 name = "checkpoint_tests"
 path = "checkpoint_tests.rs"
 
+[[test]]
+name = "wasm_challenge_tests"
+path = "wasm_challenge_tests.rs"
+
 [dependencies]
 platform-core = { path = "../crates/core" }
 platform-storage = { path = "../crates/storage" }
 platform-p2p-consensus = { path = "../crates/p2p-consensus" }
 platform-bittensor = { path = "../crates/bittensor-integration" }
 platform-challenge-sdk = { path = "../crates/challenge-sdk" }
+wasm-runtime-interface = { path = "../crates/wasm-runtime-interface" }
 
 tokio = { version = "1.40", features = ["full", "test-util"] }
 tempfile = "3.12"
@@ -58,5 +63,6 @@ rand = "0.8"
 lz4_flex = "0.11"
 hex = "0.4"
 bincode = "1.3"
+sha2 = { workspace = true }
 reqwest = { workspace = true }
 sp-core = { workspace = true }
