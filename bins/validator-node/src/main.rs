@@ -263,14 +263,24 @@ async fn main() -> Result<()> {
     let storage = Arc::new(storage);
     info!("Distributed storage initialized");
 
-    if args.bootstrap.is_empty() {
-        warn!("No bootstrap peers configured. This node will act as a bootnode (waiting for peers to connect).");
-    }
-    let p2p_config = P2PConfig::default()
+    // Build P2P config - use defaults and add any extra bootstrap peers from CLI
+    let mut p2p_config = P2PConfig::default()
         .with_listen_addr(&args.listen_addr)
-        .with_bootstrap_peers(args.bootstrap.clone())
         .with_netuid(args.netuid)
         .with_min_stake(10_000_000_000_000); // 10000 TAO
+
+    // Add CLI bootstrap peers to defaults (don't replace)
+    for peer in &args.bootstrap {
+        if !p2p_config.bootstrap_peers.contains(peer) {
+            p2p_config.bootstrap_peers.push(peer.clone());
+        }
+    }
+
+    if p2p_config.bootstrap_peers.is_empty() {
+        warn!("No bootstrap peers configured. This node will act as a bootnode (waiting for peers to connect).");
+    } else {
+        info!("Bootstrap peers: {:?}", p2p_config.bootstrap_peers);
+    }
 
     // Initialize validator set (ourselves first)
     let validator_set = Arc::new(ValidatorSet::new(keypair.clone(), p2p_config.min_stake));

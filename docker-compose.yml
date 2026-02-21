@@ -23,7 +23,7 @@ services:
   #   --bootstrap /ip4/<BOOTNODE_IP>/tcp/8090/p2p/<PEER_ID>
   # ==========================================================================
   bootnode:
-    image: ghcr.io/platformnetwork/platform-bootnode:latest
+    image: platform-bootnode:latest
     container_name: platform-bootnode
     restart: unless-stopped
     
