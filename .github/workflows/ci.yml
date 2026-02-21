@@ -119,6 +119,46 @@ jobs:
       - name: Run e2e tests
         run: cargo nextest run --workspace -E 'test(/e2e/)'
 
+  docker-test:
+    name: Docker Integration (5 Validators + WASM)
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    needs: [build, clippy, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: PlatformNetwork/term-challenge
+          path: term-challenge
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y bash ripgrep
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "platform-ci"
+          save-if: false
+      - name: Ensure Docker available
+        run: scripts/install-docker.sh
+      - name: Build term-challenge WASM module
+        run: |
+          mkdir -p term-challenge/.cargo
+          printf "[patch.'https://github.com/PlatformNetwork/platform-v2']\nplatform-challenge-sdk-wasm = { path = \"${{ github.workspace }}/crates/challenge-sdk-wasm\" }\n" > term-challenge/.cargo/config.toml
+          cd term-challenge && cargo build --release --target wasm32-unknown-unknown -p term-challenge-wasm
+      - name: Run 5-validator Docker integration tests
+        env:
+          TERM_CHALLENGE_WASM_PATH: ${{ github.workspace }}/term-challenge/target/wasm32-unknown-unknown/release/term_challenge_wasm.wasm
+          PLATFORM_TEST_DOCKER_MODE: auto
+        run: bash tests/docker/test-multi-validator.sh
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-test-artifacts
+          path: /tmp/platform-tests/
+          retention-days: 7
+
   coverage:
     name: Coverage
     runs-on: blacksmith-32vcpu-ubuntu-2404

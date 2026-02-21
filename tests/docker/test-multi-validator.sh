@@ -77,6 +77,9 @@ platform_require_compose
 
 WASM_PATH="${TERM_CHALLENGE_WASM_PATH:-}"
 TERM_CHALLENGE_DIR="${SCRIPT_DIR}/../../../term-challenge"
+if [ ! -d "${TERM_CHALLENGE_DIR}" ]; then
+    TERM_CHALLENGE_DIR="${SCRIPT_DIR}/../../../term challenge"
+fi
 
 if [ -z "${WASM_PATH}" ]; then
     WASM_PATH="${TERM_CHALLENGE_DIR}/target/wasm32-unknown-unknown/release/term_challenge_wasm.wasm"
