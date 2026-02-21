@@ -9,7 +9,7 @@
 # - Commit-reveal weight mechanism
 # =============================================================================
 
-FROM rust:1.82-bookworm AS builder
+FROM rust:1.92-bookworm AS builder
 
 # Install dependencies
 RUN apt-get update \
@@ -28,6 +28,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY bins ./bins
+COPY tests ./tests
 
 # Build release binary
 RUN cargo build --release --bin mock-subtensor
