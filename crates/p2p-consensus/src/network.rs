@@ -191,7 +191,7 @@ const RATE_LIMIT_WINDOW_MS: i64 = 1000;
 const NONCE_EXPIRY_MS: i64 = 5 * 60 * 1000;
 
 /// Authentication timeout in seconds - peers must send PeerAnnounce within this time
-const AUTH_TIMEOUT_SECS: u64 = 30;
+
 
 /// P2P network node
 pub struct P2PNetwork {
@@ -218,9 +218,6 @@ pub struct P2PNetwork {
     seen_nonces: RwLock<HashMap<Hotkey, HashMap<u64, i64>>>,
     /// Message timestamps for sliding window rate limiting (hotkey -> recent message timestamps in ms)
     message_timestamps: RwLock<HashMap<Hotkey, VecDeque<i64>>>,
-    /// Peers pending authentication (peer_id -> connection timestamp)
-    /// Peers must send a valid PeerAnnounce within AUTH_TIMEOUT_SECS or be disconnected
-    pending_auth: RwLock<HashMap<PeerId, std::time::Instant>>,
 }
 
 impl P2PNetwork {
@@ -253,7 +250,6 @@ impl P2PNetwork {
             nonce: RwLock::new(0),
             seen_nonces: RwLock::new(HashMap::new()),
             message_timestamps: RwLock::new(HashMap::new()),
-            pending_auth: RwLock::new(HashMap::new()),
         })
     }
 
@@ -791,10 +787,6 @@ impl P2PNetwork {
         let mut discovery_interval = tokio::time::interval(Duration::from_secs(30));
         discovery_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        // Auth cleanup interval - disconnect peers that haven't authenticated
-        let mut auth_cleanup_interval = tokio::time::interval(Duration::from_secs(5));
-        auth_cleanup_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
         // Main event loop
         loop {
             tokio::select! {
@@ -836,27 +828,6 @@ impl P2PNetwork {
                     let random_peer = PeerId::random();
                     swarm.behaviour_mut().kademlia.get_closest_peers(random_peer);
                     debug!("Started Kademlia peer discovery query");
-                }
-                _ = auth_cleanup_interval.tick() => {
-                    // Disconnect peers that haven't authenticated within timeout
-                    let now = std::time::Instant::now();
-                    let timeout = Duration::from_secs(AUTH_TIMEOUT_SECS);
-                    let mut to_disconnect = Vec::new();
-                    
-                    {
-                        let pending = self.pending_auth.read();
-                        for (peer_id, connected_at) in pending.iter() {
-                            if now.duration_since(*connected_at) > timeout {
-                                to_disconnect.push(*peer_id);
-                            }
-                        }
-                    }
-                    
-                    for peer_id in to_disconnect {
-                        warn!(peer = %peer_id, "Disconnecting unauthenticated peer (timeout)");
-                        self.pending_auth.write().remove(&peer_id);
-                        let _ = swarm.disconnect_peer_id(peer_id);
-                    }
                 }
             }
         }
@@ -924,94 +895,6 @@ impl P2PNetwork {
         Ok(swarm)
     }
 
-    /// Send our PeerAnnounce message to authenticate with peers
-    fn send_peer_announce(&self, swarm: &mut Swarm<CombinedBehaviour>) -> Result<(), NetworkError> {
-        use crate::messages::PeerAnnounceMessage;
-        
-        let timestamp = chrono::Utc::now().timestamp_millis();
-        let peer_id_str = self.local_peer_id.to_string();
-        
-        // Create signing data: peer_id + timestamp
-        let signing_data = format!("{}:{}", peer_id_str, timestamp);
-        let signature = self.keypair.sign_bytes(signing_data.as_bytes())
-            .map_err(|e| NetworkError::Gossipsub(format!("Failed to sign PeerAnnounce: {}", e)))?;
-        
-        let announce = PeerAnnounceMessage {
-            validator: self.keypair.hotkey(),
-            addresses: self.config.listen_addrs.clone(),
-            peer_id: peer_id_str,
-            protocol_version: "1.0.0".to_string(),
-            timestamp,
-            signature,
-        };
-        
-        let msg = P2PMessage::PeerAnnounce(announce);
-        self.do_broadcast(swarm, msg)?;
-        
-        debug!("Sent PeerAnnounce for authentication");
-        Ok(())
-    }
-
-    /// Handle incoming PeerAnnounce and authenticate the peer
-    fn handle_peer_announce(
-        &self,
-        source: PeerId,
-        announce: &crate::messages::PeerAnnounceMessage,
-        swarm: &mut Swarm<CombinedBehaviour>,
-    ) -> bool {
-        // Verify timestamp is recent (within 5 minutes)
-        let now = chrono::Utc::now().timestamp_millis();
-        if (now - announce.timestamp).abs() > 5 * 60 * 1000 {
-            warn!(peer = %source, "PeerAnnounce timestamp too old, rejecting");
-            let _ = swarm.disconnect_peer_id(source);
-            return false;
-        }
-        
-        // Verify the peer_id in the message matches the source
-        if announce.peer_id != source.to_string() {
-            warn!(
-                peer = %source,
-                claimed_peer_id = %announce.peer_id,
-                "PeerAnnounce peer_id mismatch, rejecting"
-            );
-            let _ = swarm.disconnect_peer_id(source);
-            return false;
-        }
-        
-        // Verify signature
-        let signing_data = format!("{}:{}", announce.peer_id, announce.timestamp);
-        if !verify_hotkey_signature(&announce.validator, signing_data.as_bytes(), &announce.signature) {
-            warn!(peer = %source, "PeerAnnounce signature invalid, rejecting");
-            let _ = swarm.disconnect_peer_id(source);
-            return false;
-        }
-        
-        // Remove from pending auth (signature is valid)
-        self.pending_auth.write().remove(&source);
-        
-        // Check if the hotkey is a registered validator with sufficient stake
-        let is_validator = self.validator_set.is_validator(&announce.validator);
-        
-        // Add to peer mapping (even non-validators for relay purposes)
-        self.peer_mapping.insert(source, announce.validator.clone());
-        
-        if is_validator {
-            info!(
-                peer = %source,
-                validator = %announce.validator.to_hex(),
-                "Validator peer authenticated successfully"
-            );
-        } else {
-            info!(
-                peer = %source,
-                hotkey = %announce.validator.to_hex(),
-                "Relay peer authenticated (non-validator, can relay but not send consensus messages)"
-            );
-        }
-        
-        true
-    }
-
     /// Handle swarm events
     async fn handle_swarm_event(
         &self,
@@ -1026,17 +909,6 @@ impl P2PNetwork {
             })) => {
                 match self.handle_gossipsub_message(propagation_source, &message.data) {
                     Ok(msg) => {
-                        // Handle PeerAnnounce specially for authentication
-                        if let P2PMessage::PeerAnnounce(ref announce) = msg {
-                            if self.handle_peer_announce(propagation_source, announce, swarm) {
-                                debug!(
-                                    source = %propagation_source,
-                                    validator = %announce.validator.to_hex(),
-                                    "Peer authenticated via PeerAnnounce"
-                                );
-                            }
-                        }
-                        
                         debug!(
                             source = %propagation_source,
                             msg_type = %msg.type_name(),
@@ -1138,15 +1010,6 @@ impl P2PNetwork {
                 peer_id, endpoint, ..
             } => {
                 info!(peer = %peer_id, endpoint = ?endpoint, "Connection established");
-                
-                // Add to pending auth - peer must send PeerAnnounce within timeout
-                self.pending_auth.write().insert(peer_id, std::time::Instant::now());
-                
-                // Send our PeerAnnounce to authenticate ourselves
-                if let Err(e) = self.send_peer_announce(swarm) {
-                    warn!(error = %e, "Failed to send PeerAnnounce");
-                }
-                
                 if let Err(e) = self
                     .event_tx
                     .send(NetworkEvent::PeerConnected(peer_id))
@@ -1158,7 +1021,6 @@ impl P2PNetwork {
             SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
                 info!(peer = %peer_id, cause = ?cause, "Connection closed");
                 self.peer_mapping.remove_peer(&peer_id);
-                self.pending_auth.write().remove(&peer_id);
                 if let Err(e) = self
                     .event_tx
                     .send(NetworkEvent::PeerDisconnected(peer_id))
@@ -1249,19 +1111,6 @@ fn validate_weight_vote_hash(message: &WeightVoteMessage) -> Result<(), NetworkE
         ));
     }
     Ok(())
-}
-
-/// Verify a signature from a hotkey
-fn verify_hotkey_signature(hotkey: &Hotkey, message: &[u8], signature: &[u8]) -> bool {
-    use platform_core::SignedMessage;
-    
-    let signed = SignedMessage {
-        message: message.to_vec(),
-        signature: signature.to_vec(),
-        signer: hotkey.clone(),
-    };
-    
-    signed.verify().unwrap_or(false)
 }
 
 /// Extract peer ID from multiaddr if present
