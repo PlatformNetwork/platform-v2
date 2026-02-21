@@ -746,15 +746,25 @@ impl P2PNetwork {
 
         // Add external addresses for announcement to other peers
         // This is crucial for NAT traversal - we announce our public IP instead of internal Docker IPs
-        for addr_str in &self.config.external_addrs {
-            match addr_str.parse::<Multiaddr>() {
-                Ok(addr) => {
-                    swarm.add_external_address(addr.clone());
-                    info!(addr = %addr, "Added external address for announcement");
+        if !self.config.external_addrs.is_empty() {
+            for addr_str in &self.config.external_addrs {
+                match addr_str.parse::<Multiaddr>() {
+                    Ok(addr) => {
+                        swarm.add_external_address(addr.clone());
+                        info!(addr = %addr, "Added external address for announcement");
+                    }
+                    Err(e) => {
+                        error!(addr = %addr_str, error = %e, "Invalid external address");
+                    }
                 }
-                Err(e) => {
-                    error!(addr = %addr_str, error = %e, "Invalid external address");
-                }
+            }
+        } else {
+            // Auto-detect public IP if no external address configured
+            if let Some(external_addr) = detect_public_ip().await {
+                swarm.add_external_address(external_addr.clone());
+                info!(addr = %external_addr, "Auto-detected public IP for announcement");
+            } else {
+                warn!("Could not detect public IP. Peers may not be able to connect directly. Set EXTERNAL_ADDR to configure manually.");
             }
         }
 
@@ -1136,6 +1146,93 @@ fn extract_peer_id(addr: &Multiaddr) -> Option<PeerId> {
             None
         }
     })
+}
+
+/// Detect public IP address using external services
+/// Returns a multiaddr with the detected IP and default P2P port
+async fn detect_public_ip() -> Option<Multiaddr> {
+    use crate::config::DEFAULT_P2P_PORT;
+    
+    // Try multiple services for reliability
+    let services = [
+        "https://api.ipify.org",
+        "https://ifconfig.me/ip",
+        "https://icanhazip.com",
+        "https://ipinfo.io/ip",
+    ];
+    
+    for service in services {
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            fetch_public_ip(service),
+        ).await {
+            Ok(Some(ip)) => {
+                // Validate it's a public IP (not private/local)
+                if is_public_ip(&ip) {
+                    let addr_str = format!("/ip4/{}/tcp/{}", ip, DEFAULT_P2P_PORT);
+                    if let Ok(addr) = addr_str.parse::<Multiaddr>() {
+                        return Some(addr);
+                    }
+                }
+            }
+            Ok(None) => continue,
+            Err(_) => {
+                debug!(service = %service, "Timeout detecting public IP");
+                continue;
+            }
+        }
+    }
+    
+    None
+}
+
+/// Fetch public IP from a service using curl
+async fn fetch_public_ip(url: &str) -> Option<String> {
+    let output = tokio::process::Command::new("curl")
+        .args(["-s", "--max-time", "3", url])
+        .output()
+        .await
+        .ok()?;
+    
+    if output.status.success() {
+        let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // Validate it looks like an IP
+        if ip.parse::<std::net::Ipv4Addr>().is_ok() {
+            return Some(ip);
+        }
+    }
+    
+    None
+}
+
+/// Check if an IP address is public (not private/local/reserved)
+fn is_public_ip(ip: &str) -> bool {
+    if let Ok(addr) = ip.parse::<std::net::Ipv4Addr>() {
+        let octets = addr.octets();
+        // Private ranges: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+        // Loopback: 127.x.x.x
+        // Link-local: 169.254.x.x
+        if octets[0] == 10 {
+            return false;
+        }
+        if octets[0] == 172 && (16..=31).contains(&octets[1]) {
+            return false;
+        }
+        if octets[0] == 192 && octets[1] == 168 {
+            return false;
+        }
+        if octets[0] == 127 {
+            return false;
+        }
+        if octets[0] == 169 && octets[1] == 254 {
+            return false;
+        }
+        if octets[0] == 0 {
+            return false;
+        }
+        return true;
+    }
+    false
 }
 
 /// Network runner that processes swarm events
