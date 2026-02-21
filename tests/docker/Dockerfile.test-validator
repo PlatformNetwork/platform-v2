@@ -55,8 +55,8 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /app/target/release/validator-node /usr/local/bin/validator-node
 COPY --from=builder /scripts/test-harness.sh /scripts/test-harness.sh
 
-# Create data directory
-RUN mkdir -p /data && chmod 755 /data
+# Create data and WASM module directories
+RUN mkdir -p /data /wasm_modules/challenges && chmod 755 /data /wasm_modules /wasm_modules/challenges
 
 # Environment defaults
 ENV RUST_LOG=info,validator_node=debug,platform_p2p_consensus=info

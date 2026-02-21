@@ -1,7 +1,7 @@
 # =============================================================================
 # Platform Multi-Validator Test Network
 # =============================================================================
-# For comprehensive production-like testing with 4 validators in P2P network
+# For comprehensive production-like testing with 5 validators in P2P network
 #
 # Usage:
 #   docker compose -f tests/docker/docker-compose.multi-validator.yml up --build -d
@@ -54,6 +54,7 @@ services:
       - P2P_LISTEN_ADDR=/ip4/0.0.0.0/tcp/9000
       - NETUID=100
       - NO_BITTENSOR=false
+      - BOOTSTRAP_PEERS=/ip4/172.28.1.1/tcp/9000
       - SUBTENSOR_ENDPOINT=ws://mock-subtensor:9944
       - PLATFORM_TEST_ARTIFACTS_DIR=/artifacts
       - PLATFORM_TEST_TMP_BASE=/tmp/platform-tests
@@ -195,11 +196,52 @@ services:
       retries: 6
       start_period: 15s
 
+  # ==========================================================================
+  # Validator 5
+  # ==========================================================================
+  validator-5:
+    build:
+      context: ../..
+      dockerfile: tests/docker/Dockerfile.test-validator
+    container_name: platform-validator-5
+    hostname: validator-5
+    environment:
+      - RUST_LOG=info,validator_node=debug,platform_p2p_consensus=debug
+      - DATA_DIR=/data
+      - VALIDATOR_SECRET_KEY=0x0000000000000000000000000000000000000000000000000000000000000005
+      - P2P_LISTEN_ADDR=/ip4/0.0.0.0/tcp/9000
+      - NETUID=100
+      - NO_BITTENSOR=false
+      - BOOTSTRAP_PEERS=/ip4/172.28.1.1/tcp/9000
+      - SUBTENSOR_ENDPOINT=ws://mock-subtensor:9944
+      - PLATFORM_TEST_ARTIFACTS_DIR=/artifacts
+      - PLATFORM_TEST_TMP_BASE=/tmp/platform-tests
+    ports:
+      - "9005:9000"
+    volumes:
+      - validator5-data:/data
+      - test-artifacts:/artifacts
+    networks:
+      platform-test:
+        ipv4_address: 172.28.1.5
+    depends_on:
+      mock-subtensor:
+        condition: service_healthy
+      validator-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "test -e /data/distributed.db || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
 volumes:
   validator1-data:
   validator2-data:
   validator3-data:
   validator4-data:
+  validator5-data:
   test-artifacts:
 
 networks:

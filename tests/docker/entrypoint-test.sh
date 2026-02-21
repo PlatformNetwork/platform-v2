@@ -39,6 +39,10 @@ if [ -n "${BOOTSTRAP_PEERS:-}" ]; then
     done
 fi
 
+if [ -n "${WASM_MODULE_DIR:-}" ]; then
+    ARGS="$ARGS --wasm-module-dir ${WASM_MODULE_DIR}"
+fi
+
 if [ "${NO_BITTENSOR:-false}" = "true" ]; then
     ARGS="$ARGS --no-bittensor"
 fi
