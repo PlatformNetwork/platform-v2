@@ -708,7 +708,8 @@ async fn main() -> Result<()> {
 
                             // Also handle locally (store WASM if it's an upload)
                             if update_type == "wasm_upload" && !data.is_empty() {
-                                let wasm_key = StorageKey::new("wasm", &challenge_id.to_string());
+                                let challenge_id_str = challenge_id.to_string();
+                                let wasm_key = StorageKey::new("wasm", &challenge_id_str);
                                 match storage.put(wasm_key, data, PutOptions::default()).await {
                                     Ok(metadata) => {
                                         info!(
@@ -716,6 +717,24 @@ async fn main() -> Result<()> {
                                             version = metadata.version,
                                             "WASM stored locally in distributed storage"
                                         );
+
+                                        // Sync to ChainState for RPC
+                                        let mut cs = chain_state.write();
+                                        let wasm_config = platform_core::WasmChallengeConfig {
+                                            challenge_id,
+                                            name: challenge_id_str.clone(),
+                                            description: String::new(),
+                                            owner: keypair.hotkey(),
+                                            module: platform_core::WasmModuleMetadata {
+                                                module_path: String::new(),
+                                                code_hash: hex::encode(metadata.value_hash),
+                                                version: metadata.version.to_string(),
+                                                ..Default::default()
+                                            },
+                                            config: platform_core::ChallengeConfig::default(),
+                                            is_active: true,
+                                        };
+                                        cs.register_wasm_challenge(wasm_config);
                                     }
                                     Err(e) => {
                                         error!(
