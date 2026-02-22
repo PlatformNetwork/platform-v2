@@ -1186,6 +1186,13 @@ impl RpcHandler {
             }
         }
 
+        // Optional auth_hotkey parameter for authenticated routes
+        let auth_hotkey = params
+            .get("authHotkey")
+            .or_else(|| params.get(5))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
         let request = RouteRequest {
             method,
             path,
@@ -1193,7 +1200,7 @@ impl RpcHandler {
             query,
             headers: std::collections::HashMap::new(),
             body,
-            auth_hotkey: None,
+            auth_hotkey,
         };
 
         let maybe_handler = self.route_handler.read().clone();
