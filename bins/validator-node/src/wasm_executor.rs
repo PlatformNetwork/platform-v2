@@ -899,8 +899,26 @@ impl WasmChallengeExecutor {
     ) -> Result<platform_challenge_sdk::RouteResponse> {
         use platform_challenge_sdk::RouteResponse;
 
+        // Convert RouteRequest to WasmRouteRequest and serialize with bincode
+        let wasm_request = platform_challenge_sdk_wasm::WasmRouteRequest {
+            method: request.method.clone(),
+            path: request.path.clone(),
+            params: request
+                .params
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            query: request
+                .query
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            body: serde_json::to_vec(&request.body).unwrap_or_default(),
+            auth_hotkey: request.auth_hotkey.clone(),
+        };
+
         let request_data =
-            serde_json::to_vec(&request).context("Failed to serialize RouteRequest")?;
+            bincode::serialize(&wasm_request).context("Failed to serialize WasmRouteRequest")?;
 
         let network_policy = NetworkPolicy::default();
         let sandbox_policy = SandboxPolicy::default();
@@ -912,10 +930,23 @@ impl WasmChallengeExecutor {
             &request_data,
         )?;
 
-        let response: RouteResponse = serde_json::from_slice(&response_data)
-            .context("Failed to deserialize RouteResponse")?;
+        // Deserialize WasmRouteResponse from bincode
+        let wasm_response: platform_challenge_sdk_wasm::WasmRouteResponse =
+            bincode::deserialize(&response_data)
+                .context("Failed to deserialize WasmRouteResponse")?;
 
-        Ok(response)
+        // Convert to RouteResponse
+        let body: serde_json::Value = if wasm_response.body.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&wasm_response.body).unwrap_or(serde_json::Value::Null)
+        };
+
+        Ok(RouteResponse {
+            status: wasm_response.status,
+            headers: std::collections::HashMap::new(),
+            body,
+        })
     }
 
     pub fn execute_get_weights(&self, module_path: &str) -> Result<Vec<(u16, u16)>> {
