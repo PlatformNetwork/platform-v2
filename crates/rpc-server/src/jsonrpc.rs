@@ -1186,19 +1186,24 @@ impl RpcHandler {
             }
         }
 
-        // Optional auth_hotkey parameter for authenticated routes
-        let auth_hotkey = params
-            .get("authHotkey")
-            .or_else(|| params.get(5))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        // Parse headers for authentication
+        let headers: std::collections::HashMap<String, String> = params
+            .get("headers")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        // Verify authentication from headers if present
+        let body_bytes = serde_json::to_vec(&body).unwrap_or_default();
+        let auth_hotkey =
+            crate::auth::verify_route_auth(&headers, &challenge_id, &method, &path, &body_bytes)
+                .ok();
 
         let request = RouteRequest {
             method,
             path,
             params: std::collections::HashMap::new(),
             query,
-            headers: std::collections::HashMap::new(),
+            headers,
             body,
             auth_hotkey,
         };

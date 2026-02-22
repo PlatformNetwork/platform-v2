@@ -393,6 +393,12 @@ async fn challenge_route_handler(
         }
     }
 
+    // Verify authentication from headers if present
+    let body_bytes = serde_json::to_vec(&body).unwrap_or_default();
+    let auth_hotkey =
+        crate::auth::verify_route_auth(&headers_map, &challenge_id, &method, &path, &body_bytes)
+            .ok();
+
     let request = RouteRequest {
         method,
         path,
@@ -400,7 +406,7 @@ async fn challenge_route_handler(
         query,
         headers: headers_map,
         body,
-        auth_hotkey: None,
+        auth_hotkey,
     };
 
     // Call the route handler if registered

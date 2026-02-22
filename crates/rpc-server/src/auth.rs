@@ -1,10 +1,16 @@
 //! Authentication for RPC requests
 //!
 //! Validators authenticate using their hotkey signature (sr25519).
+//!
+//! For challenge routes, the signed message format is:
+//! `challenge:{challenge_id}:{method}:{path}:{body_hash}:{nonce}`
+//! where body_hash is SHA256 of the request body.
 
 use platform_core::Hotkey;
+use sha2::{Digest, Sha256};
 use sp_core::{crypto::Pair as _, sr25519};
-use tracing::warn;
+use std::collections::HashMap;
+use tracing::{debug, warn};
 
 /// Verify a signed message from a validator (sr25519)
 pub fn verify_validator_signature(
@@ -62,6 +68,92 @@ pub enum AuthError {
 
     #[error("Message expired")]
     MessageExpired,
+
+    #[error("Missing authentication header")]
+    MissingHeader,
+
+    #[error("Invalid nonce format")]
+    InvalidNonce,
+}
+
+/// Verify challenge route authentication from headers
+///
+/// Expected headers (case-insensitive):
+/// - `x-hotkey`: Hotkey public key (hex, 64 chars)
+/// - `x-signature`: sr25519 signature (hex, 128 chars)
+/// - `x-nonce`: Unique nonce containing timestamp (format: `{timestamp}:{random}`)
+///
+/// The signed message format is:
+/// `challenge:{challenge_id}:{method}:{path}:{body_hash}:{nonce}`
+pub fn verify_route_auth(
+    headers: &HashMap<String, String>,
+    challenge_id: &str,
+    method: &str,
+    path: &str,
+    body: &[u8],
+) -> Result<String, AuthError> {
+    // Headers are case-insensitive, normalize to lowercase
+    let headers_lower: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.to_lowercase(), v.clone()))
+        .collect();
+
+    let hotkey = headers_lower
+        .get("x-hotkey")
+        .ok_or(AuthError::MissingHeader)?;
+    let signature = headers_lower
+        .get("x-signature")
+        .ok_or(AuthError::MissingHeader)?;
+    let nonce = headers_lower
+        .get("x-nonce")
+        .ok_or(AuthError::MissingHeader)?;
+
+    // Verify nonce contains valid timestamp (anti-replay)
+    let timestamp: i64 = nonce
+        .split(':')
+        .next()
+        .and_then(|t| t.parse().ok())
+        .ok_or(AuthError::InvalidNonce)?;
+
+    if !verify_timestamp(timestamp) {
+        return Err(AuthError::MessageExpired);
+    }
+
+    // Hash the body for signature verification
+    let body_hash = hex::encode(Sha256::digest(body));
+
+    // Build the signed message
+    let message = format!(
+        "challenge:{}:{}:{}:{}:{}",
+        challenge_id, method, path, body_hash, nonce
+    );
+
+    debug!(
+        hotkey = %&hotkey[..16.min(hotkey.len())],
+        method = %method,
+        path = %path,
+        "Verifying route authentication"
+    );
+
+    match verify_validator_signature(hotkey, &message, signature)? {
+        true => Ok(hotkey.clone()),
+        false => Err(AuthError::VerificationFailed),
+    }
+}
+
+/// Create a challenge route auth message for signing
+pub fn create_route_auth_message(
+    challenge_id: &str,
+    method: &str,
+    path: &str,
+    body: &[u8],
+    nonce: &str,
+) -> String {
+    let body_hash = hex::encode(Sha256::digest(body));
+    format!(
+        "challenge:{}:{}:{}:{}:{}",
+        challenge_id, method, path, body_hash, nonce
+    )
 }
 
 #[cfg(test)]
@@ -171,5 +263,82 @@ mod tests {
         let long_sig = hex::encode([0u8; 128]); // 128 bytes
         let result = verify_validator_signature(&kp.hotkey().to_hex(), message, &long_sig);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_verify_route_auth_success() {
+        let kp = Keypair::generate();
+        let challenge_id = "test-challenge-id";
+        let method = "POST";
+        let path = "/register";
+        let body = b"test body";
+        let nonce = format!("{}:random123", chrono::Utc::now().timestamp());
+
+        // Create the signed message
+        let message = create_route_auth_message(challenge_id, method, path, body, &nonce);
+        let signed = kp.sign(message.as_bytes());
+
+        let mut headers = HashMap::new();
+        headers.insert("x-hotkey".to_string(), kp.hotkey().to_hex());
+        headers.insert("x-signature".to_string(), hex::encode(&signed.signature));
+        headers.insert("x-nonce".to_string(), nonce);
+
+        let result = verify_route_auth(&headers, challenge_id, method, path, body);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), kp.hotkey().to_hex());
+    }
+
+    #[test]
+    fn test_verify_route_auth_missing_header() {
+        let headers = HashMap::new();
+        let result = verify_route_auth(&headers, "challenge", "GET", "/", b"");
+        assert!(matches!(result, Err(AuthError::MissingHeader)));
+    }
+
+    #[test]
+    fn test_verify_route_auth_expired() {
+        let kp = Keypair::generate();
+        let old_timestamp = chrono::Utc::now().timestamp() - 600; // 10 minutes ago
+        let nonce = format!("{}:random", old_timestamp);
+
+        let message = create_route_auth_message("challenge", "GET", "/", b"", &nonce);
+        let signed = kp.sign(message.as_bytes());
+
+        let mut headers = HashMap::new();
+        headers.insert("x-hotkey".to_string(), kp.hotkey().to_hex());
+        headers.insert("x-signature".to_string(), hex::encode(&signed.signature));
+        headers.insert("x-nonce".to_string(), nonce);
+
+        let result = verify_route_auth(&headers, "challenge", "GET", "/", b"");
+        assert!(matches!(result, Err(AuthError::MessageExpired)));
+    }
+
+    #[test]
+    fn test_verify_route_auth_wrong_body() {
+        let kp = Keypair::generate();
+        let nonce = format!("{}:random", chrono::Utc::now().timestamp());
+
+        // Sign with one body
+        let message = create_route_auth_message("challenge", "POST", "/", b"body1", &nonce);
+        let signed = kp.sign(message.as_bytes());
+
+        let mut headers = HashMap::new();
+        headers.insert("x-hotkey".to_string(), kp.hotkey().to_hex());
+        headers.insert("x-signature".to_string(), hex::encode(&signed.signature));
+        headers.insert("x-nonce".to_string(), nonce);
+
+        // Verify with different body - should fail
+        let result = verify_route_auth(&headers, "challenge", "POST", "/", b"body2");
+        assert!(matches!(result, Err(AuthError::VerificationFailed)));
+    }
+
+    #[test]
+    fn test_create_route_auth_message() {
+        let msg = create_route_auth_message("cid", "POST", "/path", b"body", "123:abc");
+        let body_hash = hex::encode(Sha256::digest(b"body"));
+        assert_eq!(
+            msg,
+            format!("challenge:cid:POST:/path:{}:123:abc", body_hash)
+        );
     }
 }
