@@ -345,6 +345,9 @@ async fn main() -> Result<()> {
     let validator_set = Arc::new(ValidatorSet::new(keypair.clone(), p2p_config.min_stake));
     info!("P2P network config initialized");
 
+    // Create shared ChainState - will be synchronized with P2P data and exposed via RPC
+    let chain_state = Arc::new(RwLock::new(platform_core::ChainState::production_default()));
+
     // Initialize state manager, loading persisted state if available
     let state_manager = Arc::new(
         load_state_from_storage(&storage, args.netuid)
@@ -418,7 +421,7 @@ async fn main() -> Result<()> {
                     match sync_metagraph(&bittensor_client, args.netuid).await {
                         Ok(mg) => {
                             info!("Metagraph synced: {} neurons", mg.n);
-                            update_validator_set_from_metagraph(&mg, &validator_set);
+                            update_validator_set_from_metagraph(&mg, &validator_set, &chain_state);
                             info!(
                                 "Validator set: {} active validators",
                                 validator_set.active_count()
@@ -473,7 +476,7 @@ async fn main() -> Result<()> {
                             info!("Metagraph synced: {} neurons", mg.n);
 
                             // Update validator set from metagraph
-                            update_validator_set_from_metagraph(&mg, &validator_set);
+                            update_validator_set_from_metagraph(&mg, &validator_set, &chain_state);
                             info!(
                                 "Validator set: {} active validators",
                                 validator_set.active_count()
@@ -584,13 +587,12 @@ async fn main() -> Result<()> {
     let (rpc_p2p_tx, mut rpc_p2p_rx) =
         tokio::sync::mpsc::channel::<platform_rpc::RpcP2PCommand>(64);
 
+    let bans = Arc::new(RwLock::new(BanList::new()));
+
     // Start RPC server (enabled by default)
     if !args.no_rpc {
         let rpc_addr: std::net::SocketAddr =
             args.rpc_addr.parse().expect("Invalid RPC address format");
-
-        let chain_state_for_rpc = Arc::new(RwLock::new(platform_core::ChainState::default()));
-        let bans = Arc::new(RwLock::new(BanList::new()));
 
         let rpc_config = RpcConfig {
             addr: rpc_addr,
@@ -600,8 +602,12 @@ async fn main() -> Result<()> {
             cors_enabled: true,
         };
 
-        let rpc_server =
-            RpcServer::with_p2p(rpc_config, chain_state_for_rpc, bans, rpc_p2p_tx.clone());
+        let rpc_server = RpcServer::with_p2p(
+            rpc_config,
+            chain_state.clone(),
+            bans.clone(),
+            rpc_p2p_tx.clone(),
+        );
 
         tokio::spawn(async move {
             if let Err(e) = rpc_server.run().await {
@@ -641,6 +647,7 @@ async fn main() -> Result<()> {
                     &storage,
                     &keypair,
                     &p2p_cmd_tx,
+                    &chain_state,
                 ).await;
             }
 
@@ -771,7 +778,7 @@ async fn main() -> Result<()> {
                     match sync_metagraph(client, netuid).await {
                         Ok(mg) => {
                             info!("Metagraph refreshed: {} neurons", mg.n);
-                            update_validator_set_from_metagraph(&mg, &validator_set);
+                            update_validator_set_from_metagraph(&mg, &validator_set, &chain_state);
                             if let Some(sc) = subtensor_client.as_mut() {
                                 sc.set_metagraph(mg);
                             }
@@ -920,18 +927,32 @@ async fn persist_state_to_storage(
     Ok(())
 }
 
-/// Update validator set from metagraph data
-fn update_validator_set_from_metagraph(metagraph: &Metagraph, validator_set: &Arc<ValidatorSet>) {
+/// Update validator set from metagraph data and sync to ChainState
+fn update_validator_set_from_metagraph(
+    metagraph: &Metagraph,
+    validator_set: &Arc<ValidatorSet>,
+    chain_state: &Arc<RwLock<platform_core::ChainState>>,
+) {
+    let mut cs = chain_state.write();
+    cs.registered_hotkeys.clear();
+
     for neuron in metagraph.neurons.values() {
         let hotkey_bytes: [u8; 32] = neuron.hotkey.clone().into();
         let hotkey = Hotkey(hotkey_bytes);
         // Get effective stake capped to u64::MAX (neuron.stake is u128)
         let stake = neuron.stake.min(u64::MAX as u128) as u64;
-        let record = ValidatorRecord::new(hotkey, stake);
+
+        // Register in validator set
+        let record = ValidatorRecord::new(hotkey.clone(), stake);
         if let Err(e) = validator_set.register_validator(record) {
             debug!("Skipping validator registration: {}", e);
         }
+
+        // Sync to ChainState
+        cs.registered_hotkeys.insert(hotkey);
     }
+
+    cs.update_hash();
 }
 
 async fn handle_network_event(
@@ -943,6 +964,7 @@ async fn handle_network_event(
     storage: &Arc<LocalStorage>,
     keypair: &Keypair,
     p2p_cmd_tx: &tokio::sync::mpsc::Sender<platform_p2p_consensus::P2PCommand>,
+    chain_state: &Arc<RwLock<platform_core::ChainState>>,
 ) {
     match event {
         NetworkEvent::Message { source, message } => match message {
@@ -1016,6 +1038,18 @@ async fn handle_network_event(
                     hb.stake,
                 ) {
                     debug!("Heartbeat update skipped: {}", e);
+                } else {
+                    // Sync validator to ChainState for RPC
+                    let mut state = chain_state.write();
+                    let validator_info = platform_core::ValidatorInfo {
+                        hotkey: hb.validator.clone(),
+                        stake: platform_core::Stake(hb.stake),
+                        is_active: true,
+                        last_seen: chrono::Utc::now(),
+                        peer_id: None,
+                        x25519_pubkey: None,
+                    };
+                    state.validators.insert(hb.validator, validator_info);
                 }
             }
             P2PMessage::Submission(sub) => {
@@ -1269,6 +1303,26 @@ async fn handle_network_event(
                                             state.add_challenge(challenge_config);
                                         }
                                     });
+
+                                    // Sync challenge to ChainState for RPC
+                                    {
+                                        let mut cs = chain_state.write();
+                                        let wasm_config = platform_core::WasmChallengeConfig {
+                                            challenge_id: update.challenge_id,
+                                            name: challenge_id_str.clone(),
+                                            description: String::new(),
+                                            owner: update.updater.clone(),
+                                            module: platform_core::WasmModuleMetadata {
+                                                module_path: String::new(),
+                                                code_hash: hex::encode(metadata.value_hash),
+                                                version: metadata.version.to_string(),
+                                                ..Default::default()
+                                            },
+                                            config: platform_core::ChallengeConfig::default(),
+                                            is_active: true,
+                                        };
+                                        cs.register_wasm_challenge(wasm_config);
+                                    }
 
                                     // Load and log WASM routes
                                     if let Some(ref executor) = wasm_executor_ref {
