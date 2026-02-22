@@ -17,6 +17,7 @@ members = [
     "bins/utils",
     "bins/mock-subtensor",
     "bins/platform-cli",
+    "bins/platform-sudo",
     "tests",
 ]
 # Note: Challenges are in separate repositories and import platform-challenge-sdk as a git dependency

@@ -178,6 +178,14 @@ impl RpcServer {
                     async move { webhook_progress_handler(handler, body.0).await }
                 })
             })
+            // Sudo endpoint for challenge management
+            .route("/sudo/challenge", {
+                let handler = rpc_handler.clone();
+                post(move |body: Json<Value>| {
+                    let handler = handler.clone();
+                    async move { sudo_challenge_handler(handler, body.0).await }
+                })
+            })
             .with_state(self.state.clone())
             .layer(TraceLayer::new_for_http());
 
@@ -808,4 +816,92 @@ mod tests {
         assert_eq!(error.code, PARSE_ERROR);
         assert!(error.message.contains("Empty batch"));
     }
+}
+
+/// Handler for sudo challenge management
+async fn sudo_challenge_handler(
+    _handler: Arc<RpcHandler>,
+    body: Value,
+) -> impl IntoResponse {
+    use serde::Deserialize;
+    
+    #[derive(Deserialize)]
+    struct SudoRequest {
+        action: String,
+        challenge_id: String,
+        #[serde(default)]
+        data: Option<String>,
+        #[serde(default)]
+        name: Option<String>,
+        signature: String,
+        timestamp: i64,
+    }
+    
+    // Parse the request
+    let request: SudoRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "success": false,
+                    "message": format!("Invalid request: {}", e)
+                })),
+            );
+        }
+    };
+    
+    // Verify the timestamp is recent (within 5 minutes)
+    let now = chrono::Utc::now().timestamp_millis();
+    if (now - request.timestamp).abs() > 5 * 60 * 1000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "Request timestamp is too old or in the future"
+            })),
+        );
+    }
+    
+    // Verify the signature
+    let signature_bytes = match hex::decode(&request.signature) {
+        Ok(s) => s,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "success": false,
+                    "message": "Invalid signature format"
+                })),
+            );
+        }
+    };
+    
+    // Check if signature is from sudo key
+    // TODO: Verify signature against SUDO_KEY_BYTES
+    if signature_bytes.len() != 64 {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "Invalid signature length"
+            })),
+        );
+    }
+    
+    // For now, just log the request and return success
+    // The actual P2P broadcast would happen here
+    info!(
+        action = %request.action,
+        challenge_id = %request.challenge_id,
+        "Received sudo challenge request"
+    );
+    
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "message": format!("Action '{}' received for challenge {}", request.action, request.challenge_id)
+        })),
+    )
 }
