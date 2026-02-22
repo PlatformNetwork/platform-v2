@@ -1014,16 +1014,28 @@ impl WasmChallengeExecutor {
     }
 
     pub fn module_exists(&self, module_path: &str) -> bool {
-        // Check filesystem first
+        // Check module cache first
+        if self.module_cache.read().contains_key(module_path) {
+            return true;
+        }
+        // Check filesystem
+        self.resolve_module_path(module_path).exists()
+    }
+
+    /// Async version that also checks distributed storage
+    pub async fn module_exists_async(&self, module_path: &str) -> bool {
+        // Check module cache first
+        if self.module_cache.read().contains_key(module_path) {
+            return true;
+        }
+        // Check filesystem
         if self.resolve_module_path(module_path).exists() {
             return true;
         }
         // Check distributed storage
         if let Some(ref storage) = self.config.distributed_storage {
             let key = platform_distributed_storage::StorageKey::new("wasm", module_path);
-            if let Ok(exists) = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(storage.exists(&key))
-            }) {
+            if let Ok(exists) = storage.exists(&key).await {
                 return exists;
             }
         }
