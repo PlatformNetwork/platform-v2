@@ -933,26 +933,26 @@ impl RpcHandler {
         let routes = self.challenge_routes.read();
         let only_active = self.get_param_bool(&params, "onlyActive").unwrap_or(false);
 
-        // Get WASM challenges
+        // Get WASM challenges only
         let challenges: Vec<Value> = chain
-            .challenges
+            .wasm_challenge_configs
             .values()
             .filter(|c| !only_active || c.is_active)
             .map(|c| {
-                let challenge_routes = routes.get(&c.id.to_string()).map(|r| r.len()).unwrap_or(0);
+                let challenge_routes = routes
+                    .get(&c.challenge_id.to_string())
+                    .map(|r| r.len())
+                    .unwrap_or(0);
 
                 json!({
-                    "id": c.id.to_string(),
+                    "id": c.challenge_id.to_string(),
                     "name": c.name,
                     "description": c.description,
-                    "codeHash": c.code_hash,
+                    "codeHash": c.module.code_hash,
                     "isActive": c.is_active,
                     "owner": c.owner.to_hex(),
-                    "mechanismId": c.config.mechanism_id,
-                    "emissionWeight": c.config.emission_weight,
-                    "timeoutSecs": c.config.timeout_secs,
+                    "version": c.module.version,
                     "routesCount": challenge_routes,
-                    "type": "wasm",
                 })
             })
             .collect();
