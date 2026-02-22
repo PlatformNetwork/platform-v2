@@ -78,6 +78,12 @@ impl P2PConfig {
         self
     }
 
+    /// Add an additional listen address
+    pub fn add_listen_addr(mut self, addr: &str) -> Self {
+        self.listen_addrs.push(addr.to_string());
+        self
+    }
+
     /// Add bootstrap peers
     pub fn with_bootstrap_peers(mut self, peers: Vec<String>) -> Self {
         self.bootstrap_peers = peers;

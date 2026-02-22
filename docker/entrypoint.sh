@@ -26,6 +26,10 @@ echo "=== Platform Validator ==="
 echo "Version: ${VERSION:-unknown}"
 echo "P2P Port: ${P2P_PORT:-8090}"
 echo "RPC Port: ${RPC_PORT:-8080}"
+if [ "$WITH_BOOTNODE" = "true" ]; then
+    echo "Bootnode Port: ${BOOTNODE_PORT:-8090}"
+    echo "Mode: Validator + Bootnode"
+fi
 echo ""
 
 if [ -z "$VALIDATOR_SECRET_KEY" ]; then
@@ -45,7 +49,15 @@ if [ -n "$P2P_PORT" ]; then
 fi
 
 if [ -n "$RPC_PORT" ]; then
-    ARGS+=("--rpc-port" "$RPC_PORT")
+    ARGS+=("--rpc-addr" "0.0.0.0:$RPC_PORT")
+fi
+
+if [ -n "$WITH_BOOTNODE" ] && [ "$WITH_BOOTNODE" = "true" ]; then
+    ARGS+=("--with-bootnode")
+fi
+
+if [ -n "$BOOTNODE_PORT" ]; then
+    ARGS+=("--bootnode-port" "$BOOTNODE_PORT")
 fi
 
 if [ -n "$SUBTENSOR_ENDPOINT" ]; then

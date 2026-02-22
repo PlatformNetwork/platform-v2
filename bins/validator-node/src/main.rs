@@ -194,6 +194,18 @@ struct Args {
     #[arg(long)]
     bootnode: bool,
 
+    /// Also run an embedded bootnode on a separate port (validator + bootnode mode)
+    #[arg(long)]
+    with_bootnode: bool,
+
+    /// Bootnode P2P port (only used with --with-bootnode)
+    #[arg(long, env = "BOOTNODE_PORT", default_value = "8090")]
+    bootnode_port: u16,
+
+    /// P2P port (simpler alternative to --listen-addr)
+    #[arg(long, env = "P2P_PORT")]
+    p2p_port: Option<u16>,
+
     /// Directory where WASM challenge modules are stored
     #[arg(long, env = "WASM_MODULE_DIR", default_value = "./wasm_modules")]
     wasm_module_dir: PathBuf,
@@ -234,6 +246,9 @@ impl std::fmt::Debug for Args {
             .field("version_key", &self.version_key)
             .field("no_bittensor", &self.no_bittensor)
             .field("bootnode", &self.bootnode)
+            .field("with_bootnode", &self.with_bootnode)
+            .field("bootnode_port", &self.bootnode_port)
+            .field("p2p_port", &self.p2p_port)
             .field("wasm_module_dir", &self.wasm_module_dir)
             .field("wasm_max_memory", &self.wasm_max_memory)
             .field("wasm_enable_fuel", &self.wasm_enable_fuel)
@@ -280,11 +295,32 @@ async fn main() -> Result<()> {
     let storage = Arc::new(storage);
     info!("Distributed storage initialized");
 
+    // Determine listen address - p2p_port overrides listen_addr if specified
+    let listen_addr = if let Some(port) = args.p2p_port {
+        format!("/ip4/0.0.0.0/tcp/{}", port)
+    } else if args.with_bootnode {
+        // When running with embedded bootnode, default validator to port 8091
+        // (bootnode will use 8090)
+        "/ip4/0.0.0.0/tcp/8091".to_string()
+    } else {
+        args.listen_addr.clone()
+    };
+
     // Build P2P config - use defaults and add any extra bootstrap peers from CLI
     let mut p2p_config = P2PConfig::default()
-        .with_listen_addr(&args.listen_addr)
+        .with_listen_addr(&listen_addr)
         .with_netuid(args.netuid)
         .with_min_stake(10_000_000_000_000); // 10000 TAO
+
+    // If running with embedded bootnode, add bootnode port as additional listener
+    if args.with_bootnode {
+        let bootnode_addr = format!("/ip4/0.0.0.0/tcp/{}", args.bootnode_port);
+        p2p_config = p2p_config.add_listen_addr(&bootnode_addr);
+        info!(
+            "Running validator + bootnode mode: validator on {}, bootnode on {}",
+            listen_addr, bootnode_addr
+        );
+    }
 
     // Set external address if provided (for NAT/Docker environments)
     if let Some(ref external_addr) = args.external_addr {
