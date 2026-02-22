@@ -32,6 +32,8 @@ use platform_p2p_consensus::{
     StateManager, StorageProposal, StorageVoteMessage, TaskProgressRecord, ValidatorRecord,
     ValidatorSet,
 };
+use platform_rpc::{RpcConfig, RpcServer};
+use platform_subnet_manager::BanList;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -207,6 +209,14 @@ struct Args {
     /// Fuel limit per WASM execution (requires --wasm-enable-fuel)
     #[arg(long, env = "WASM_FUEL_LIMIT")]
     wasm_fuel_limit: Option<u64>,
+
+    /// RPC server listen address (default: 0.0.0.0:8080)
+    #[arg(long, env = "RPC_ADDR", default_value = "0.0.0.0:8080")]
+    rpc_addr: String,
+
+    /// Disable RPC server
+    #[arg(long)]
+    no_rpc: bool,
 }
 
 impl std::fmt::Debug for Args {
@@ -533,6 +543,33 @@ async fn main() -> Result<()> {
                 None
             }
         };
+
+    // Start RPC server (enabled by default)
+    if !args.no_rpc {
+        let rpc_addr: std::net::SocketAddr =
+            args.rpc_addr.parse().expect("Invalid RPC address format");
+
+        let chain_state_for_rpc = Arc::new(RwLock::new(platform_core::ChainState::default()));
+        let bans = Arc::new(RwLock::new(BanList::new()));
+
+        let rpc_config = RpcConfig {
+            addr: rpc_addr,
+            netuid: args.netuid,
+            name: "Platform Validator".to_string(),
+            min_stake: 10_000_000_000_000,
+            cors_enabled: true,
+        };
+
+        let rpc_server = RpcServer::new(rpc_config, chain_state_for_rpc, bans);
+
+        tokio::spawn(async move {
+            if let Err(e) = rpc_server.run().await {
+                error!("RPC server error: {}", e);
+            }
+        });
+
+        info!("RPC server started on {}", args.rpc_addr);
+    }
 
     info!("Decentralized validator running. Press Ctrl+C to stop.");
 

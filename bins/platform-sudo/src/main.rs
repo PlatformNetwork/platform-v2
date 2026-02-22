@@ -103,19 +103,28 @@ struct SudoCli {
 impl SudoCli {
     fn new(rpc_url: String, sudo_key: Option<String>) -> Result<Self> {
         let keypair = if let Some(key) = sudo_key {
-            // Try to parse as hex or file
-            let key_bytes = if let Some(stripped) = key.strip_prefix("0x") {
-                hex::decode(stripped).context("Invalid hex key")?
-            } else if std::path::Path::new(&key).exists() {
-                std::fs::read(&key).context("Failed to read key file")?
+            // Try to parse as mnemonic, hex, or file
+            if key.contains(' ') {
+                // Mnemonic phrase
+                use sp_core::Pair;
+                let pair = sr25519::Pair::from_phrase(&key, None)
+                    .map_err(|e| anyhow::anyhow!("Invalid mnemonic: {:?}", e))?
+                    .0;
+                Some(pair)
             } else {
-                hex::decode(&key).context("Invalid hex key")?
-            };
+                let key_bytes = if let Some(stripped) = key.strip_prefix("0x") {
+                    hex::decode(stripped).context("Invalid hex key")?
+                } else if std::path::Path::new(&key).exists() {
+                    std::fs::read(&key).context("Failed to read key file")?
+                } else {
+                    hex::decode(&key).context("Invalid hex key")?
+                };
 
-            let seed: [u8; 32] = key_bytes
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Key must be 32 bytes"))?;
-            Some(sr25519::Pair::from_seed(&seed))
+                let seed: [u8; 32] = key_bytes
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Key must be 32 bytes"))?;
+                Some(sr25519::Pair::from_seed(&seed))
+            }
         } else {
             None
         };
