@@ -756,10 +756,18 @@ async fn main() -> Result<()> {
                                             cs.register_wasm_challenge(wasm_config);
                                         }
 
-                                        // Load and register routes
+                                        // Load and register routes using the WASM bytes we already have
                                         if let Some(ref executor) = wasm_executor {
-                                            match executor.execute_get_routes(
+                                            // Get the WASM bytes from distributed storage (just stored)
+                                            let wasm_bytes_result = storage.get(
+                                                &StorageKey::new("wasm", &challenge_id_str),
+                                                platform_distributed_storage::GetOptions::default()
+                                            ).await;
+
+                                            if let Ok(Some(stored)) = wasm_bytes_result {
+                                            match executor.execute_get_routes_from_bytes(
                                                 &challenge_id_str,
+                                                &stored.data,
                                                 &wasm_runtime_interface::NetworkPolicy::default(),
                                                 &wasm_runtime_interface::SandboxPolicy::default(),
                                             ) {
@@ -790,6 +798,7 @@ async fn main() -> Result<()> {
                                                     );
                                                 }
                                             }
+                                            } // end if wasm_bytes_result
                                         }
                                     }
                                     Err(e) => {
@@ -1420,10 +1429,11 @@ async fn handle_network_event(
                                             cs.register_wasm_challenge(wasm_config);
                                         }
 
-                                        // Load and log WASM routes
+                                        // Load and log WASM routes using the bytes we already have
                                         if let Some(ref executor) = wasm_executor_ref {
-                                            match executor.execute_get_routes(
+                                            match executor.execute_get_routes_from_bytes(
                                                 &challenge_id_str,
+                                                &update.data,
                                                 &wasm_runtime_interface::NetworkPolicy::default(),
                                                 &wasm_runtime_interface::SandboxPolicy::default(),
                                             ) {

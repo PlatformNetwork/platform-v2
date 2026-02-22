@@ -686,6 +686,106 @@ impl WasmChallengeExecutor {
         Ok((result_data, metrics))
     }
 
+    /// Execute get_routes using provided WASM bytes directly (avoids reload)
+    pub fn execute_get_routes_from_bytes(
+        &self,
+        module_id: &str,
+        wasm_bytes: &[u8],
+        network_policy: &NetworkPolicy,
+        sandbox_policy: &SandboxPolicy,
+    ) -> Result<(Vec<u8>, ExecutionMetrics)> {
+        let start = Instant::now();
+
+        info!(
+            module = module_id,
+            size_bytes = wasm_bytes.len(),
+            "Compiling WASM module from bytes"
+        );
+
+        let module = self
+            .runtime
+            .compile_module(wasm_bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to compile WASM module: {}", e))?;
+
+        let network_host_fns = Arc::new(NetworkHostFunctions::all());
+
+        let instance_config = InstanceConfig {
+            network_policy: network_policy.clone(),
+            sandbox_policy: sandbox_policy.clone(),
+            exec_policy: ExecPolicy::default(),
+            time_policy: TimePolicy::default(),
+            audit_logger: None,
+            memory_export: "memory".to_string(),
+            challenge_id: module_id.to_string(),
+            validator_id: "validator".to_string(),
+            restart_id: String::new(),
+            config_version: 0,
+            storage_host_config: StorageHostConfig::default(),
+            storage_backend: Arc::new(InMemoryStorageBackend::new()),
+            fixed_timestamp_ms: None,
+            consensus_policy: ConsensusPolicy::default(),
+            terminal_policy: TerminalPolicy::default(),
+            llm_policy: match &self.config.chutes_api_key {
+                Some(key) => LlmPolicy::with_api_key(key.clone()),
+                None => LlmPolicy::default(),
+            },
+            ..Default::default()
+        };
+
+        let mut instance = self
+            .runtime
+            .instantiate(&module, instance_config, Some(network_host_fns))
+            .map_err(|e| anyhow::anyhow!("WASM instantiation failed: {}", e))?;
+
+        let initial_fuel = instance.fuel_remaining();
+
+        let result = instance
+            .call_return_i64("get_routes")
+            .map_err(|e| anyhow::anyhow!("WASM get_routes call failed: {}", e))?;
+
+        let out_len = (result >> 32) as i32;
+        let out_ptr = (result & 0xFFFF_FFFF) as i32;
+
+        if out_len > 0 && out_len as u64 > MAX_ROUTE_OUTPUT_SIZE {
+            return Err(anyhow::anyhow!(
+                "WASM get_routes output size {} exceeds maximum allowed {}",
+                out_len,
+                MAX_ROUTE_OUTPUT_SIZE
+            ));
+        }
+
+        let result_data = if out_ptr > 0 && out_len > 0 {
+            instance
+                .read_memory(out_ptr as usize, out_len as usize)
+                .map_err(|e| {
+                    anyhow::anyhow!("failed to read WASM memory for get_routes output: {}", e)
+                })?
+        } else {
+            Vec::new()
+        };
+
+        let fuel_consumed = match (initial_fuel, instance.fuel_remaining()) {
+            (Some(initial), Some(remaining)) => Some(initial.saturating_sub(remaining)),
+            _ => None,
+        };
+
+        let metrics = ExecutionMetrics {
+            execution_time_ms: start.elapsed().as_millis(),
+            memory_used_bytes: instance.memory().data_size(instance.store()) as u64,
+            network_requests_made: instance.network_requests_made(),
+            fuel_consumed,
+        };
+
+        info!(
+            module = module_id,
+            result_bytes = result_data.len(),
+            execution_time_ms = metrics.execution_time_ms,
+            "WASM get_routes from bytes completed"
+        );
+
+        Ok((result_data, metrics))
+    }
+
     #[allow(dead_code)]
     pub fn execute_handle_route(
         &self,
@@ -916,53 +1016,10 @@ impl WasmChallengeExecutor {
             }
         }
 
-        // Try to load from distributed storage first
-        let wasm_bytes = if let Some(ref storage) = self.config.distributed_storage {
-            let storage = Arc::clone(storage);
-            let key = platform_distributed_storage::StorageKey::new("wasm", module_path);
-
-            // Spawn a new thread with its own runtime to avoid nesting runtimes
-            // Use join() to ensure thread completes before returning
-            let handle = std::thread::spawn(move || {
-                let rt = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => rt,
-                    Err(_) => return None,
-                };
-                let result = rt.block_on(async {
-                    storage
-                        .get(&key, platform_distributed_storage::GetOptions::default())
-                        .await
-                        .ok()
-                        .flatten()
-                });
-                // Explicitly shutdown runtime before thread exit
-                drop(rt);
-                result
-            });
-
-            match handle.join() {
-                Ok(Some(stored)) => {
-                    info!(
-                        module = module_path,
-                        size_bytes = stored.data.len(),
-                        "Loading WASM module from distributed storage"
-                    );
-                    Some(stored.data)
-                }
-                _ => {
-                    debug!(
-                        module = module_path,
-                        "WASM module not found in distributed storage"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        // Note: We don't try distributed storage here because this is a sync function
+        // that may be called from async context. The WASM should already be cached
+        // locally after upload. Use load_module_async for distributed storage access.
+        let wasm_bytes: Option<Vec<u8>> = None;
 
         // Fallback to filesystem if not in distributed storage
         let wasm_bytes = match wasm_bytes {
