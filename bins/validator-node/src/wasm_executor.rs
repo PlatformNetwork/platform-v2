@@ -922,25 +922,28 @@ impl WasmChallengeExecutor {
             let key = platform_distributed_storage::StorageKey::new("wasm", module_path);
 
             // Spawn a new thread with its own runtime to avoid nesting runtimes
-            let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
+            // Use join() to ensure thread completes before returning
+            let handle = std::thread::spawn(move || {
+                let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
-                    .build();
-                let result = match rt {
-                    Ok(rt) => rt.block_on(async {
-                        storage
-                            .get(&key, platform_distributed_storage::GetOptions::default())
-                            .await
-                            .ok()
-                            .flatten()
-                    }),
-                    Err(_) => None,
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(_) => return None,
                 };
-                let _ = tx.send(result);
+                let result = rt.block_on(async {
+                    storage
+                        .get(&key, platform_distributed_storage::GetOptions::default())
+                        .await
+                        .ok()
+                        .flatten()
+                });
+                // Explicitly shutdown runtime before thread exit
+                drop(rt);
+                result
             });
 
-            match rx.recv() {
+            match handle.join() {
                 Ok(Some(stored)) => {
                     info!(
                         module = module_path,
