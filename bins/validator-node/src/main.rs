@@ -609,6 +609,73 @@ async fn main() -> Result<()> {
             rpc_p2p_tx.clone(),
         );
 
+        // Configure WASM route handler if executor is available
+        if let Some(ref executor) = wasm_executor {
+            let wasm_exec = Arc::clone(executor);
+            let chain_state_for_handler = chain_state.clone();
+            let handler: platform_rpc::ChallengeRouteHandler = std::sync::Arc::new(
+                move |challenge_id: String, request: platform_challenge_sdk::RouteRequest| {
+                    let executor = Arc::clone(&wasm_exec);
+                    let chain = chain_state_for_handler.clone();
+                    Box::pin(async move {
+                        // Find the WASM module path for this challenge
+                        let module_path: Option<String> = {
+                            let chain_guard = chain.read();
+                            if let Ok(uuid) = uuid::Uuid::parse_str(&challenge_id) {
+                                let cid = platform_core::ChallengeId(uuid);
+                                chain_guard
+                                    .wasm_challenge_configs
+                                    .get(&cid)
+                                    .map(|c| c.module.module_path.clone())
+                            } else {
+                                None
+                            }
+                        };
+
+                        let module_path = match module_path {
+                            Some(p) => p,
+                            None => {
+                                return platform_challenge_sdk::RouteResponse {
+                                    status: 404,
+                                    headers: std::collections::HashMap::new(),
+                                    body: serde_json::json!({
+                                        "error": "challenge_not_found",
+                                        "message": format!("WASM module not found for challenge {}", challenge_id)
+                                    }),
+                                };
+                            }
+                        };
+
+                        // Execute handle_route in WASM (sync call in spawn_blocking)
+                        let exec = executor;
+                        let path = module_path;
+                        let req = request;
+                        match tokio::task::spawn_blocking(move || exec.call_route(&path, req)).await
+                        {
+                            Ok(Ok(response)) => response,
+                            Ok(Err(e)) => platform_challenge_sdk::RouteResponse {
+                                status: 500,
+                                headers: std::collections::HashMap::new(),
+                                body: serde_json::json!({
+                                    "error": "wasm_execution_error",
+                                    "message": format!("{}", e)
+                                }),
+                            },
+                            Err(e) => platform_challenge_sdk::RouteResponse {
+                                status: 500,
+                                headers: std::collections::HashMap::new(),
+                                body: serde_json::json!({
+                                    "error": "task_join_error",
+                                    "message": format!("{}", e)
+                                }),
+                            },
+                        }
+                    })
+                },
+            );
+            rpc_server.rpc_handler().set_route_handler(handler);
+        }
+
         tokio::spawn(async move {
             if let Err(e) = rpc_server.run().await {
                 error!("RPC server error: {}", e);

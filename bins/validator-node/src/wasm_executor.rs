@@ -884,6 +884,33 @@ impl WasmChallengeExecutor {
         Ok((result_data, metrics))
     }
 
+    /// Execute handle_route with RouteRequest, returning RouteResponse
+    pub fn call_route(
+        &self,
+        module_path: &str,
+        request: platform_challenge_sdk::RouteRequest,
+    ) -> Result<platform_challenge_sdk::RouteResponse> {
+        use platform_challenge_sdk::RouteResponse;
+
+        let request_data =
+            serde_json::to_vec(&request).context("Failed to serialize RouteRequest")?;
+
+        let network_policy = NetworkPolicy::default();
+        let sandbox_policy = SandboxPolicy::default();
+
+        let (response_data, _metrics) = self.execute_handle_route(
+            module_path,
+            &network_policy,
+            &sandbox_policy,
+            &request_data,
+        )?;
+
+        let response: RouteResponse = serde_json::from_slice(&response_data)
+            .context("Failed to deserialize RouteResponse")?;
+
+        Ok(response)
+    }
+
     pub fn execute_get_weights(&self, module_path: &str) -> Result<Vec<(u16, u16)>> {
         let start = Instant::now();
 
