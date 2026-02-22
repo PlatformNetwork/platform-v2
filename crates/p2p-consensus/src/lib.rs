@@ -61,7 +61,7 @@ pub use network::{
 pub use state::{
     build_merkle_proof, compute_merkle_root, verify_merkle_proof, ChainState, ChallengeConfig,
     EvaluationRecord, JobRecord, JobStatus, LeaderboardEntry, StateError, StateManager,
-    TaskProgressRecord, ValidatorEvaluation, WeightVotes,
+    StorageProposal, TaskProgressRecord, ValidatorEvaluation, WeightVotes,
 };
 pub use validator::{
     LeaderElection, StakeWeightedVoting, ValidatorError, ValidatorRecord, ValidatorSet,

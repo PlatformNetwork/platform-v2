@@ -213,6 +213,9 @@ pub struct ChainState {
     /// Whether the network is in the bootstrap period (UID 0 dominance)
     #[serde(default)]
     pub bootstrap_active: bool,
+    /// Pending storage proposals awaiting consensus (proposal_id -> proposal)
+    #[serde(default)]
+    pub pending_storage_proposals: HashMap<[u8; 32], StorageProposal>,
 }
 
 /// Record of a review assignment
@@ -242,6 +245,21 @@ pub struct AgentCodeEntry {
     pub stored_at: i64,
 }
 
+/// Storage proposal awaiting consensus
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StorageProposal {
+    pub proposal_id: [u8; 32],
+    pub challenge_id: ChallengeId,
+    pub proposer: Hotkey,
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+    pub timestamp: i64,
+    /// Votes received (voter -> approve)
+    pub votes: HashMap<Hotkey, bool>,
+    /// Whether this proposal has been finalized
+    pub finalized: bool,
+}
+
 impl Default for ChainState {
     fn default() -> Self {
         Self {
@@ -268,6 +286,7 @@ impl Default for ChainState {
             validated_agent_logs: HashMap::new(),
             agent_code_registry: HashMap::new(),
             bootstrap_active: false,
+            pending_storage_proposals: HashMap::new(),
         }
     }
 }
@@ -416,6 +435,91 @@ impl ChainState {
         if let Some(config) = self.challenges.get_mut(id) {
             config.is_active = active;
             self.increment_sequence();
+        }
+    }
+
+    /// Add a storage proposal
+    pub fn add_storage_proposal(&mut self, proposal: StorageProposal) {
+        info!(
+            proposal_id = %hex::encode(&proposal.proposal_id[..8]),
+            challenge_id = %proposal.challenge_id,
+            key_len = proposal.key.len(),
+            "Adding storage proposal"
+        );
+        self.pending_storage_proposals
+            .insert(proposal.proposal_id, proposal);
+        self.increment_sequence();
+    }
+
+    /// Add a vote to a storage proposal
+    pub fn vote_storage_proposal(
+        &mut self,
+        proposal_id: &[u8; 32],
+        voter: Hotkey,
+        approve: bool,
+    ) -> Option<bool> {
+        let total_validators = self.validators.len();
+        
+        if let Some(proposal) = self.pending_storage_proposals.get_mut(proposal_id) {
+            if proposal.finalized {
+                return None;
+            }
+            proposal.votes.insert(voter, approve);
+
+            // Check if we have consensus (majority of validators)
+            if total_validators == 0 {
+                return Some(false);
+            }
+
+            let approve_count = proposal.votes.values().filter(|&&v| v).count();
+            let threshold = (total_validators / 2) + 1;
+
+            if approve_count >= threshold {
+                proposal.finalized = true;
+                self.increment_sequence();
+                return Some(true); // Consensus reached, approved
+            }
+
+            let reject_count = proposal.votes.values().filter(|&&v| !v).count();
+            if reject_count >= threshold {
+                proposal.finalized = true;
+                self.increment_sequence();
+                return Some(false); // Consensus reached, rejected
+            }
+
+            self.increment_sequence();
+            None // Still waiting for more votes
+        } else {
+            None
+        }
+    }
+
+    /// Get a pending storage proposal
+    pub fn get_storage_proposal(&self, proposal_id: &[u8; 32]) -> Option<&StorageProposal> {
+        self.pending_storage_proposals.get(proposal_id)
+    }
+
+    /// Remove a finalized storage proposal
+    pub fn remove_storage_proposal(&mut self, proposal_id: &[u8; 32]) -> Option<StorageProposal> {
+        let removed = self.pending_storage_proposals.remove(proposal_id);
+        if removed.is_some() {
+            self.increment_sequence();
+        }
+        removed
+    }
+
+    /// Clean up old proposals (older than max_age_ms)
+    pub fn cleanup_old_proposals(&mut self, max_age_ms: i64) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let old_proposals: Vec<[u8; 32]> = self
+            .pending_storage_proposals
+            .iter()
+            .filter(|(_, p)| now - p.timestamp > max_age_ms)
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in old_proposals {
+            self.pending_storage_proposals.remove(&id);
         }
     }
 

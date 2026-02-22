@@ -29,7 +29,8 @@ use platform_distributed_storage::{
 use platform_p2p_consensus::{
     ChainState, ConsensusEngine, EvaluationMessage, EvaluationMetrics, EvaluationRecord,
     HeartbeatMessage, JobRecord, JobStatus, NetworkEvent, P2PConfig, P2PMessage, P2PNetwork,
-    StateManager, TaskProgressRecord, ValidatorRecord, ValidatorSet,
+    StateManager, StorageProposal, StorageVoteMessage, TaskProgressRecord, ValidatorRecord,
+    ValidatorSet,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -560,6 +561,8 @@ async fn main() -> Result<()> {
                     &state_manager,
                     &wasm_executor,
                     &storage,
+                    &keypair,
+                    &p2p_cmd_tx,
                 ).await;
             }
 
@@ -800,6 +803,8 @@ async fn handle_network_event(
     state_manager: &Arc<StateManager>,
     wasm_executor_ref: &Option<Arc<WasmChallengeExecutor>>,
     storage: &Arc<LocalStorage>,
+    keypair: &Keypair,
+    p2p_cmd_tx: &tokio::sync::mpsc::Sender<platform_p2p_consensus::P2PCommand>,
 ) {
     match event {
         NetworkEvent::Message { source, message } => match message {
@@ -1204,7 +1209,7 @@ async fn handle_network_event(
                 }
             }
             P2PMessage::StorageProposal(proposal) => {
-                debug!(
+                info!(
                     proposal_id = %hex::encode(&proposal.proposal_id[..8]),
                     challenge_id = %proposal.challenge_id,
                     proposer = %proposal.proposer.to_hex(),
@@ -1212,6 +1217,54 @@ async fn handle_network_event(
                     value_len = proposal.value.len(),
                     "Received storage proposal"
                 );
+                
+                // Verify proposer is a known validator
+                let proposer_valid = validator_set.is_validator(&proposal.proposer);
+                
+                if !proposer_valid {
+                    warn!(
+                        proposer = %proposal.proposer.to_hex(),
+                        "Storage proposal from unknown validator, ignoring"
+                    );
+                } else {
+                    // Add proposal to state
+                    let storage_proposal = StorageProposal {
+                        proposal_id: proposal.proposal_id,
+                        challenge_id: proposal.challenge_id,
+                        proposer: proposal.proposer.clone(),
+                        key: proposal.key.clone(),
+                        value: proposal.value.clone(),
+                        timestamp: proposal.timestamp,
+                        votes: std::collections::HashMap::new(),
+                        finalized: false,
+                    };
+                    
+                    state_manager.apply(|state| {
+                        state.add_storage_proposal(storage_proposal);
+                    });
+                    
+                    // Auto-vote approve (validator trusts other validators)
+                    // In production, could verify via WASM validate_storage_write
+                    let my_hotkey = keypair.hotkey();
+                    let timestamp = chrono::Utc::now().timestamp_millis();
+                    
+                    // Sign the vote
+                    let vote_data = bincode::serialize(&(&proposal.proposal_id, true, timestamp))
+                        .unwrap_or_default();
+                    let signature = keypair.sign_bytes(&vote_data).unwrap_or_default();
+                    
+                    let vote_msg = P2PMessage::StorageVote(StorageVoteMessage {
+                        proposal_id: proposal.proposal_id,
+                        voter: my_hotkey,
+                        approve: true,
+                        timestamp,
+                        signature,
+                    });
+                    
+                    if let Err(e) = p2p_cmd_tx.send(platform_p2p_consensus::P2PCommand::Broadcast(vote_msg)).await {
+                        warn!(error = %e, "Failed to broadcast storage vote");
+                    }
+                }
             }
             P2PMessage::StorageVote(vote) => {
                 debug!(
@@ -1220,6 +1273,56 @@ async fn handle_network_event(
                     approve = vote.approve,
                     "Received storage vote"
                 );
+                
+                // Verify voter is a known validator
+                if !validator_set.is_validator(&vote.voter) {
+                    warn!(voter = %vote.voter.to_hex(), "Vote from unknown validator");
+                } else {
+                    // Add vote to proposal
+                    let consensus_result = state_manager.apply(|state| {
+                        state.vote_storage_proposal(&vote.proposal_id, vote.voter.clone(), vote.approve)
+                    });
+                    
+                    // If consensus reached and approved, write to distributed storage
+                    if let Some(true) = consensus_result {
+                        let proposal_opt = state_manager.apply(|state| {
+                            state.remove_storage_proposal(&vote.proposal_id)
+                        });
+                        
+                        if let Some(proposal) = proposal_opt {
+                            let storage_key = StorageKey::new(
+                                &format!("challenge:{}", proposal.challenge_id),
+                                &proposal.key,
+                            );
+                            
+                            match storage.put(storage_key, proposal.value.clone(), PutOptions::default()).await {
+                                Ok(_) => {
+                                    info!(
+                                        proposal_id = %hex::encode(&proposal.proposal_id[..8]),
+                                        challenge_id = %proposal.challenge_id,
+                                        key_len = proposal.key.len(),
+                                        "Storage proposal consensus reached, data written"
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        proposal_id = %hex::encode(&proposal.proposal_id[..8]),
+                                        error = %e,
+                                        "Failed to write consensus storage"
+                                    );
+                                }
+                            }
+                        }
+                    } else if let Some(false) = consensus_result {
+                        info!(
+                            proposal_id = %hex::encode(&vote.proposal_id[..8]),
+                            "Storage proposal rejected by consensus"
+                        );
+                        state_manager.apply(|state| {
+                            state.remove_storage_proposal(&vote.proposal_id);
+                        });
+                    }
+                }
             }
             P2PMessage::ReviewAssignment(msg) => {
                 debug!(
