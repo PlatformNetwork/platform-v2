@@ -524,6 +524,11 @@ impl P2PNetwork {
         // Update peer mapping
         if self.peer_mapping.get_hotkey(&source).is_none() {
             self.peer_mapping.insert(source, signed.signer.clone());
+            info!(
+                peer_id = %source,
+                hotkey = %signed.signer.to_hex(),
+                "Peer authenticated - mapped peer_id to hotkey"
+            );
         }
 
         Ok(signed.message)
