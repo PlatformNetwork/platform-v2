@@ -1130,7 +1130,8 @@ async fn handle_network_event(
                                             &wasm_runtime_interface::SandboxPolicy::default(),
                                         ) {
                                             Ok((routes_data, _)) => {
-                                                if let Ok(routes) = serde_json::from_slice::<Vec<platform_challenge_sdk::ChallengeRoute>>(&routes_data) {
+                                                // WASM SDK uses bincode serialization for routes
+                                                if let Ok(routes) = bincode::deserialize::<Vec<platform_challenge_sdk_wasm::WasmRouteDefinition>>(&routes_data) {
                                                     info!(
                                                         challenge_id = %update.challenge_id,
                                                         routes_count = routes.len(),
@@ -1139,11 +1140,12 @@ async fn handle_network_event(
                                                     for route in &routes {
                                                         info!(
                                                             challenge_id = %update.challenge_id,
-                                                            method = %route.method.as_str(),
+                                                            method = %route.method,
                                                             path = %route.path,
                                                             description = %route.description,
+                                                            requires_auth = route.requires_auth,
                                                             "  Route: {} {}",
-                                                            route.method.as_str(),
+                                                            route.method,
                                                             route.path
                                                         );
                                                     }

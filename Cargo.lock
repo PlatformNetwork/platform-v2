@@ -8686,6 +8686,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "platform-bittensor",
  "platform-challenge-sdk",
+ "platform-challenge-sdk-wasm",
  "platform-core",
  "platform-distributed-storage",
  "platform-p2p-consensus",
