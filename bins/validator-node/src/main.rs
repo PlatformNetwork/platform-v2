@@ -931,6 +931,24 @@ async fn main() -> Result<()> {
                                     }
                                 }
                                 } // end if is_valid
+                            } else if update_type == "rename" && !data.is_empty() {
+                                // Handle rename action
+                                if let Ok(new_name) = String::from_utf8(data) {
+                                    let mut cs = chain_state.write();
+                                    if cs.rename_challenge(&challenge_id, new_name.clone()) {
+                                        info!(
+                                            challenge_id = %challenge_id,
+                                            new_name = %new_name,
+                                            "Challenge renamed locally"
+                                        );
+                                    } else {
+                                        warn!(
+                                            challenge_id = %challenge_id,
+                                            new_name = %new_name,
+                                            "Failed to rename challenge - not found or name conflict"
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -1627,6 +1645,24 @@ async fn handle_network_event(
                                 state.set_challenge_active(&update.challenge_id, false);
                             });
                             info!(challenge_id = %update.challenge_id, "Challenge deactivated");
+                        }
+                        "rename" => {
+                            if let Ok(new_name) = String::from_utf8(update.data.clone()) {
+                                let mut cs = chain_state.write();
+                                if cs.rename_challenge(&update.challenge_id, new_name.clone()) {
+                                    info!(
+                                        challenge_id = %update.challenge_id,
+                                        new_name = %new_name,
+                                        "Challenge renamed via P2P"
+                                    );
+                                } else {
+                                    warn!(
+                                        challenge_id = %update.challenge_id,
+                                        new_name = %new_name,
+                                        "Failed to rename challenge - not found or name conflict"
+                                    );
+                                }
+                            }
                         }
                         other => {
                             warn!(

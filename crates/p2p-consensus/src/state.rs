@@ -438,6 +438,28 @@ impl ChainState {
         }
     }
 
+    /// Rename a challenge (storage unaffected - uses UUID namespace)
+    pub fn rename_challenge(&mut self, id: &ChallengeId, new_name: String) -> bool {
+        // Check name uniqueness
+        let name_exists = self
+            .challenges
+            .values()
+            .any(|c| c.name == new_name && c.id != *id);
+        if name_exists {
+            return false;
+        }
+
+        // Update challenge name
+        if let Some(config) = self.challenges.get_mut(id) {
+            info!(challenge_id = %id, old_name = %config.name, new_name = %new_name, "Renaming challenge");
+            config.name = new_name;
+            self.increment_sequence();
+            return true;
+        }
+
+        false
+    }
+
     /// Add a storage proposal
     pub fn add_storage_proposal(&mut self, proposal: StorageProposal) {
         info!(

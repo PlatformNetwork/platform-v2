@@ -313,6 +313,36 @@ impl ChainState {
         self.challenge_routes.get(challenge_id)
     }
 
+    /// Rename a challenge (storage unaffected - uses UUID namespace)
+    pub fn rename_challenge(&mut self, id: &ChallengeId, new_name: String) -> bool {
+        // Check name uniqueness in wasm_challenge_configs
+        let name_exists = self
+            .wasm_challenge_configs
+            .values()
+            .any(|c| c.name == new_name && c.challenge_id != *id);
+        if name_exists {
+            return false;
+        }
+
+        // Update in wasm_challenge_configs
+        if let Some(config) = self.wasm_challenge_configs.get_mut(id) {
+            tracing::info!(challenge_id = %id, old_name = %config.name, new_name = %new_name, "Renaming WASM challenge");
+            config.name = new_name.clone();
+            self.update_hash();
+            return true;
+        }
+
+        // Also check legacy challenges
+        if let Some(config) = self.challenges.get_mut(id) {
+            tracing::info!(challenge_id = %id, old_name = %config.name, new_name = %new_name, "Renaming legacy challenge");
+            config.name = new_name;
+            self.update_hash();
+            return true;
+        }
+
+        false
+    }
+
     /// Create a snapshot of the state
     pub fn snapshot(&self) -> StateSnapshot {
         StateSnapshot {

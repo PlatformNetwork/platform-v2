@@ -53,6 +53,15 @@ enum Commands {
         #[arg(short, long)]
         id: String,
     },
+    /// Rename a challenge (storage unaffected - uses UUID)
+    Rename {
+        /// Challenge ID (UUID)
+        #[arg(short, long)]
+        id: String,
+        /// New name for the challenge
+        #[arg(short, long)]
+        name: String,
+    },
     /// List all challenges
     List,
     /// Show validator status
@@ -242,6 +251,47 @@ impl SudoCli {
         Ok(())
     }
 
+    async fn rename_challenge(&self, challenge_id: &str, new_name: &str) -> Result<()> {
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let challenge_id = ChallengeId::from_string(challenge_id);
+
+        // Sign the message
+        let msg_to_sign = format!("sudo:rename:{}:{}:{}", challenge_id, new_name, timestamp);
+        let signature = self.sign(msg_to_sign.as_bytes())?;
+
+        let request = SudoRequest {
+            action: "rename".to_string(),
+            challenge_id: challenge_id.to_string(),
+            data: None,
+            name: Some(new_name.to_string()),
+            signature: hex::encode(&signature),
+            timestamp,
+        };
+
+        let response = self
+            .client
+            .post(format!("{}/sudo/challenge", self.rpc_url))
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send request")?;
+
+        if response.status().is_success() {
+            let result: SudoResponse = response.json().await?;
+            if result.success {
+                info!(challenge_id = %challenge_id, new_name = new_name, "Challenge renamed");
+            } else {
+                warn!(message = %result.message, "Rename failed");
+            }
+        } else {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            error!(status = %status, body = %text, "RPC request failed");
+        }
+
+        Ok(())
+    }
+
     async fn list_challenges(&self) -> Result<()> {
         let response = self
             .client
@@ -389,6 +439,9 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Deactivate { id }) => {
             sudo_cli.set_challenge_status(&id, false).await?;
+        }
+        Some(Commands::Rename { id, name }) => {
+            sudo_cli.rename_challenge(&id, &name).await?;
         }
         Some(Commands::List) => {
             sudo_cli.list_challenges().await?;

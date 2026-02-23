@@ -329,6 +329,12 @@ pub enum SudoAction {
 
     /// Force state update (for recovery)
     ForceStateUpdate { state: ChainState },
+
+    /// Rename a challenge (storage unaffected - uses UUID)
+    RenameChallenge {
+        challenge_id: ChallengeId,
+        new_name: String,
+    },
 }
 
 /// Configuration for how weights are distributed on a mechanism

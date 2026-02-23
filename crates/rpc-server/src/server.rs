@@ -992,10 +992,21 @@ async fn sudo_challenge_handler(
     }
 
     // Verify signature is from sudo key
-    let message = format!(
-        "sudo:{}:{}:{}",
-        request.action, request.challenge_id, request.timestamp
-    );
+    // For rename action, include the new name in the message
+    let message = if request.action == "rename" {
+        format!(
+            "sudo:{}:{}:{}:{}",
+            request.action,
+            request.challenge_id,
+            request.name.as_deref().unwrap_or(""),
+            request.timestamp
+        )
+    } else {
+        format!(
+            "sudo:{}:{}:{}",
+            request.action, request.challenge_id, request.timestamp
+        )
+    };
 
     let signature = match sp_core::sr25519::Signature::try_from(signature_bytes.as_slice()) {
         Ok(sig) => sig,
@@ -1055,6 +1066,13 @@ async fn sudo_challenge_handler(
                 }
             }
             None => Vec::new(),
+        };
+
+        // For rename action, use the new name as data
+        let data = if request.action == "rename" {
+            request.name.clone().unwrap_or_default().into_bytes()
+        } else {
+            data
         };
 
         // Send broadcast command
