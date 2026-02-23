@@ -150,15 +150,33 @@ flowchart TB
 
 ## Quick Start (Validator)
 
+### Using Docker Compose (Recommended)
+
 ```bash
 git clone https://github.com/PlatformNetwork/platform.git
 cd platform
+
+# Configure environment
 cp .env.example .env
-# Edit .env: add your VALIDATOR_SECRET_KEY (BIP39 mnemonic)
-mkdir -p data
-cargo build --release --bin validator-node
-./target/release/validator-node --data-dir ./data --secret-key "${VALIDATOR_SECRET_KEY}"
+# Edit .env and set your VALIDATOR_SECRET_KEY (BIP39 mnemonic)
+nano .env
+
+# Start validator
+docker compose up -d
+
+# View logs
+docker compose logs -f validator
 ```
+
+### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic (24 words) | Yes |
+| `NETUID` | Subnet UID (default: 100) | No |
+| `SUBTENSOR_ENDPOINT` | Bittensor RPC endpoint | No |
+| `RPC_PORT` | RPC API port (default: 8080) | No |
+| `P2P_PORT` | P2P port (default: 8090) | No |
 
 See [Validator Operations](docs/operations/validator.md) for hardware, configuration, and monitoring.
 

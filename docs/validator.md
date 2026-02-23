@@ -55,14 +55,36 @@ sequenceDiagram
 
 ## Quick Start
 
+### Using Docker Compose (Recommended)
+
 ```bash
 git clone https://github.com/PlatformNetwork/platform.git
 cd platform
+
+# Configure environment
 cp .env.example .env
-# Edit .env: add your VALIDATOR_SECRET_KEY (BIP39 mnemonic)
-mkdir -p data
+nano .env  # Set VALIDATOR_SECRET_KEY to your BIP39 mnemonic
+
+# Start the validator
+docker compose up -d
+
+# View logs
+docker compose logs -f validator
+
+# Check status
+docker compose ps
+```
+
+### Building from Source (Alternative)
+
+```bash
+git clone https://github.com/PlatformNetwork/platform.git
+cd platform
 cargo build --release --bin validator-node
-./target/release/validator-node --data-dir ./data --secret-key "${VALIDATOR_SECRET_KEY}"
+
+# Run with environment variable
+export VALIDATOR_SECRET_KEY="your 24 word mnemonic here"
+./target/release/validator-node
 ```
 
 ## Requirements
@@ -92,35 +114,59 @@ cargo build --release --bin validator-node
 
 ## Configuration Reference
 
-### Environment Variables
+### Environment Variables (.env file)
 
 | Variable | Description | Default | Required |
 | --- | --- | --- | --- |
-| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic or hex private key | - | Yes |
+| `VALIDATOR_SECRET_KEY` | BIP39 mnemonic (24 words) | - | **Yes** |
 | `SUBTENSOR_ENDPOINT` | Bittensor RPC endpoint | `wss://entrypoint-finney.opentensor.ai:443` | No |
 | `NETUID` | Subnet UID | `100` | No |
+| `RPC_PORT` | JSON-RPC API port | `8080` | No |
+| `P2P_PORT` | libp2p P2P port | `8090` | No |
+| `BOOTNODE_PORT` | Bootnode P2P port | `8090` | No |
+| `WITH_BOOTNODE` | Run integrated bootnode | `false` | No |
 | `RUST_LOG` | Log level (`debug`, `info`, `warn`, `error`) | `info` | No |
+| `BOOTSTRAP_PEERS` | Bootstrap peer multiaddrs (comma-separated) | Auto-discovered | No |
+
+### Example .env file
+
+```bash
+# Required: Your validator hotkey mnemonic
+VALIDATOR_SECRET_KEY=word1 word2 word3 ... word24
+
+# Optional: Override defaults
+NETUID=100
+RPC_PORT=8080
+P2P_PORT=8090
+RUST_LOG=info,validator_node=debug
+```
 
 ### Network Ports
 
 | Port | Protocol | Usage | Required |
 | --- | --- | --- | --- |
-| 9000/tcp | libp2p | P2P validator communication | Yes |
-| 8545/tcp | HTTP | JSON-RPC API | No |
+| 8090/tcp | libp2p | P2P validator communication | Yes |
+| 8080/tcp | HTTP | JSON-RPC API | No |
 
 ## Monitoring
 
 ### Check Validator Status
 
 ```bash
-# View logs (if running directly)
-tail -f ./data/validator.log
+# View logs (Docker Compose)
+docker compose logs -f validator
+
+# Check container status
+docker compose ps
+
+# View resource usage
+docker stats platform-validator
 ```
 
 ### JSON-RPC Health Check
 
 ```bash
-curl -X POST http://localhost:8545/rpc \
+curl -X POST http://localhost:8080/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"system_health","id":1}'
 ```
@@ -132,11 +178,19 @@ Expected response:
   "jsonrpc": "2.0",
   "result": {
     "peers": 5,
-    "is_synced": true,
-    "block_height": 12345
+    "isSyncing": false,
+    "shouldHaveWeights": true
   },
   "id": 1
 }
+```
+
+### List Available RPC Methods
+
+```bash
+curl -X POST http://localhost:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"rpc_methods","id":1}'
 ```
 
 ## References
