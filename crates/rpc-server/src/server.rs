@@ -286,63 +286,80 @@ async fn challenge_route_handler(
 
     trace!("Challenge route: {} {} {}", challenge_id, method, path);
 
+    // Resolve challenge_id (can be UUID or name like "bounty-challenge")
+    let (resolved_id, challenge_uuid) = {
+        let chain = handler.chain_state.read();
+
+        // Try parsing as UUID first
+        if let Ok(uuid) = uuid::Uuid::parse_str(&challenge_id) {
+            let cid = ChallengeId(uuid);
+            (challenge_id.clone(), Some(cid))
+        } else {
+            // Search by name in wasm_challenge_configs
+            let found = chain
+                .wasm_challenge_configs
+                .values()
+                .find(|c| c.name == challenge_id);
+
+            if let Some(config) = found {
+                (config.challenge_id.0.to_string(), Some(config.challenge_id))
+            } else {
+                // Also check legacy challenges by name
+                let legacy = chain.challenges.values().find(|c| c.name == challenge_id);
+                if let Some(c) = legacy {
+                    (c.id.to_string(), Some(c.id))
+                } else {
+                    (challenge_id.clone(), None)
+                }
+            }
+        }
+    };
+
     // Check if challenge has registered routes
-    // First try handler.challenge_routes, then fallback to chain_state.challenge_routes
     let challenge_routes = {
         let routes = handler.challenge_routes.read();
-        let result = routes.get(&challenge_id).cloned();
+        let result = routes.get(&resolved_id).cloned();
 
         if result.is_some() {
             result
         } else {
-            // Try to find by name in legacy challenges
+            drop(routes);
+            // Fallback: Try chain_state.challenge_routes (for WASM challenges)
             let chain = handler.chain_state.read();
-            let actual_id = chain
-                .challenges
-                .values()
-                .find(|c| c.name == challenge_id)
-                .map(|c| c.id.to_string());
-            drop(chain);
 
-            if let Some(id) = actual_id {
-                routes.get(&id).cloned()
-            } else {
-                // Fallback: Try chain_state.challenge_routes (for WASM challenges)
-                drop(routes);
-                let chain = handler.chain_state.read();
-                let challenge_uuid = uuid::Uuid::parse_str(&challenge_id).ok().map(ChallengeId);
-
-                challenge_uuid
-                    .as_ref()
-                    .and_then(|id| chain.challenge_routes.get(id))
-                    .map(|chain_routes| {
-                        use platform_challenge_sdk::HttpMethod;
-                        chain_routes
-                            .iter()
-                            .map(|r| {
-                                let method = match r.method.to_uppercase().as_str() {
-                                    "GET" => HttpMethod::Get,
-                                    "POST" => HttpMethod::Post,
-                                    "PUT" => HttpMethod::Put,
-                                    "DELETE" => HttpMethod::Delete,
-                                    "PATCH" => HttpMethod::Patch,
-                                    _ => HttpMethod::Get,
-                                };
-                                let mut route = platform_challenge_sdk::ChallengeRoute::new(
-                                    method,
-                                    r.path.clone(),
-                                    r.description.clone(),
-                                );
-                                if r.requires_auth {
-                                    route = route.with_auth();
-                                }
-                                route
-                            })
-                            .collect::<Vec<_>>()
-                    })
-            }
+            challenge_uuid
+                .as_ref()
+                .and_then(|id| chain.challenge_routes.get(id))
+                .map(|chain_routes| {
+                    use platform_challenge_sdk::HttpMethod;
+                    chain_routes
+                        .iter()
+                        .map(|r| {
+                            let method = match r.method.to_uppercase().as_str() {
+                                "GET" => HttpMethod::Get,
+                                "POST" => HttpMethod::Post,
+                                "PUT" => HttpMethod::Put,
+                                "DELETE" => HttpMethod::Delete,
+                                "PATCH" => HttpMethod::Patch,
+                                _ => HttpMethod::Get,
+                            };
+                            let mut route = platform_challenge_sdk::ChallengeRoute::new(
+                                method,
+                                r.path.clone(),
+                                r.description.clone(),
+                            );
+                            if r.requires_auth {
+                                route = route.with_auth();
+                            }
+                            route
+                        })
+                        .collect::<Vec<_>>()
+                })
         }
     };
+
+    // Use resolved_id for the rest
+    let challenge_id = resolved_id;
 
     let challenge_routes = match challenge_routes {
         Some(r) => r,

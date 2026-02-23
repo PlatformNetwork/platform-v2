@@ -1155,16 +1155,50 @@ impl RpcHandler {
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
 
+        // Resolve challenge_id (can be UUID or name like "bounty-challenge")
+        let (resolved_id, _challenge_uuid) = {
+            let chain = self.chain_state.read();
+
+            // Try parsing as UUID first
+            if let Ok(uuid) = uuid::Uuid::parse_str(&challenge_id) {
+                let cid = platform_core::ChallengeId(uuid);
+                if chain.challenge_routes.contains_key(&cid) {
+                    (challenge_id.clone(), Some(cid))
+                } else {
+                    (challenge_id.clone(), None)
+                }
+            } else {
+                // Search by name in wasm_challenge_configs
+                let found = chain
+                    .wasm_challenge_configs
+                    .values()
+                    .find(|c| c.name == challenge_id);
+
+                if let Some(config) = found {
+                    (config.challenge_id.0.to_string(), Some(config.challenge_id))
+                } else {
+                    // Also check legacy challenges by name
+                    let legacy = chain.challenges.values().find(|c| c.name == challenge_id);
+
+                    if let Some(c) = legacy {
+                        (c.id.to_string(), Some(c.id))
+                    } else {
+                        (challenge_id.clone(), None)
+                    }
+                }
+            }
+        };
+
         // Verify the challenge has registered routes
         {
             let routes = self.challenge_routes.read();
-            let has_routes = routes.contains_key(&challenge_id);
+            let has_routes = routes.contains_key(&resolved_id);
             drop(routes);
 
             if !has_routes {
                 // Check chain_state.challenge_routes for WASM challenges
                 let chain = self.chain_state.read();
-                let challenge_uuid = uuid::Uuid::parse_str(&challenge_id)
+                let challenge_uuid = uuid::Uuid::parse_str(&resolved_id)
                     .ok()
                     .map(platform_core::ChallengeId);
 
@@ -1173,10 +1207,7 @@ impl RpcHandler {
                     .map(|id| chain.challenge_routes.contains_key(id))
                     .unwrap_or(false);
 
-                // Also check legacy challenges by name
-                let found_legacy = chain.challenges.values().any(|c| c.name == challenge_id);
-
-                if !found_in_chain && !found_legacy {
+                if !found_in_chain {
                     return JsonRpcResponse::error(
                         id,
                         CHALLENGE_NOT_FOUND,
@@ -1185,6 +1216,9 @@ impl RpcHandler {
                 }
             }
         }
+
+        // Use resolved_id for the rest of the call
+        let challenge_id = resolved_id;
 
         // Parse headers for authentication
         let headers: std::collections::HashMap<String, String> = params

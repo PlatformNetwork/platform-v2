@@ -618,9 +618,11 @@ async fn main() -> Result<()> {
                     let executor = Arc::clone(&wasm_exec);
                     let chain = chain_state_for_handler.clone();
                     Box::pin(async move {
-                        // Find the WASM module path for this challenge
+                        // Find the WASM module path for this challenge (by UUID or name)
                         let module_path: Option<String> = {
                             let chain_guard = chain.read();
+
+                            // Try parsing as UUID first
                             if let Ok(uuid) = uuid::Uuid::parse_str(&challenge_id) {
                                 let cid = platform_core::ChallengeId(uuid);
                                 chain_guard
@@ -628,7 +630,12 @@ async fn main() -> Result<()> {
                                     .get(&cid)
                                     .map(|c| c.module.module_path.clone())
                             } else {
-                                None
+                                // Search by name in wasm_challenge_configs
+                                chain_guard
+                                    .wasm_challenge_configs
+                                    .values()
+                                    .find(|c| c.name == challenge_id)
+                                    .map(|c| c.module.module_path.clone())
                             }
                         };
 
