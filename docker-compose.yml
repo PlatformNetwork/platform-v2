@@ -1,56 +1,13 @@
 # =============================================================================
 # Platform Validator Configuration
 # =============================================================================
-# Fully decentralized P2P architecture
-#
 # Usage:
-#   export VALIDATOR_SECRET_KEY="your-mnemonic-or-hex-key"
+#   cp .env.example .env
+#   # Edit .env with your VALIDATOR_SECRET_KEY
 #   docker compose up -d
 # =============================================================================
 
 services:
-  # ==========================================================================
-  # Platform Bootnode - P2P Discovery Relay
-  # ==========================================================================
-  # The bootnode is the first node validators connect to for peer discovery.
-  # Its PeerId is derived from BOOTNODE_SECRET_KEY, so keep the same key
-  # to maintain a stable PeerId across restarts.
-  #
-  # To get the PeerId, start the bootnode and look for the log line:
-  #   "P2P network initialized, local peer: PeerId("12D3KooW...")"
-  #
-  # Then tell validators to bootstrap with:
-  #   --bootstrap /ip4/<BOOTNODE_IP>/tcp/8090/p2p/<PEER_ID>
-  # ==========================================================================
-  bootnode:
-    image: platform-bootnode:latest
-    container_name: platform-bootnode
-    restart: unless-stopped
-    
-    ports:
-      - "8090:8090"   # P2P libp2p port
-    
-    volumes:
-      - bootnode-data:/data
-    
-    environment:
-      - RUST_LOG=info,validator_node=debug,platform_p2p_consensus=info
-      - DATA_DIR=/data
-      - BOOTNODE_SECRET_KEY=${BOOTNODE_SECRET_KEY}
-      - SUBTENSOR_ENDPOINT=wss://entrypoint-finney.opentensor.ai:443
-      - NETUID=100
-      - P2P_PORT=8090
-    
-    healthcheck:
-      test: ["CMD-SHELL", "test -e /data/distributed.db || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    
-    networks:
-      - platform
-
   # ==========================================================================
   # Platform Validator Node
   # ==========================================================================
@@ -58,80 +15,52 @@ services:
     image: ghcr.io/platformnetwork/platform:latest
     container_name: platform-validator
     restart: unless-stopped
-    depends_on:
-      - bootnode
-    # SECURITY NOTE: Privileged mode is required for Docker-in-Docker to spawn challenge containers.
-    # This is necessary for the decentralized evaluation architecture where validators run
-    # challenge containers locally. If you don't need to run challenges, remove this line.
-    privileged: true
-    
-    # Enable Watchtower auto-update for this container only
+
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
-    
+
     ports:
-      - "8091:8090"   # P2P libp2p port (external 8091 to avoid conflict with bootnode)
-      - "8080:8080"   # Local RPC API
-    
+      - "8080:8080"   # JSON-RPC API
+      - "8090:8090"   # P2P libp2p
+
     volumes:
       - validator-data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
-    
+
     environment:
-      - RUST_LOG=info,validator_node=debug,platform_p2p_consensus=debug
+      - RUST_LOG=${RUST_LOG:-info,validator_node=debug}
       - DATA_DIR=/data
       - VALIDATOR_SECRET_KEY=${VALIDATOR_SECRET_KEY}
-      # Subtensor endpoint (Bittensor mainnet)
-      - SUBTENSOR_ENDPOINT=wss://entrypoint-finney.opentensor.ai:443
-      # Network UID for this subnet
-      - NETUID=100
-      # P2P settings
-      - P2P_LISTEN_ADDR=/ip4/0.0.0.0/tcp/8090
-      # Bootstrap to local bootnode via Docker network
-      - BOOTSTRAP_PEERS=/dns4/bootnode/tcp/8090/p2p/12D3KooWSpDLH6kBTHuHhJCmS4vZMhuTZa1T35qJYd9NgSVdzGnP
-    
+      - SUBTENSOR_ENDPOINT=${SUBTENSOR_ENDPOINT:-wss://entrypoint-finney.opentensor.ai:443}
+      - NETUID=${NETUID:-100}
+      - RPC_PORT=8080
+      - P2P_PORT=8090
+      - WITH_BOOTNODE=${WITH_BOOTNODE:-true}
+      - BOOTNODE_PORT=8090
+
     healthcheck:
-      test: ["CMD-SHELL", "test -e /data/distributed.db || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
-    
-    networks:
-      - platform
+      start_period: 60s
 
   # ==========================================================================
-  # Watchtower - Auto-update platform container only
+  # Watchtower - Auto-update validator
   # ==========================================================================
   watchtower:
-    image: nickfedor/watchtower@sha256:053e7ecba848b77eb5b966d236c2f4f2e1155e05007c9ef52418b4b7e255484b
+    image: containrrr/watchtower:latest
     container_name: platform-watchtower
     restart: unless-stopped
-    
+
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    
+
     environment:
-      # Only update containers with label "com.centurylinklabs.watchtower.enable=true"
       - WATCHTOWER_LABEL_ENABLE=true
-      # Check at :00, :05, :10, :15... (all validators sync at same time)
       - WATCHTOWER_SCHEDULE=0 */5 * * * *
-      # Remove old images after update
       - WATCHTOWER_CLEANUP=true
-      # Include stopped containers
-      - WATCHTOWER_INCLUDE_STOPPED=false
-      # Logging
       - WATCHTOWER_LOG_LEVEL=info
-    
-    networks:
-      - platform
 
 volumes:
-  bootnode-data:
-    driver: local
   validator-data:
     driver: local
-
-networks:
-  platform:
-    driver: bridge
